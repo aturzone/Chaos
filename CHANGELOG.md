@@ -29,6 +29,24 @@ knew about and nothing else did.
   files; CHAT needs a model loaded and this does not, and surprising-and-stated
   is a design where surprising-and-silent is a bug.
 
+### A draw is costed before you start it
+
+Atur chose 1024×1024 at 50 steps and was ninety minutes into a **six and a half
+hour** render before any number appeared. The size drop-down said "slow", which
+is not a quantity.
+
+The page now says *"about 6.5 hours on this machine"* beside the controls, in
+red past an hour, updating as the selection changes. Measured here — 1024×1024
+is 4096 latent tokens at 235 s a pass — and **guidance is counted**: it runs the
+denoiser twice per step, which is the difference between over-lunch and
+overnight.
+
+| | 4 steps | 20 steps | 50 steps |
+|---|---|---|---|
+| 256×256 | 2m | 10m | 25m |
+| 512×512 | 8m | 39m | 1.6h |
+| 1024×1024 | 32m | 2.6h | **6.5h** |
+
 ### A crash that is not a panic now leaves a note
 
 A Rust panic writes `chaos-app-crash.log` and shows a box. An access violation

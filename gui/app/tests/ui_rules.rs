@@ -1063,3 +1063,30 @@ fn a_hardware_fault_is_recorded_too() {
         "the handler swallows the fault, trading one silent death for another"
     );
 }
+
+/// The page says how long a draw will take before it is started.
+///
+/// Atur chose 1024x1024 at 50 steps and was ninety minutes into a **six and a
+/// half hour** render before any number appeared anywhere. The size drop-down
+/// said "slow", which is not a quantity.
+#[test]
+fn a_draw_is_costed_before_it_is_started() {
+    let src = main_rs();
+    assert!(
+        src.contains("fn draw_estimate("),
+        "nothing estimates how long a draw will take"
+    );
+    let i = src.find("fn draw_seconds(").expect("no draw_seconds");
+    let body = &src[i..(i + 900).min(src.len())];
+    // **Guidance doubles it**, and leaving that out is the difference between
+    // "over lunch" and "overnight".
+    assert!(
+        body.contains("2.0 * f64::from(steps)"),
+        "the estimate ignores that guidance runs the denoiser twice per step"
+    );
+    // And it is shown, not merely computed.
+    assert!(
+        src.contains("draw_estimate(grid, steps)"),
+        "the estimate is never drawn on the page"
+    );
+}

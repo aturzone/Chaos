@@ -3370,6 +3370,35 @@ Any value a client sends is accepted.                      The server still list
         label(hdc, x, y, 150, "SIZE", ui.fonts.small, t.fg_tertiary);
         label(hdc, x + 170, y, 150, "STEPS", ui.fonts.small, t.fg_tertiary);
 
+        // **How long this will take, before the button is pressed.** Atur was
+        // ninety minutes into a six-hour render before any number appeared;
+        // the drop-down said "slow", which is not a quantity. Read from the
+        // controls rather than from stored state, so it follows the selection
+        // as it changes.
+        let grid = unsafe { SendMessageW(sel_of(nav::ID_IMG_SIZE), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| SIZES.get(i))
+            .map(|(_, g)| *g)
+            .unwrap_or(32);
+        let steps = unsafe { SendMessageW(sel_of(nav::ID_IMG_STEPS), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| STEPS.get(i))
+            .copied()
+            .unwrap_or(20);
+        let est = draw_estimate(grid, steps);
+        let long = draw_seconds(grid, steps) > 3600.0;
+        label(
+            hdc,
+            x + 340,
+            y + 20,
+            w - 340 - 260,
+            &est,
+            ui.fonts.body_bold,
+            if long { t.red } else { t.fg_secondary },
+        );
+
         // **The honest sentence, on the page, before the button is pressed.**
         // A 1024x1024 picture is minutes of work on this machine and the models
         // are 16.7 GB; finding that out after clicking is the version of this
@@ -4372,6 +4401,42 @@ Any value a client sends is accepted.                      The server still list
         ("1024 x 1024 -- photorealistic, and slow", 64),
     ];
     const STEPS: [u32; 5] = [4, 8, 20, 30, 50];
+
+    /// Seconds per denoiser pass, per latent token, measured on this machine.
+    ///
+    /// From a real run: 1024x1024 is a 64x64 grid, so 4096 tokens, and one pass
+    /// took 235 s. That is 0.0574 s per token per pass. The whole render of
+    /// 1024x1024 at two steps with guidance off took 519 s, which this model
+    /// puts at 2 x 235 + overhead -- close enough for a warning, nowhere near
+    /// good enough to quote as a benchmark.
+    const SECONDS_PER_TOKEN_PASS: f64 = 235.0 / 4096.0;
+
+    /// Roughly how long a draw of this shape will take, in seconds.
+    ///
+    /// **Guidance doubles it.** Classifier-free guidance runs the denoiser
+    /// twice per step -- once conditioned, once not -- and `chaos-draw`'s
+    /// default is guidance on. That factor of two is the difference between
+    /// "over lunch" and "overnight", so it is not left out of the arithmetic.
+    fn draw_seconds(grid: u32, steps: u32) -> f64 {
+        let tokens = f64::from(grid) * f64::from(grid);
+        let per_pass = tokens * SECONDS_PER_TOKEN_PASS;
+        // Two passes a step, plus encoding the prompt and decoding the latent;
+        // the decode scales with the image, not the step count.
+        2.0 * f64::from(steps) * per_pass + 5.0 + tokens * 0.012
+    }
+
+    /// The estimate as a person would say it, deliberately coarse.
+    fn draw_estimate(grid: u32, steps: u32) -> String {
+        let secs = draw_seconds(grid, steps);
+        let rough = if secs < 90.0 {
+            format!("{:.0} seconds", secs)
+        } else if secs < 5400.0 {
+            format!("{:.0} minutes", secs / 60.0)
+        } else {
+            format!("{:.1} hours", secs / 3600.0)
+        };
+        format!("about {rough} on this machine")
+    }
 
     /// Put the two drop-downs' options in, and cache them where the painter
     /// looks.

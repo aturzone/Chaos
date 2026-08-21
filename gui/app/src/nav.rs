@@ -72,7 +72,13 @@ impl Page {
         match self {
             Page::Chat => "Talk to the running model, or point a coding agent at its endpoint.",
             Page::Models => "What is on this machine, and what Chaos can fetch.",
-            Page::Image => "A prompt, and a picture. This is slow and says how slow.",
+            // **Says that it does not use the loaded model.** Atur: "now i run
+            // to draw a image without select any model!! wtf is that lol". He
+            // is right that it is surprising: CHAT needs a model loaded and
+            // this does not, because `chaos-draw` opens its own four files and
+            // closes them again. Surprising and undocumented is a bug;
+            // surprising and stated is a design.
+            Page::Image => "Draws with its own four models -- nothing needs to be loaded first.",
             Page::Monitor => "What the machine is doing while a model runs.",
             Page::Settings => "Every setting Chaos keeps. Empty means measured.",
         }

@@ -88,6 +88,10 @@ mod windows_app {
         drawn: Option<String>,
         /// Set when `chaos-draw` exits, whether it worked or not.
         draw_done: bool,
+        /// What the draw is doing, for the strip and MONITOR -- which knew
+        /// nothing about it and so reported an idle machine while it read
+        /// gigabytes per step.
+        draw: Option<Drawing>,
         /// A message box the UI thread must put up: its text, and whether it is
         /// good news.
         ///
@@ -138,6 +142,45 @@ mod windows_app {
     /// The id of our icon within this window. Any number; it only has to be
     /// stable between `NIM_ADD` and `NIM_DELETE`.
     const TRAY_ID: u32 = 1;
+
+    /// A draw in flight, as everything outside the IMAGE page needs to see it.
+    #[derive(Clone, Default)]
+    struct Drawing {
+        /// The prompt, shortened for a one-line summary.
+        prompt: String,
+        /// `1024x1024`, say.
+        size: String,
+        /// Steps done and steps asked for. `None` until the first step lands,
+        /// because the prompt has to be encoded first and that is not a step.
+        step: Option<(u32, u32)>,
+        /// What phase it is in, in words: encoding, denoising, decoding.
+        phase: String,
+        started: Option<Instant>,
+    }
+
+    impl Drawing {
+        /// 0..=100, or `None` while there is nothing honest to show.
+        ///
+        /// **Encoding and decoding are not free and are not steps**, so the bar
+        /// covers the denoising and stops short of the ends rather than
+        /// pretending the last stretch is instant.
+        fn percent(&self) -> Option<u32> {
+            let (done, total) = self.step?;
+            if total == 0 {
+                return None;
+            }
+            Some((5 + done * 90 / total).min(95))
+        }
+
+        fn line(&self) -> String {
+            match self.step {
+                Some((done, total)) => {
+                    format!("drawing {} -- step {done} of {total}", self.size)
+                }
+                None => format!("drawing {} -- {}", self.size, self.phase),
+            }
+        }
+    }
 
     /// Which set of models the MODELS page lists.
     #[derive(PartialEq, Clone, Copy)]
@@ -286,7 +329,46 @@ mod windows_app {
     /// attached that means no message, no log and nothing to report. The hook
     /// runs *before* the abort, so it still gets to write the file and put a
     /// box on screen naming it.
+    /// Catch the crashes the panic hook never sees.
+    ///
+    /// **A Rust panic writes `chaos-app-crash.log` and shows a box. An access
+    /// violation does neither** -- it is not a panic, no Rust code runs, and
+    /// the process simply disappears. Atur reported a crash and there was no
+    /// log at all, which is exactly what that looks like from outside.
+    ///
+    /// This writes the same log for a hardware fault: which fault, and the
+    /// address. Then it returns `EXCEPTION_CONTINUE_SEARCH` so Windows Error
+    /// Reporting and any attached debugger still get their turn -- swallowing
+    /// the fault would trade one silent death for another.
+    unsafe extern "system" fn on_hardware_fault(info: *mut EXCEPTION_POINTERS) -> i32 {
+        if !info.is_null() {
+            let rec = (*info).ExceptionRecord;
+            if !rec.is_null() {
+                let code = (*rec).ExceptionCode;
+                let at = (*rec).ExceptionAddress as usize;
+                let name = match code {
+                    EXCEPTION_ACCESS_VIOLATION => "access violation (a bad pointer)",
+                    EXCEPTION_STACK_OVERFLOW => "stack overflow",
+                    EXCEPTION_ILLEGAL_INSTRUCTION => "illegal instruction",
+                    _ => "hardware fault",
+                };
+                let text = format!(
+                    "Chaos crashed.\n\n{name}\ncode 0x{code:08X} at 0x{at:016X}\n\n\
+                     This is not a Rust panic, so there is no source line. The \
+                     address and code are what a bug report needs.\n"
+                );
+                let path = std::env::temp_dir().join("chaos-app-crash.log");
+                let _ = std::fs::write(&path, &text);
+            }
+        }
+        EXCEPTION_CONTINUE_SEARCH
+    }
+
     pub fn install_panic_hook() {
+        // Before the hook: a fault during start-up is still a fault.
+        unsafe {
+            SetUnhandledExceptionFilter(Some(on_hardware_fault));
+        }
         std::panic::set_hook(Box::new(|info| {
             let where_ = info
                 .location()
@@ -2936,12 +3018,28 @@ Any value a client sends is accepted.                      The server still list
                     },
                     t.stroke_1,
                 );
+                // **"No model running" was a lie while an image was being
+                // drawn.** The strip only knew about the chat server, so it
+                // reported an idle machine through ten minutes of a child
+                // process reading 5.26 GiB a step. It is the one thing on every
+                // page; it has to know about every kind of work.
+                let drawing = shared().lock().unwrap().draw.clone();
+                let (headline, under) = match &drawing {
+                    Some(d) => (
+                        d.line(),
+                        format!("chaos-draw -- {:?}", short(&d.prompt, 48)),
+                    ),
+                    None => (
+                        "no model running".to_string(),
+                        "Open MODELS, pick one, and press LOAD.".to_string(),
+                    ),
+                };
                 label(
                     hdc,
                     x + 16,
                     y + 1,
                     420,
-                    "no model running",
+                    &headline,
                     ui.fonts.body_bold,
                     t.fg_secondary,
                 );
@@ -2950,10 +3048,29 @@ Any value a client sends is accepted.                      The server still list
                     x + 16,
                     y + 21,
                     520,
-                    "Open MODELS, pick one, and press LOAD.",
+                    &under,
                     ui.fonts.small,
                     t.fg_tertiary,
                 );
+                // A bar in the strip too, so the progress is visible from
+                // whichever page you happen to be on.
+                if let Some(pct) = drawing.as_ref().and_then(|d| d.percent()) {
+                    let bar = RECT {
+                        left: x + 16,
+                        top: y + 38,
+                        right: x + 316,
+                        bottom: y + 42,
+                    };
+                    fill(hdc, bar, t.stroke_3);
+                    fill(
+                        hdc,
+                        RECT {
+                            right: bar.left + (300 * pct as i32) / 100,
+                            ..bar
+                        },
+                        t.accent,
+                    );
+                }
                 if !status.is_empty() {
                     text(
                         hdc,
@@ -3215,6 +3332,39 @@ Any value a client sends is accepted.                      The server still list
         let w = page.right - x - metric::INSET;
         let top = content_top(page);
 
+        // **A bar, because a log is not progress.** Atur: "the progress of
+        // image creation is type logs not a bar progress". The log stays --
+        // it carries the seconds per step and the time left, which a bar
+        // cannot -- but the bar is what answers "how far along is this".
+        if let Some(d) = shared().lock().unwrap().draw.clone() {
+            let bar = RECT {
+                left: x,
+                top: page.bottom - metric::BUTTON - 30,
+                right: x + w,
+                bottom: page.bottom - metric::BUTTON - 22,
+            };
+            fill(hdc, bar, t.stroke_3);
+            if let Some(pct) = d.percent() {
+                fill(
+                    hdc,
+                    RECT {
+                        right: bar.left + ((bar.right - bar.left) * pct as i32) / 100,
+                        ..bar
+                    },
+                    t.accent,
+                );
+            }
+            label(
+                hdc,
+                x,
+                bar.bottom + 4,
+                w,
+                &d.line(),
+                ui.fonts.small,
+                t.fg_secondary,
+            );
+        }
+
         label(hdc, x, top, w, "PROMPT", ui.fonts.small, t.fg_tertiary);
         let y = top + 22 + 64 + 6;
         label(hdc, x, y, 150, "SIZE", ui.fonts.small, t.fg_tertiary);
@@ -3314,6 +3464,35 @@ Any value a client sends is accepted.                      The server still list
         y += 32;
         rule(hdc, x, x + w, y, t.stroke_3);
         y += 20;
+
+        // **A draw is work this machine is doing**, and MONITOR exists to say
+        // what the machine is doing. It showed an idle box.
+        if let Some(d) = shared().lock().unwrap().draw.clone() {
+            label(hdc, x, y, w, "DRAWING", ui.fonts.small, t.fg_tertiary);
+            y += 24;
+            let elapsed = d
+                .started
+                .map(|t0| format!("{:.0}s", t0.elapsed().as_secs_f32()))
+                .unwrap_or_else(|| "-".into());
+            for (k, v) in [
+                ("prompt", short(&d.prompt, 60)),
+                ("size", d.size.clone()),
+                ("phase", d.phase.clone()),
+                (
+                    "step",
+                    match d.step {
+                        Some((a, b)) => format!("{a} of {b}"),
+                        None => "-".into(),
+                    },
+                ),
+                ("elapsed", elapsed),
+            ] {
+                label(hdc, x, y + 1, 160, k, ui.fonts.small, t.fg_tertiary);
+                label(hdc, x + 166, y, w - 166, &v, ui.fonts.mono, t.fg);
+                y += 24;
+            }
+            y += 20;
+        }
 
         label(hdc, x, y, w, "GENERATION", ui.fonts.small, t.fg_tertiary);
         y += 24;
@@ -3977,6 +4156,18 @@ Any value a client sends is accepted.                      The server still list
         );
     }
 
+    /// A prompt cut to fit a line, with an ellipsis if it was cut.
+    fn short(text: &str, n: usize) -> String {
+        let t = text.trim();
+        if t.chars().count() <= n {
+            return t.to_string();
+        }
+        // By characters, not bytes: a byte slice through a multi-byte prompt
+        // panics, and prompts are the one thing here a user writes freely.
+        let cut: String = t.chars().take(n.saturating_sub(1)).collect();
+        format!("{cut}\u{2026}")
+    }
+
     /// One row of the model list.
     unsafe fn draw_list_row(
         di: &DRAWITEMSTRUCT,
@@ -4332,6 +4523,13 @@ Any value a client sends is accepted.                      The server still list
             sh.drawing.clear();
             sh.draw_done = false;
             sh.drawn = Some(file.to_string_lossy().into_owned());
+            sh.draw = Some(Drawing {
+                prompt: prompt.clone(),
+                size: format!("{0}x{0}", grid * 16),
+                step: None,
+                phase: "starting".into(),
+                started: Some(Instant::now()),
+            });
         }
         unsafe {
             SetWindowTextW(ctl(nav::ID_IMG_LOG), wide("").as_ptr());
@@ -4404,6 +4602,43 @@ Any value a client sends is accepted.                      The server still list
         }
     }
 
+    /// Read the phase and the step out of what `chaos-draw` printed.
+    ///
+    /// It prints `[1/3] encoding the prompt`, `[2/3] denoising`,
+    /// `[3/3] decoding to pixels`, and `step 7/20  29s/step  about 380s left`.
+    /// Those are the words a person reads in the log, so they are also what the
+    /// bar and the strip are built from -- one source of truth rather than two.
+    fn update_drawing_from(text: &str) {
+        let mut sh = shared().lock().unwrap();
+        let Some(d) = sh.draw.as_mut() else { return };
+        for line in text.split(['\n', '\r']) {
+            let t = line.trim();
+            if let Some(rest) = t.strip_prefix("[1/3]") {
+                d.phase = rest.trim().to_string();
+            } else if t.starts_with("[2/3]") {
+                d.phase = "denoising".into();
+            } else if t.starts_with("[3/3]") {
+                d.phase = "decoding to pixels".into();
+                // The steps are finished; hold the bar near the end rather
+                // than dropping it to nothing for the final stretch.
+                if let Some((_, total)) = d.step {
+                    d.step = Some((total, total));
+                }
+            } else if let Some(rest) = t.strip_prefix("step ") {
+                if let Some((a, b)) = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|f| f.split_once('/'))
+                {
+                    if let (Ok(done), Ok(total)) = (a.parse::<u32>(), b.parse::<u32>()) {
+                        d.step = Some((done, total));
+                        d.phase = "denoising".into();
+                    }
+                }
+            }
+        }
+    }
+
     /// Move whatever the child printed into the log, and notice when it ends.
     fn drain_drawing() {
         let text = {
@@ -4411,6 +4646,11 @@ Any value a client sends is accepted.                      The server still list
             std::mem::take(&mut sh.drawing)
         };
         if !text.is_empty() {
+            // **Parsed as well as shown.** `chaos-draw` already prints exactly
+            // what a progress bar needs -- "step 3/20" and the phase headings --
+            // and re-deriving that in the window would be a second source of
+            // truth, free to drift from the one the user is reading.
+            update_drawing_from(&text);
             // `chaos-draw` redraws its progress line with a carriage return;
             // an EDIT has no cursor to move, so each update becomes its own
             // line rather than a wall of them overwriting nothing.
@@ -4430,7 +4670,11 @@ Any value a client sends is accepted.                      The server still list
             }
         };
         if let Some(ok) = finished {
-            shared().lock().unwrap().draw_done = true;
+            {
+                let mut sh = shared().lock().unwrap();
+                sh.draw_done = true;
+                sh.draw = None;
+            }
             if ok {
                 image_log("\r\n-- finished. Press OPEN THE PICTURE. --\r\n");
                 set_status("the picture is ready");

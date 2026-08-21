@@ -8,6 +8,36 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+### The window says what it is doing
+
+Atur, watching an image render: *"now no model is load in app but image is in
+creation lol wtf is that also the progress of image creation is type logs not a
+bar progress and monitor do not show anything while i run a image creation"*.
+
+Three symptoms, one omission: `chaos-draw` was a child process the IMAGE page
+knew about and nothing else did.
+
+- **The strip reported "no model running"** through ten minutes of a process
+  reading 5.26 GiB per step. It is the one surface on every page; it now names
+  the draw, the size and the step, with a bar.
+- **A progress bar**, on the page and in the strip. The log stays — it carries
+  the seconds per step and the time left, which a bar cannot — but a bar is what
+  answers *how far along is this*. It reads the step out of what `chaos-draw`
+  already prints, so there is one source of truth rather than two.
+- **MONITOR has a DRAWING section**: prompt, size, phase, step, elapsed.
+- **The IMAGE page says it needs no loaded model.** Drawing opens its own four
+  files; CHAT needs a model loaded and this does not, and surprising-and-stated
+  is a design where surprising-and-silent is a bug.
+
+### A crash that is not a panic now leaves a note
+
+A Rust panic writes `chaos-app-crash.log` and shows a box. An access violation
+does neither — no Rust code runs and the process simply disappears, which is
+what "it crashed and there was nothing" looks like from outside. Chaos now
+records the fault code and address, then lets Windows Error Reporting have its
+turn rather than swallowing it.
+
+
 ## [0.0.15] — 2026-08-21
 
 ### The uninstall button asks first

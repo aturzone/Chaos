@@ -8,6 +8,39 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+### Every generated image was upside down
+
+Atur's 1024x1024 render — fifty steps, six and a half hours — came out a
+coherent, photorealistic portrait, **inverted**. One vertical flip in an image
+viewer turns it into a normal photograph.
+
+**Ideogram 4's vertical axis runs bottom-up.** Latent row 0 is the *bottom* of
+the picture and takes the highest mRoPE `y`; Chaos numbered it top-down.
+
+Every internal check passed while this was wrong. `try-orientation` was written
+to catch exactly this and proved the autoencoder does not flip in either
+direction; the token layout matched the position table. All true, all
+consistent, and all blind to the one path that matters — **a latent from the
+denoiser never passes through the encoder**, so the mismatch cancels in every
+test that starts from a real image and in none that starts from noise.
+
+Settled by measurement rather than argument, on a real photograph at four noise
+levels. Bottom-up wins **twelve of twelve**:
+
+| σ | cos(v) top-down | bottom-up | cos(−L) top-down | bottom-up |
+|---|---|---|---|---|
+| 0.90 | 0.7920 | **0.8130** | 0.1974 | **0.2357** |
+| 0.70 | 0.7729 | **0.8095** | 0.3285 | **0.3759** |
+| 0.50 | 0.7086 | **0.7822** | 0.3346 | **0.4251** |
+| 0.30 | 0.6067 | **0.7087** | 0.3522 | **0.4383** |
+
+`cos(−L)` is whether the model can see the image at all: up 24% at low noise.
+`x0` error falls on every row. `CHAOS_TOPDOWN_Y=1` repeats the comparison.
+
+This changes nothing about prompt adherence — colour and scene follow, an
+object's form may still not. It changes which way up the result is.
+
+
 ### The window says what it is doing
 
 Atur, watching an image render: *"now no model is load in app but image is in

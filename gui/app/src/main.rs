@@ -905,7 +905,12 @@ mod windows_app {
                 hinst,
             );
         }
-        for id in [nav::ID_IMG_MODEL, nav::ID_IMG_SIZE, nav::ID_IMG_STEPS] {
+        for id in [
+            nav::ID_IMG_MODEL,
+            nav::ID_IMG_SIZE,
+            nav::ID_IMG_STEPS,
+            nav::ID_IMG_CFG,
+        ] {
             child(
                 hwnd,
                 "COMBOBOX",
@@ -3533,6 +3538,7 @@ Any value a client sends is accepted.                      The server still list
         let y = my + metric::CONTROL + 26;
         label(hdc, x, y, 150, "SIZE", ui.fonts.small, t.fg_tertiary);
         label(hdc, x + 170, y, 150, "STEPS", ui.fonts.small, t.fg_tertiary);
+        label(hdc, x + 340, y, 210, "GUIDANCE", ui.fonts.small, t.fg_tertiary);
 
         // **How long this will take, before the button is pressed.** Atur was
         // ninety minutes into a six-hour render before any number appeared;
@@ -3551,13 +3557,21 @@ Any value a client sends is accepted.                      The server still list
             .and_then(|i: usize| STEPS.get(i))
             .copied()
             .unwrap_or(20);
-        let est = draw_estimate(grid, steps);
-        let long = draw_seconds(grid, steps) > 3600.0;
+        // **Guidance doubles the work**, so an estimate that ignored it was
+        // wrong by a factor of two on the one control that changes the answer.
+        let cfg = unsafe { SendMessageW(sel_of(nav::ID_IMG_CFG), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| GUIDANCE.get(i))
+            .map(|(_, v)| *v)
+            .unwrap_or(4.0);
+        let est = draw_estimate(grid, steps, cfg);
+        let long = draw_seconds(grid, steps, cfg) > 3600.0;
         label(
             hdc,
-            x + 340,
+            x + 560,
             y + 20,
-            w - 340 - 260,
+            w - 560 - 260,
             &est,
             ui.fonts.body_bold,
             if long { t.red } else { t.fg_secondary },
@@ -3939,6 +3953,13 @@ Any value a client sends is accepted.                      The server still list
                         y,
                         cw,
                         metric::CONTROL + metric::COMBO_ROW * 5,
+                    ));
+                    m.push((
+                        nav::ID_IMG_CFG,
+                        x + (cw + 20) * 2,
+                        y,
+                        cw + 60,
+                        metric::CONTROL + metric::COMBO_ROW * 4,
                     ));
                     m.push((nav::ID_IMG_DRAW, x + w - 250, y, 120, metric::BUTTON));
                     m.push((nav::ID_IMG_STOP, x + w - 120, y, 120, metric::BUTTON));
@@ -4612,17 +4633,22 @@ Any value a client sends is accepted.                      The server still list
     /// twice per step -- once conditioned, once not -- and `chaos-draw`'s
     /// default is guidance on. That factor of two is the difference between
     /// "over lunch" and "overnight", so it is not left out of the arithmetic.
-    fn draw_seconds(grid: u32, steps: u32) -> f64 {
+    fn draw_seconds(grid: u32, steps: u32, cfg: f32) -> f64 {
         let tokens = f64::from(grid) * f64::from(grid);
         let per_pass = tokens * SECONDS_PER_TOKEN_PASS;
-        // Two passes a step, plus encoding the prompt and decoding the latent;
-        // the decode scales with the image, not the step count.
-        2.0 * f64::from(steps) * per_pass + 5.0 + tokens * 0.012
+        // **One pass a step, or two with guidance.** Guidance runs a second,
+        // separately trained denoiser on every step -- another 5.26 GiB read --
+        // so it is exactly a factor of two, and an estimate that assumed it was
+        // always on was wrong by that factor whenever it was not.
+        let passes = if cfg == 1.0 { 1.0 } else { 2.0 };
+        // Plus encoding the prompt and decoding the latent; the decode scales
+        // with the image, not the step count.
+        passes * f64::from(steps) * per_pass + 5.0 + tokens * 0.012
     }
 
     /// The estimate as a person would say it, deliberately coarse.
-    fn draw_estimate(grid: u32, steps: u32) -> String {
-        let secs = draw_seconds(grid, steps);
+    fn draw_estimate(grid: u32, steps: u32, cfg: f32) -> String {
+        let secs = draw_seconds(grid, steps, cfg);
         let rough = if secs < 90.0 {
             format!("{:.0} seconds", secs)
         } else if secs < 5400.0 {
@@ -4632,6 +4658,18 @@ Any value a client sends is accepted.                      The server still list
         };
         format!("about {rough} on this machine")
     }
+
+    /// Guidance settings, as a user would describe them rather than as a float.
+    ///
+    /// **Guidance runs the denoiser a second time on every step**, so this is
+    /// the only control on the page that halves or doubles the wait. Naming the
+    /// cost in the label is the point: "4" says nothing about an evening.
+    const GUIDANCE: [(&str, f32); 4] = [
+        ("guidance 4 (default)", 4.0),
+        ("guidance 2 (looser)", 2.0),
+        ("guidance 6 (stricter)", 6.0),
+        ("no guidance -- half the time", 1.0),
+    ];
 
     /// Put the two drop-downs' options in, and cache them where the painter
     /// looks.
@@ -4655,6 +4693,14 @@ Any value a client sends is accepted.                      The server still list
             .map(|n| Choice {
                 value: n.to_string(),
                 label: format!("{n} steps"),
+                note: String::new(),
+            })
+            .collect();
+        let guidance: Vec<Choice> = GUIDANCE
+            .iter()
+            .map(|(label, v)| Choice {
+                value: v.to_string(),
+                label: (*label).to_string(),
                 note: String::new(),
             })
             .collect();
@@ -4737,6 +4783,7 @@ Any value a client sends is accepted.                      The server still list
             // 512: large enough not to be a smear, small enough to finish.
             (nav::ID_IMG_SIZE, sizes, 1usize),
             (nav::ID_IMG_STEPS, steps, 2usize),
+            (nav::ID_IMG_CFG, guidance, 0usize),
         ] {
             let h = ctl(id);
             if h.is_null() {
@@ -4804,6 +4851,12 @@ Any value a client sends is accepted.                      The server still list
             .and_then(|i: usize| STEPS.get(i))
             .copied()
             .unwrap_or(20);
+        let cfg = unsafe { SendMessageW(ctl(nav::ID_IMG_CFG), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| GUIDANCE.get(i))
+            .map(|(_, v)| *v)
+            .unwrap_or(4.0);
 
         // **Which model, and refuse to start without one.** Atur: *"now i run
         // to draw a image without select any model!! wtf is that lol"* -- the
@@ -4878,8 +4931,16 @@ Any value a client sends is accepted.                      The server still list
             .arg(grid.to_string())
             .arg("--steps")
             .arg(steps.to_string())
+            .arg("--cfg")
+            .arg(cfg.to_string())
             .arg("--seed")
             .arg(seed.to_string())
+            // **Always.** The latent is a few megabytes and it is the
+            // expensive half of the work; a 1024x1024 draw is hours of
+            // denoising and under a second to decode again from this. Six
+            // hours of it was thrown away once because only the PNG was kept.
+            .arg("--keep-latent")
+            .arg(file.with_extension("latent"))
             .arg("-o")
             .arg(&file)
             .stdout(std::process::Stdio::piped())

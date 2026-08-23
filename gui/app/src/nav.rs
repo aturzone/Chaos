@@ -170,6 +170,8 @@ pub const ID_IMG_LOG: i32 = 707;
 /// unconditional twin, a text encoder and an autoencoder, and this offers the
 /// groups. Atur: *"why image generator do not have select model options??"*
 pub const ID_IMG_MODEL: i32 = 708;
+/// Guidance. Off halves the work, because guidance runs the denoiser twice.
+pub const ID_IMG_CFG: i32 = 709;
 
 // The shell: 400. Present on every page.
 pub const ID_NAV_CHAT: i32 = 401;
@@ -272,6 +274,7 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_IMG_OPEN,
             ID_IMG_LOG,
             ID_IMG_MODEL,
+            ID_IMG_CFG,
         ],
         // Painted entirely. Every number on it is read from the machine each
         // tick, so a static control would be a second place to keep in step.

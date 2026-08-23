@@ -48,6 +48,14 @@ pub struct Request {
     pub cfg: f32,
     pub seed: u64,
     pub threads: usize,
+    /// Where to keep the finished latent, if anywhere.
+    ///
+    /// **Six hours of correct denoising was thrown away once**, because the PNG
+    /// was written and the latent it came from was dropped. A latent is a few
+    /// megabytes; keeping it means re-decoding is seconds rather than a night,
+    /// and every question about the autoencoder can be asked again without
+    /// asking the denoiser anything.
+    pub keep_latent: Option<std::path::PathBuf>,
 }
 
 impl Default for Request {
@@ -59,6 +67,7 @@ impl Default for Request {
             cfg: 4.0,
             seed: 42,
             threads: 4,
+            keep_latent: None,
         }
     }
 }
@@ -419,6 +428,12 @@ pub fn generate(paths: &Paths, req: &Request, on: &mut dyn FnMut(Stage)) -> Resu
         c.patch as usize,
     );
     let lw = req.grid * c.patch;
+    if let Some(path) = req.keep_latent.as_ref() {
+        // Before the decode, not after: if the autoencoder is what fails, the
+        // expensive half is already safe on disk.
+        save_latent(path, &latent, lw, lw, c.ae_channels)
+            .map_err(|e| Error::Model(format!("{}: {e}", path.display())))?;
+    }
     let pixels = decode_latent(&paths.autoencoder, &latent, lw, lw, req.threads)?;
     let side = (lw as usize) * vae::SCALE;
     Ok(Image {
@@ -426,6 +441,69 @@ pub fn generate(paths: &Paths, req: &Request, on: &mut dyn FnMut(Stage)) -> Resu
         width: side,
         height: side,
     })
+}
+
+/// A saved latent: `CHAOSLAT`, a version, its shape, then `f32` little-endian.
+///
+/// **Its own tiny format, because the alternatives are worse.** A `.npy` needs
+/// a header dialect nothing here parses; safetensors would work and is already
+/// implemented, but it is a read-only parser and writing one is more code than
+/// this whole function. Sixteen bytes of header and the samples is enough to
+/// re-decode, and enough to refuse a file that is not one.
+const LATENT_MAGIC: &[u8; 8] = b"CHAOSLAT";
+
+pub fn save_latent(
+    path: &std::path::Path,
+    latent: &[f32],
+    w: i64,
+    h: i64,
+    channels: i64,
+) -> std::io::Result<()> {
+    let mut out = Vec::with_capacity(24 + latent.len() * 4);
+    out.extend_from_slice(LATENT_MAGIC);
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&(w as u32).to_le_bytes());
+    out.extend_from_slice(&(h as u32).to_le_bytes());
+    out.extend_from_slice(&(channels as u32).to_le_bytes());
+    for v in latent {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    std::fs::write(path, out)
+}
+
+/// A latent written by [`save_latent`], as `(samples, w, h, channels)`.
+pub fn load_latent(path: &std::path::Path) -> Result<(Vec<f32>, i64, i64, i64), Error> {
+    let bytes =
+        std::fs::read(path).map_err(|e| Error::Model(format!("{}: {e}", path.display())))?;
+    if bytes.len() < 20 || &bytes[..8] != LATENT_MAGIC {
+        return Err(Error::Model(format!(
+            "{}: not a Chaos latent",
+            path.display()
+        )));
+    }
+    let word = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+    let version = word(8);
+    if version != 1 {
+        return Err(Error::Model(format!(
+            "{}: latent version {version}, this build reads 1",
+            path.display()
+        )));
+    }
+    let (w, h, ch) = (word(12), word(16), word(20));
+    let want = (w as usize) * (h as usize) * (ch as usize);
+    let body = &bytes[24..];
+    if body.len() != want * 4 {
+        return Err(Error::Model(format!(
+            "{}: header says {w}x{h}x{ch} = {want} samples, file holds {}",
+            path.display(),
+            body.len() / 4
+        )));
+    }
+    let samples = body
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    Ok((samples, w as i64, h as i64, ch as i64))
 }
 
 /// The autoencoder's decoder over one latent.
@@ -448,6 +526,54 @@ pub fn decode_latent(
 
 #[cfg(test)]
 mod tests {
+    /// A kept latent must come back exactly, or it is not worth keeping.
+    ///
+    /// Proven end to end as well, on the real pipeline: a 128x128 draw with
+    /// `--keep-latent` and then `--from-latent` produced a **byte-identical
+    /// PNG** in 0.7 s against the 21 s the draw took. At 1024x1024 that is
+    /// seconds against hours, which is the whole point -- six hours of correct
+    /// denoising was thrown away once because only the PNG was written.
+    #[test]
+    fn a_latent_survives_the_round_trip() {
+        let dir = std::env::temp_dir().join("chaos-latent-roundtrip");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("x.latent");
+
+        let want: Vec<f32> = (0..2 * 3 * 4).map(|i| i as f32 * 0.25 - 3.0).collect();
+        super::save_latent(&path, &want, 2, 3, 4).unwrap();
+        let (got, w, h, ch) = super::load_latent(&path).unwrap();
+        assert_eq!((w, h, ch), (2, 3, 4));
+        assert_eq!(got, want, "every sample, bit for bit");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A file that is not a latent must say so**, rather than being read as
+    /// one and decoded into noise -- which looks like a broken autoencoder and
+    /// would be debugged as one.
+    #[test]
+    fn something_that_is_not_a_latent_is_refused() {
+        let dir = std::env::temp_dir().join("chaos-latent-refuse");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let junk = dir.join("junk.latent");
+        std::fs::write(&junk, b"this is not a latent at all").unwrap();
+        assert!(super::load_latent(&junk).is_err());
+
+        // Right magic, wrong length: a truncated write must not be read as a
+        // shorter image.
+        let short = dir.join("short.latent");
+        super::save_latent(&short, &[1.0, 2.0, 3.0, 4.0], 2, 2, 1).unwrap();
+        let mut bytes = std::fs::read(&short).unwrap();
+        bytes.truncate(bytes.len() - 4);
+        std::fs::write(&short, &bytes).unwrap();
+        let err = super::load_latent(&short).unwrap_err();
+        assert!(format!("{err}").contains("samples"), "{err}");
+
+        assert!(super::load_latent(&dir.join("no-such-file")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     /// The three scale factors have to compose: 8x autoencoder, 2x patch.

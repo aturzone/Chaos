@@ -1077,16 +1077,33 @@ fn a_draw_is_costed_before_it_is_started() {
         "nothing estimates how long a draw will take"
     );
     let i = src.find("fn draw_seconds(").expect("no draw_seconds");
-    let body = &src[i..(i + 900).min(src.len())];
+    let body = &src[i..(i + 1200).min(src.len())];
     // **Guidance doubles it**, and leaving that out is the difference between
-    // "over lunch" and "overnight".
+    // "over lunch" and "overnight". It used to be hard-coded at two passes;
+    // now guidance can be turned off, so the estimate has to follow the
+    // setting -- an estimate that assumed guidance was always on is wrong by a
+    // factor of two the moment somebody turns it off to save the time.
     assert!(
-        body.contains("2.0 * f64::from(steps)"),
-        "the estimate ignores that guidance runs the denoiser twice per step"
+        body.contains("cfg: f32"),
+        "the estimate does not know whether guidance is on"
+    );
+    assert!(
+        body.contains("if cfg == 1.0 { 1.0 } else { 2.0 }"),
+        "the estimate does not halve when guidance is off"
+    );
+    assert!(
+        body.contains("passes * f64::from(steps)"),
+        "the pass count is not what multiplies the steps"
     );
     // And it is shown, not merely computed.
     assert!(
-        src.contains("draw_estimate(grid, steps)"),
+        src.contains("draw_estimate(grid, steps, cfg)"),
         "the estimate is never drawn on the page"
+    );
+    // The guidance control exists and names its cost, because "4" says nothing
+    // about an evening.
+    assert!(
+        src.contains("no guidance -- half the time"),
+        "the guidance options do not say what turning it off buys"
     );
 }

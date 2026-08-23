@@ -59,6 +59,7 @@ fn main() {
     let mut out = String::from("chaos-image.png");
     let mut model: Option<String> = None;
     let mut list = false;
+    let mut from_latent: Option<String> = None;
     let mut dir = {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
@@ -106,6 +107,23 @@ fn main() {
             "--list-models" => {
                 list = true;
                 i += 1;
+            }
+            "--keep-latent" => {
+                // A path is optional: the common case is "keep it", and making
+                // somebody invent a filename for that is friction on the one
+                // flag that exists to save work.
+                let next = take(i);
+                if next.is_empty() || next.starts_with('-') {
+                    req.keep_latent = Some(std::path::PathBuf::from("chaos-image.latent"));
+                    i += 1;
+                } else {
+                    req.keep_latent = Some(std::path::PathBuf::from(next));
+                    i += 2;
+                }
+            }
+            "--from-latent" => {
+                from_latent = Some(take(i));
+                i += 2;
             }
             "-h" | "--help" => {
                 usage();
@@ -155,6 +173,57 @@ fn main() {
             println!("{}", m.summary());
             for role in m.missing() {
                 println!("      {:<20} {}", role.label(), role.how_to_get(&m.family));
+            }
+        }
+        return;
+    }
+
+    // **Decoding a kept latent, which is seconds rather than hours.** Nothing
+    // else runs: no text encoder, no denoiser, no prompt needed. This is the
+    // whole reason `--keep-latent` exists.
+    if let Some(file) = &from_latent {
+        let path = std::path::PathBuf::from(file);
+        let (latent, w, h, ch) = match chaos_image::pipeline::load_latent(&path) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
+        let ae = match &chosen_autoencoder(&dirs, &dir) {
+            Some(p) => p.clone(),
+            None => {
+                eprintln!("chaos-draw: no autoencoder found -- `chaos-pull flux2-vae`");
+                std::process::exit(1);
+            }
+        };
+        println!("latent       {}x{}x{} from {}", w, h, ch, path.display());
+        let started = std::time::Instant::now();
+        let pixels =
+            match chaos_image::pipeline::decode_latent(&ae, &latent, w, h, req.threads) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+        let side = (w as usize) * chaos_image::vae::SCALE;
+        let rgb = chaos_image::vae::to_rgb8(&pixels, side, side);
+        match png::encode_rgb(side as u32, side as u32, &rgb) {
+            Some(bytes) => match std::fs::write(&out, &bytes) {
+                Ok(()) => println!(
+                    "wrote {out} -- {side}x{side}, {} KiB, in {:.1}s",
+                    bytes.len() >> 10,
+                    started.elapsed().as_secs_f32()
+                ),
+                Err(e) => {
+                    eprintln!("could not write {out}: {e}");
+                    std::process::exit(1);
+                }
+            },
+            None => {
+                eprintln!("could not encode the PNG");
+                std::process::exit(1);
             }
         }
         return;
@@ -303,6 +372,25 @@ fn main() {
 /// **The caveat is in the help text, not only in the README.** These models
 /// follow colour and scene and can still get an object's form wrong, and
 /// somebody who reads that after waiting has been misled by omission.
+/// Where the autoencoder is, for a run that has no denoiser to choose.
+///
+/// `--from-latent` skips model selection entirely -- there is no denoiser in
+/// play -- so it asks for the one part it does need, and falls back to the
+/// conventional name under `--models` if discovery finds nothing.
+fn chosen_autoencoder(
+    dirs: &[std::path::PathBuf],
+    dir: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    if let Some(m) = chaos_model::image::installed(dirs)
+        .into_iter()
+        .find_map(|m| m.autoencoder)
+    {
+        return Some(m);
+    }
+    let fallback = Paths::under(dir).autoencoder;
+    fallback.exists().then_some(fallback)
+}
+
 fn usage() {
     println!(
         "chaos-draw {} -- an image from a prompt",
@@ -318,6 +406,8 @@ fn usage() {
     println!("  -t, --threads N");
     println!("  -o, --out FILE where to write the PNG (default chaos-image.png)");
     println!("  --models DIR   where the four model files are");
+    println!("  --keep-latent [FILE]  save the finished latent, so a re-decode is seconds");
+    println!("  --from-latent FILE    decode a kept latent and write the PNG -- nothing else runs");
     println!("  -m, --model N  which image model, by name (default: the first ready one)");
     println!("  --list-models  what is installed, and what each one is missing");
     println!("  --version");

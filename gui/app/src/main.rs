@@ -4561,12 +4561,30 @@ Any value a client sends is accepted.                      The server still list
                 .unwrap_or(0)
         ));
 
+        // **A fresh seed every time.** `chaos-draw`'s default is 42 and the
+        // window never overrode it, so the same prompt produced a
+        // byte-identical picture on every press, for ever. Atur: "always same
+        // image". It was not the model repeating itself; it was one number.
+        //
+        // The seed goes in the log, because reproducibility is the whole point
+        // of having a seed and is no use if nobody is told which one was used.
+        let seed = random_u64().unwrap_or_else(|| {
+            // The system generator failing is not a reason to fall back to a
+            // constant -- that is the bug being fixed.
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x5DEE_CE66)
+        });
+
         let mut cmd = Command::new(&exe);
         cmd.arg(&prompt)
             .arg("--grid")
             .arg(grid.to_string())
             .arg("--steps")
             .arg(steps.to_string())
+            .arg("--seed")
+            .arg(seed.to_string())
             .arg("-o")
             .arg(&file)
             .stdout(std::process::Stdio::piped())
@@ -4600,7 +4618,7 @@ Any value a client sends is accepted.                      The server still list
             SetWindowTextW(ctl(nav::ID_IMG_LOG), wide("").as_ptr());
         }
         image_log(&format!(
-            "chaos-draw {:?}\r\n  {}x{} from a {}x{} grid, {steps} steps\r\n  writing {}\r\n\r\n",
+            "chaos-draw {:?}\r\n  {}x{} from a {}x{} grid, {steps} steps, seed {seed}\r\n  writing {}\r\n\r\n",
             prompt,
             grid * 16,
             grid * 16,

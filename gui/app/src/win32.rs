@@ -1320,6 +1320,17 @@ const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
 ///
 /// Returns `None` rather than falling back to something weaker: a key that
 /// silently is not random is worse than no key, because it is trusted.
+/// A random 64-bit number from the system generator.
+///
+/// **Not a clock.** Two draws started in the same millisecond would otherwise
+/// share a seed, which is the bug this exists to end rather than to reshape.
+pub fn random_u64() -> Option<u64> {
+    let mut b = [0u8; 8];
+    // SAFETY: writes exactly `len` bytes into a buffer of that size.
+    let rc = unsafe { BCryptGenRandom(std::ptr::null_mut(), b.as_mut_ptr(), 8, 2) };
+    (rc == 0).then(|| u64::from_le_bytes(b))
+}
+
 pub fn random_hex(n: usize) -> Option<String> {
     let mut buf = vec![0u8; n];
     let ok = unsafe {

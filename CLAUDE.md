@@ -127,6 +127,42 @@ are the measurement that killed an appealing idea.
   bloat. It reached 3,308 words once — the overflow is now
   `reference/hard-won-facts.md`.
 
+## Roadmap — Atur's targets, in his order
+
+**This list is the agreement. Do not let a session end having quietly dropped an
+item; if one is not done, say which and why.** Each has a definition of done that
+can be checked, because "better" cannot.
+
+- [ ] **1. V4-Flash at 20 tok/s on THIS machine.** *Stretch, and measured as
+  out of reach here.* A token is 1.56 s of expert read plus 0.84 s that never
+  touches the disk, so with **every** expert resident this CPU tops out at
+  **1.19 tok/s** — the fixed cost alone is 17x over a 50 ms budget. 20 tok/s
+  also needs 67.7 GB/s to the experts, which is a GPU-memory specification.
+  Atur has excluded this from the next release. **Do not report progress on it
+  without a measurement**; the honest routes are a bigger machine or a resident
+  GPU, both of which need hardware this project does not have.
+- [ ] **2. The image generator: good, and with model selection.** Orientation is
+  fixed and the fixed seed is fixed. What remains: choosing among installed
+  image models rather than four hard-coded files, prompt adherence (colour and
+  scene follow, an object's form may not), and quality at sizes below 1024.
+- [ ] **3. The model list, properly managed.** Sorting, grouping, search, and a
+  structure that tells a user which models are for chat and which are for
+  images. Switching tabs must not stall.
+- [ ] **4. R6 — self-configuration.** One binary that reads the probe and picks
+  the quant, cache size, prefill block and I/O mode on 8, 16, 48 or 128 GiB,
+  **and says what tok/s to expect before doing anything**. `lts-0-0-0.md` R5/T1–T5.
+  *(R7, R8 and R9 were merged in PR #55 long ago — if those numbers mean
+  something else to Atur, ask before assuming.)*
+- [ ] **5. An Android app, shipped as `.apk` with every release.** The largest
+  item here, and **nothing for it is installed** — no JDK, SDK, NDK, Gradle or
+  Android Rust target. It is also two different products (a small-model runner,
+  or a client for a Chaos on a PC) and building the wrong one satisfies nobody.
+  `backlog/android-app.md` has the audit and the decision to put to Atur first.
+- [ ] **6. Genuinely better than llama.cpp.** Today: parity on everything that
+  streams, 1.20–1.27x behind on the dense path hand-tuned, 1.23x ahead out of
+  the box. A claim is not citable until the competitor's exact command line and
+  output are in a doc, alternating in one session.
+
 ## Next
 
 **v0.0.15 released 2026-08-21**: eight assets, five builds (Intel Mac and arm64

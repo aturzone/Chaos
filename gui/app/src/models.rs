@@ -38,7 +38,10 @@ impl Kind {
 /// names here: two lists that must agree is how the installer and the
 /// downloader once ended up writing to different directories.
 pub fn kind_of(path: &std::path::Path) -> Kind {
-    let named = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let named = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
     if chaos_model::image::role_of(named).is_some() {
         Kind::ImagePart
     } else {
@@ -325,7 +328,10 @@ mod tests {
     fn the_kind_follows_the_filename() {
         use std::path::Path;
         assert_eq!(kind_of(Path::new("m/ideogram4-Q4_0.gguf")), Kind::ImagePart);
-        assert_eq!(kind_of(Path::new("m/flux2-vae.safetensors")), Kind::ImagePart);
+        assert_eq!(
+            kind_of(Path::new("m/flux2-vae.safetensors")),
+            Kind::ImagePart
+        );
         assert_eq!(kind_of(Path::new("m/Qwen3-14B-Q4_K_M.gguf")), Kind::Chat);
     }
 

@@ -409,7 +409,7 @@ mod tests {
     fn the_android_package_is_not_a_desktop_installer() {
         let v = Version(0, 0, 16);
         let feed = Release {
-            version: v.clone(),
+            version: v,
             assets: vec![
                 (
                     "Chaos-v0.0.16-android-arm64.apk".into(),
@@ -426,7 +426,7 @@ mod tests {
         // And with *only* the APK there, the answer is "nothing for you"
         // rather than the nearest-looking file.
         let apk_only = Release {
-            version: v.clone(),
+            version: v,
             assets: vec![(
                 "Chaos-v0.0.16-android-arm64.apk".into(),
                 "https://example.invalid/apk".into(),

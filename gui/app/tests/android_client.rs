@@ -62,7 +62,10 @@ fn xml_files() -> Vec<PathBuf> {
 #[test]
 fn no_xml_comment_contains_a_double_hyphen() {
     let files = xml_files();
-    assert!(!files.is_empty(), "no Android XML found — did the tree move?");
+    assert!(
+        !files.is_empty(),
+        "no Android XML found — did the tree move?"
+    );
 
     for path in &files {
         let text = std::fs::read_to_string(path).expect("readable");

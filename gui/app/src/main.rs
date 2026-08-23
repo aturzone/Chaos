@@ -1250,7 +1250,10 @@ mod windows_app {
         // **An unfinished model cannot be loaded and can be finished.** Leaving
         // DOWNLOAD grey on the INSTALLED tab meant the one action that fixes
         // the problem was the one action not offered.
-        set(nav::ID_LOAD, installed && !running && !unfinished && !image_part);
+        set(
+            nav::ID_LOAD,
+            installed && !running && !unfinished && !image_part,
+        );
         set(nav::ID_UNLOAD, running);
         set(nav::ID_GET, !installed || (unfinished && !running));
         set(nav::ID_DELETE, installed && !running);
@@ -3534,11 +3537,27 @@ Any value a client sends is accepted.                      The server still list
 
         label(hdc, x, top, w, "PROMPT", ui.fonts.small, t.fg_tertiary);
         let my = top + 22 + 64 + 6;
-        label(hdc, x, my, 240, "IMAGE MODEL", ui.fonts.small, t.fg_tertiary);
+        label(
+            hdc,
+            x,
+            my,
+            240,
+            "IMAGE MODEL",
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
         let y = my + metric::CONTROL + 26;
         label(hdc, x, y, 150, "SIZE", ui.fonts.small, t.fg_tertiary);
         label(hdc, x + 170, y, 150, "STEPS", ui.fonts.small, t.fg_tertiary);
-        label(hdc, x + 340, y, 210, "GUIDANCE", ui.fonts.small, t.fg_tertiary);
+        label(
+            hdc,
+            x + 340,
+            y,
+            210,
+            "GUIDANCE",
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
 
         // **How long this will take, before the button is pressed.** Atur was
         // ninety minutes into a six-hour render before any number appeared;
@@ -4864,16 +4883,17 @@ Any value a client sends is accepted.                      The server still list
         // installed and failed some minutes later inside the pipeline. The
         // `Choice`'s value is the denoiser's name and is empty exactly when
         // the list is the "nothing installed" placeholder.
-        let chosen = UI.with(|u| {
-            let b = u.borrow();
-            let ui = b.as_ref()?;
-            let list = ui.lists.get(&nav::ID_IMG_MODEL)?;
-            let i: usize = unsafe { SendMessageW(ctl(nav::ID_IMG_MODEL), CB_GETCURSEL, 0, 0) }
-                .try_into()
-                .ok()?;
-            list.get(i).map(|c| c.value.clone())
-        })
-        .unwrap_or_default();
+        let chosen = UI
+            .with(|u| {
+                let b = u.borrow();
+                let ui = b.as_ref()?;
+                let list = ui.lists.get(&nav::ID_IMG_MODEL)?;
+                let i: usize = unsafe { SendMessageW(ctl(nav::ID_IMG_MODEL), CB_GETCURSEL, 0, 0) }
+                    .try_into()
+                    .ok()?;
+                list.get(i).map(|c| c.value.clone())
+            })
+            .unwrap_or_default();
         if chosen.is_empty() {
             set_status(
                 "no image model installed -- get ideogram-4, ideogram-4-uncond, \

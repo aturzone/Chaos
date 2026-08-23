@@ -279,7 +279,10 @@ pub fn by_name(dirs: &[PathBuf], name: &str) -> Option<ImageModel> {
         .find(|m| m.name.to_ascii_lowercase() == want)
         // A prefix is enough for a person typing at a prompt: `ideogram4` finds
         // `ideogram4-Q4_0` when there is only one of them.
-        .or_else(|| all.iter().find(|m| m.name.to_ascii_lowercase().starts_with(&want)))
+        .or_else(|| {
+            all.iter()
+                .find(|m| m.name.to_ascii_lowercase().starts_with(&want))
+        })
         .cloned()
 }
 
@@ -363,7 +366,10 @@ mod tests {
         assert_eq!(m.missing(), vec![Role::TextEncoder, Role::Autoencoder]);
         assert!(m.summary().contains("text encoder"));
         assert!(m.summary().contains("autoencoder"));
-        assert_eq!(Role::Autoencoder.how_to_get("ideogram4"), "chaos-pull flux2-vae");
+        assert_eq!(
+            Role::Autoencoder.how_to_get("ideogram4"),
+            "chaos-pull flux2-vae"
+        );
         assert_eq!(
             Role::Uncond.how_to_get("ideogram4"),
             "chaos-pull ideogram4-uncond"
@@ -388,7 +394,7 @@ mod tests {
             std::fs::write(dir.join(f), b"x").unwrap();
         }
 
-        let all = installed(&[dir.clone()]);
+        let all = installed(std::slice::from_ref(&dir));
         assert_eq!(all.len(), 1, "four files are one model, not four");
         let m = &all[0];
         assert_eq!(m.name, "ideogram4-Q4_0");
@@ -396,9 +402,12 @@ mod tests {
         assert!(m.uncond.is_some());
         assert!(m.text_encoder.is_some());
         assert!(m.autoencoder.is_some());
-        assert!(best(&[dir.clone()]).is_some());
-        assert_eq!(by_name(&[dir.clone()], "ideogram4").map(|m| m.name), Some("ideogram4-Q4_0".into()));
-        assert!(by_name(&[dir.clone()], "nothing-like-this").is_none());
+        assert!(best(std::slice::from_ref(&dir)).is_some());
+        assert_eq!(
+            by_name(std::slice::from_ref(&dir), "ideogram4").map(|m| m.name),
+            Some("ideogram4-Q4_0".into())
+        );
+        assert!(by_name(std::slice::from_ref(&dir), "nothing-like-this").is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -413,11 +422,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("ideogram4-Q4_0.gguf"), b"x").unwrap();
 
-        let all = installed(&[dir.clone()]);
+        let all = installed(std::slice::from_ref(&dir));
         assert_eq!(all.len(), 1);
         assert!(!all[0].ready());
         assert!(
-            best(&[dir.clone()]).is_none(),
+            best(std::slice::from_ref(&dir)).is_none(),
             "a model missing three parts is not a default"
         );
         let _ = std::fs::remove_dir_all(&dir);

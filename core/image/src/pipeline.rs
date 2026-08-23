@@ -153,10 +153,7 @@ impl Paths {
     pub fn of(model: &chaos_model::image::ImageModel, dir: &std::path::Path) -> Self {
         let fallback = Paths::under(dir);
         Paths {
-            text_encoder: model
-                .text_encoder
-                .clone()
-                .unwrap_or(fallback.text_encoder),
+            text_encoder: model.text_encoder.clone().unwrap_or(fallback.text_encoder),
             denoiser: model.denoiser.clone(),
             uncond: model.uncond.clone().unwrap_or(fallback.uncond),
             autoencoder: model.autoencoder.clone().unwrap_or(fallback.autoencoder),

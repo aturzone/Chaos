@@ -199,14 +199,13 @@ fn main() {
         };
         println!("latent       {}x{}x{} from {}", w, h, ch, path.display());
         let started = std::time::Instant::now();
-        let pixels =
-            match chaos_image::pipeline::decode_latent(&ae, &latent, w, h, req.threads) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            };
+        let pixels = match chaos_image::pipeline::decode_latent(&ae, &latent, w, h, req.threads) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
         let side = (w as usize) * chaos_image::vae::SCALE;
         let rgb = chaos_image::vae::to_rgb8(&pixels, side, side);
         match png::encode_rgb(side as u32, side as u32, &rgb) {

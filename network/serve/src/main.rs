@@ -311,6 +311,10 @@ pub fn refuse_to_start(host: &str, api_key: Option<&str>) -> Option<String> {
     ))
 }
 
+// Command-line options, not coupled state: a config struct here would add a
+// layer without removing a decision, which is the same call `chaos-run` makes
+// about `run_streaming` for the same reason.
+#[allow(clippy::too_many_arguments)]
 fn serve(
     path: &str,
     host: &str,
@@ -409,7 +413,7 @@ fn serve(
             config: &config,
             asked: context,
         };
-        return run_loop(engine, &tokenizer, &host, port, t0, api_key);
+        return run_loop(engine, &tokenizer, host, port, t0, api_key);
     }
 
     // Dense: Llama, Mistral, Qwen and everything else the qwen3 path covers.
@@ -490,7 +494,7 @@ fn serve(
         config: config.clone(),
         asked: context,
     };
-    run_loop(engine, &tokenizer, &host, port, t0, api_key)
+    run_loop(engine, &tokenizer, host, port, t0, api_key)
 }
 
 /// Accept and answer requests, one at a time.
@@ -1849,7 +1853,14 @@ mod tests {
     /// most open binding through as though it were the most closed one.
     #[test]
     fn only_real_loopback_counts_as_loopback() {
-        for h in ["127.0.0.1", "127.0.0.2", "127.1.2.3", "localhost", "::1", "[::1]"] {
+        for h in [
+            "127.0.0.1",
+            "127.0.0.2",
+            "127.1.2.3",
+            "localhost",
+            "::1",
+            "[::1]",
+        ] {
             assert!(super::is_loopback(h), "{h} is loopback");
         }
         for h in ["0.0.0.0", "192.168.1.20", "10.0.0.5", "::", "1.2.3.4", ""] {
@@ -1874,7 +1885,10 @@ mod tests {
 
         let why = super::refuse_to_start("0.0.0.0", None).expect("must refuse");
         assert!(why.contains("api key"), "{why}");
-        assert!(why.contains("--api-key"), "the refusal must say how to fix it");
+        assert!(
+            why.contains("--api-key"),
+            "the refusal must say how to fix it"
+        );
 
         // An empty key is not a key.
         assert!(super::refuse_to_start("192.168.1.20", Some("")).is_some());

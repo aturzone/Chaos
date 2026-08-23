@@ -8,6 +8,8 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.16] — 2026-08-24
+
 ### Switching to INSTALLED froze the window for a second and a half
 
 Atur: *"when i switch between available and installed models installed models

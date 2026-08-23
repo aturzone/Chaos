@@ -72,7 +72,13 @@ impl Page {
         match self {
             Page::Chat => "Talk to the running model, or point a coding agent at its endpoint.",
             Page::Models => "What is on this machine, and what Chaos can fetch.",
-            Page::Image => "A prompt, and a picture. This is slow and says how slow.",
+            // **Says that it does not use the loaded model.** Atur: "now i run
+            // to draw a image without select any model!! wtf is that lol". He
+            // is right that it is surprising: CHAT needs a model loaded and
+            // this does not, because `chaos-draw` opens its own four files and
+            // closes them again. Surprising and undocumented is a bug;
+            // surprising and stated is a design.
+            Page::Image => "Draws with its own four models -- nothing needs to be loaded first.",
             Page::Monitor => "What the machine is doing while a model runs.",
             Page::Settings => "Every setting Chaos keeps. Empty means measured.",
         }
@@ -114,6 +120,12 @@ pub const ID_GET: i32 = 206;
 pub const ID_DELETE: i32 = 207;
 pub const ID_REFRESH: i32 = 208;
 pub const ID_COPY_ENDPOINT: i32 = 209;
+/// Narrow the list by typing part of a name.
+pub const ID_MODEL_SEARCH: i32 = 210;
+/// By name, by size, or by what the model is for.
+pub const ID_MODEL_SORT: i32 = 211;
+/// Everything, chat models only, or image models only.
+pub const ID_MODEL_KIND: i32 = 212;
 
 // Settings: 300
 pub const ID_CACHE: i32 = 301;
@@ -151,6 +163,15 @@ pub const ID_IMG_STOP: i32 = 705;
 pub const ID_IMG_OPEN: i32 = 706;
 /// Where the progress lines go.
 pub const ID_IMG_LOG: i32 = 707;
+/// Which image model to draw with.
+///
+/// **An image model is four files, not one**, so this is not the MODELS list
+/// with a filter over it -- `chaos_model::image` groups a denoiser with its
+/// unconditional twin, a text encoder and an autoencoder, and this offers the
+/// groups. Atur: *"why image generator do not have select model options??"*
+pub const ID_IMG_MODEL: i32 = 708;
+/// Guidance. Off halves the work, because guidance runs the denoiser twice.
+pub const ID_IMG_CFG: i32 = 709;
 
 // The shell: 400. Present on every page.
 pub const ID_NAV_CHAT: i32 = 401;
@@ -240,6 +261,9 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_DELETE,
             ID_REFRESH,
             ID_COPY_ENDPOINT,
+            ID_MODEL_SEARCH,
+            ID_MODEL_SORT,
+            ID_MODEL_KIND,
         ],
         Page::Image => &[
             ID_IMG_PROMPT,
@@ -249,6 +273,8 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_IMG_STOP,
             ID_IMG_OPEN,
             ID_IMG_LOG,
+            ID_IMG_MODEL,
+            ID_IMG_CFG,
         ],
         // Painted entirely. Every number on it is read from the machine each
         // tick, so a static control would be a second place to keep in step.

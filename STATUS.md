@@ -5,8 +5,92 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-20 · **Version**: **v0.0.15** · **Branch**: `main` ·
-**Open PRs**: none.
+**Last updated**: 2026-08-24 · **Version**: **v0.0.15** released,
+**v0.0.16 ready on `ticket/r73-drawing-visible`** · **Open PRs**: none.
+
+## v0.0.16 — the six things Atur asked for, measured (2026-08-24)
+
+**854 tests.** Nine assets now: the five desktop builds, the Windows installer,
+the two Linux packages, and an **Android APK**.
+
+| what he said | what it was | now |
+|---|---|---|
+| *"installed models load with lag"* | `why_incomplete` on the UI thread: **1885 ms** across 39 models, every switch | **10.8 ms** |
+| *"why image generator do not have select model options??"* | four filenames were a constant | a chooser over what is installed |
+| *"list of model better management"* | 39 containers, one flat list | sort, filter, search, and a kind per row |
+| *"svg logo must be in center"* | **4 of 9 icon sizes a pixel off** | 8 of 9 exact |
+| *"i need android app"* | nothing existed | an APK, built by CI |
+| R6 self-configuration | device and cache only | threads, batch, I/O, and a tok/s prediction |
+
+**The tab stall, before and after, same harness, same session.** Real clicks
+into the real window, warm page cache:
+
+```
+ 202  AVAILABLE        6.1 ms          202  AVAILABLE       10.8 ms
+ 201  INSTALLED    1,584.4 ms   -->    201  INSTALLED        8.5 ms
+ 202  AVAILABLE        2.7 ms          202  AVAILABLE        5.3 ms
+ 201  INSTALLED    1,535.8 ms          201  INSTALLED        9.5 ms
+```
+
+99.8% of it was one call, re-derived on every switch: `why_incomplete` opens
+every shard of every container and parses up to 4 MB of header out of each. It
+is now remembered against the file's own length and modified time — a container
+cannot gain the bytes it was missing without changing both — and the scan runs
+on a worker.
+
+**The icon was off centre, and by exactly the amount arithmetic predicted.**
+`make-ico.py` centred with `(px - inner) // 2`, which floors, so an odd margin
+put the whole mark one pixel left and one pixel high. Four of nine sizes: 16,
+32, 40 and 64 — and 16 and 32 are the taskbar and notification-area sizes,
+which is where it was noticed. Measured on the shipped file rather than on the
+arithmetic: **4 of 9 frames exactly centred before, 8 of 9 after**. The ninth
+is the mark's own geometry, not its placement.
+
+**The bound alone would have hidden it.** The broken icon was also "centred to
+within 1 px", so a pass/fail on that threshold said nothing whatever — which is
+why `tools/check-logo-centred.py` reports the count of exactly-centred frames,
+the number that actually moved.
+
+**`--auto` now predicts, and the prediction is worth having.** On
+Qwen3-30B-A3B it says *"about 1.42 tok/s — 1.02 GiB per token at 2.07 GiB/s"*
+and the run measures **1.51**. Within 6%. It said 4.25 first, because a token's
+expert slice was computed as the pool over the layer count — a plausible-looking
+quantity that is 3x too small, and `ModelProfile::from_gguf` has had the right
+arithmetic all along.
+
+The read speed is never measured automatically: the benchmark writes a file
+larger than RAM. `chaos-probe --bandwidth` writes what it measured to
+`~/.chaos/bandwidth` and `--auto` reads it. With nothing there it states the
+byte count, which is known, and names the command that supplies the rest —
+**a guessed disk speed times a real byte count is a confident number with
+nothing behind it**.
+
+**The Android app is a client, and it has never been run.** `dl.google.com` —
+the sole distributor of the Android SDK, build-tools and androidx — answers
+**404 to every request from this network**, including a Go download that
+certainly exists, from a server identifying itself as Google's own. So the APK
+is built on GitHub's runners and the only check it has had is that build. It is
+debug-signed, because an unsigned release APK cannot be installed and a
+per-build key would stop Android upgrading in place.
+
+`chaos-serve --host` opens the endpoint to the LAN, and **the api key stops
+being optional the moment the socket leaves loopback** — a non-loopback bind
+with no key refuses to start, before the model loads rather than four minutes
+after.
+
+**A full run-through, as a transcript rather than a memory.**
+`scripts/run-through.ps1` presses every control on every page and reports what
+blocked the UI thread: **22 exercised, 6 skipped by policy, worst call 36.9
+ms**. DELETE, RESET and BROWSE are listed rather than pressed — a run-through
+that deleted a model or wiped the settings would be a worse bug than anything
+it could find. The INSTALLED/AVAILABLE crash Atur reported is **still not
+reproduced**: 60 rapid switches, worst 28.9 ms, process alive and responding.
+
+**Not done, and not quietly dropped**: a negative prompt (this pipeline's
+guidance uses a separately trained unconditional twin fed no text, so it is a
+real change to which weights run, and there is no quality harness to judge it);
+image quality below 1024; Android Phase B; and `chaos-worker`. 20 tok/s on
+V4-Flash stays excluded by Atur's own instruction and by measurement.
 
 **Twelve of thirteen installed models generate correct text** on this 15.7 GiB
 machine, checked by requiring `Paris` after "The capital of France is" rather
@@ -136,7 +220,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **822 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
+**Current**: **854 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by

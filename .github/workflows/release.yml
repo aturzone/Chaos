@@ -445,9 +445,97 @@ jobs:
             Chaos-*-linux-x86_64.AppImage
           if-no-files-found: error
 
+  android:
+    name: android-arm64
+    runs-on: ubuntu-latest
+    # **Built in CI because it cannot be built here.** `dl.google.com` -- the
+    # only place the Android SDK, build-tools and androidx are distributed from
+    # -- answers 404 to every request from the network this project is
+    # developed on. Measured 2026-08-23: `developer.android.com` 200,
+    # `www.google.com` 200, and `dl.google.com/go/go1.21.0.windows-amd64.zip`
+    # (a file that certainly exists) **404**, from a server identifying itself
+    # as Google's own `downloads`. GitHub's runners are not on that network and
+    # ship the SDK already installed, so this is where the APK gets made.
+    #
+    # The consequence to be honest about: nothing about this app is verified on
+    # the machine that wrote it. The build is the test, and the phone is Atur's.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: The version matches the tag
+        run: |
+          # The tag is the truth. `versionName` in the build file is what a
+          # local `gradle assemble` produces and would otherwise drift from
+          # every release that did not remember to bump it by hand.
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          # **A glob is not a version check.** `[0-9]*.[0-9]*.[0-9]*` matched
+          # `0.0.16-dryrun`, because the trailing `*` swallowed the suffix --
+          # so a dry run stamped `versionName = "0.0.16-dryrun"` into a real
+          # build file. A dry run should look exactly like a release except for
+          # not publishing, and a version it would never ship is not that.
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "not a plain version tag ($TAG) -- keeping the file's own value"
+            VERSION=""
+          fi
+          if [ -n "$VERSION" ]; then
+            sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" android/app/build.gradle.kts
+            # versionCode must increase for an in-place upgrade to be offered.
+            # Major*10000 + minor*100 + patch keeps it monotonic and readable.
+            CODE=$(echo "$VERSION" | awk -F. '{ print $1 * 10000 + $2 * 100 + $3 }')
+            sed -i "s/versionCode = .*/versionCode = $CODE/" android/app/build.gradle.kts
+            echo "version $VERSION, code $CODE"
+          fi
+          grep -E 'versionCode|versionName' android/app/build.gradle.kts
+
+      - name: Build the APK
+        working-directory: android
+        # **Debug-signed, and said out loud.** An unsigned release APK cannot be
+        # installed at all, and signing a release needs a keystore that must
+        # outlive every build -- generating one per run would give every
+        # release a different identity and Android would refuse to upgrade in
+        # place. Until there is a keystore in the repository secrets, the debug
+        # key is the one that lets the thing actually be installed. It is a real
+        # APK; it is just signed with a key everyone has.
+        run: gradle --no-daemon assembleDebug
+
+      - name: The APK exists and is an APK
+        run: |
+          APK=$(find android -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then echo "::error::gradle produced no APK"; exit 1; fi
+          ls -l "$APK"
+          # **A zip, with a manifest and dex in it.** An "APK" that is any of
+          # those things missing installs with an error nobody can read, and
+          # the release would ship it. `unzip -l` is the cheapest proof that
+          # the thing is put together.
+          unzip -l "$APK" | tee /tmp/apk.txt
+          for want in AndroidManifest.xml classes.dex res/; do
+            grep -q "$want" /tmp/apk.txt || { echo "::error::no $want in the APK"; exit 1; }
+          done
+          # The launcher icon, at every density, rendered from assets/logo.svg.
+          # An APK with no icon is one Android draws a grey robot for.
+          grep -qE 'res/.*(ic_launcher|[A-Za-z0-9_]+)\.png' /tmp/apk.txt \
+            || { echo "::error::no PNG resources in the APK"; exit 1; }
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          cp "$APK" "Chaos-${TAG}-android-arm64.apk"
+          ls -l Chaos-*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chaos-android-arm64
+          path: Chaos-*.apk
+          if-no-files-found: error
+
   publish:
     name: attach to the release
-    needs: build
+    needs: [build, android]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

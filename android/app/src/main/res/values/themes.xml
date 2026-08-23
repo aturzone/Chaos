@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The framework's own dark Material theme, not AppCompat's. That keeps androidx
+  out of the APK entirely; the cost is that this needs API 21+, which minSdk 24
+  already requires.
+-->
+<resources>
+    <style name="ChaosTheme" parent="@android:style/Theme.Material">
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:textColorPrimary">@color/fg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+    </style>
+</resources>

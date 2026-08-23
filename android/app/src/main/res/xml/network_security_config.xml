@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  **Cleartext HTTP, deliberately and narrowly.**
+
+  Android has blocked plain HTTP by default since API 28, and it is right to.
+  But `chaos-serve` speaks HTTP on a LAN address: there is no certificate for
+  `192.168.1.10` and there is no authority that would issue one. Refusing
+  cleartext would mean the app could not talk to the only thing it exists to
+  talk to.
+
+  So cleartext is permitted, and the API key is what actually guards the
+  endpoint – which is why `chaos-serve` refuses to bind a non-loopback address
+  without one. Traffic on the local Wi-Fi is readable by anyone already on that
+  Wi-Fi; anyone sending something they would not say on that network should not
+  be sending it over this.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -80,6 +80,17 @@ read       pass --bandwidth to measure it (writes a temp file > RAM)"
         ""
     };
     let machine = Machine::probe(&path, !quick);
+
+    // **Remembered, so the expensive measurement is made once.** `--auto` needs
+    // a read speed to say what tok/s to expect before loading anything, and it
+    // cannot run a benchmark that writes more than RAM on every launch. This is
+    // the only place that measurement happens, so it is the only place worth
+    // writing it down.
+    if let Some(bps) = machine.storage.read_bytes_per_sec {
+        chaos_probe::cache::save(bps, std::path::Path::new(&path));
+        println!("           remembered, so --auto can predict tok/s without re-measuring");
+    }
+
     println!("{machine}");
     if !machine_note.is_empty() {
         println!("{machine_note}");

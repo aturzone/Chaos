@@ -69,11 +69,40 @@ pub fn positions(context_len: usize, grid_h: usize, grid_w: usize) -> Vec<[f32; 
         let p = i as f32;
         ids.push([p, p, p]);
     }
+    // **This model's vertical axis runs bottom-up, and nothing in the container
+    // says so.** Row 0 of the latent gets the HIGHEST y position, not the
+    // lowest.
+    //
+    // Every round trip in this pipeline is self-consistent -- the autoencoder
+    // was checked in both directions and does not flip, and the token layout
+    // matches the position table -- and a six-hour 1024x1024 render still came
+    // out upside down. A latent from the denoiser never passes through the
+    // encoder, so a convention mismatch here cancels in every test that starts
+    // from a real image and in none that starts from noise. That is why the
+    // orientation example, which was written to settle exactly this, missed it.
+    //
+    // Settled by measurement on a real photograph, both ways, at four noise
+    // levels (`try-velocity`). Bottom-up wins **twelve of twelve**:
+    //
+    // | sigma | cos(v) top-down | bottom-up | cos(-L) top-down | bottom-up |
+    // |---|---|---|---|---|
+    // | 0.90 | 0.7920 | 0.8130 | 0.1974 | 0.2357 |
+    // | 0.70 | 0.7729 | 0.8095 | 0.3285 | 0.3759 |
+    // | 0.50 | 0.7086 | 0.7822 | 0.3346 | 0.4251 |
+    // | 0.30 | 0.6067 | 0.7087 | 0.3522 | 0.4383 |
+    //
+    // `cos(-L)` is whether the model can see the image at all, and it improves
+    // by 24% at low noise. `x0` error falls on every row too.
+    //
+    // `CHAOS_TOPDOWN_Y=1` restores the old convention, so the comparison can be
+    // repeated rather than taken on trust.
+    let top_down = std::env::var("CHAOS_TOPDOWN_Y").is_ok();
     for y in 0..grid_h {
+        let row = if top_down { y } else { grid_h - 1 - y };
         for x in 0..grid_w {
             ids.push([
                 IMAGE_POSITION_OFFSET,
-                IMAGE_POSITION_OFFSET + y as f32,
+                IMAGE_POSITION_OFFSET + row as f32,
                 IMAGE_POSITION_OFFSET + x as f32,
             ]);
         }
@@ -201,10 +230,15 @@ mod tests {
         assert_eq!(ids[0], [0.0, 0.0, 0.0]);
         assert_eq!(ids[2], [2.0, 2.0, 2.0], "text agrees on all three axes");
         // Row-major over the grid, and every image token shares one t.
-        assert_eq!(ids[3], [65536.0, 65536.0, 65536.0]);
-        assert_eq!(ids[4], [65536.0, 65536.0, 65537.0], "x moves first");
-        assert_eq!(ids[5], [65536.0, 65537.0, 65536.0], "then y");
-        assert_eq!(ids[6], [65536.0, 65537.0, 65537.0]);
+        //
+        // **y counts DOWN**: latent row 0 is the bottom of the picture, so with
+        // two rows it takes y = 65537 and row 1 takes 65536. This test asserted
+        // the opposite until a 1024x1024 render came out upside down; see
+        // `positions` for the measurement that settled it.
+        assert_eq!(ids[3], [65536.0, 65537.0, 65536.0]);
+        assert_eq!(ids[4], [65536.0, 65537.0, 65537.0], "x moves first");
+        assert_eq!(ids[5], [65536.0, 65536.0, 65536.0], "then y, downwards");
+        assert_eq!(ids[6], [65536.0, 65536.0, 65537.0]);
         // No text length this side of 65536 can reach an image position.
         assert!(ids[..3].iter().all(|p| p[0] < IMAGE_POSITION_OFFSET));
     }
@@ -252,5 +286,31 @@ mod tests {
         // The unconditional pass has no text at all, which is the case that
         // would silently index a zero-length prefix.
         assert_eq!(image_indicator(0, 3), vec![1, 1, 1]);
+    }
+
+    /// **Row 0 of the latent is the BOTTOM of the picture**, and a six-hour
+    /// render came out upside down because it was not.
+    ///
+    /// This is the kind of thing a later tidy-up reverses -- `grid_h - 1 - y`
+    /// looks like a mistake next to a plain `y` -- so the order is asserted
+    /// rather than left to a comment. The comment carries the measurement; this
+    /// carries the consequence.
+    #[test]
+    fn the_vertical_axis_runs_bottom_up() {
+        let ids = positions(0, 4, 2);
+        assert_eq!(ids.len(), 8, "four rows of two");
+        // First token is the top-left of the latent, and it must carry the
+        // HIGHEST y position.
+        let first_y = ids[0][1];
+        let last_y = ids[6][1];
+        assert!(
+            first_y > last_y,
+            "latent row 0 got y={first_y} and row 3 got y={last_y}: that is              top-down, which renders every picture upside down"
+        );
+        assert_eq!(first_y, IMAGE_POSITION_OFFSET + 3.0);
+        assert_eq!(last_y, IMAGE_POSITION_OFFSET);
+        // x is unaffected: only the vertical convention was ever in question.
+        assert_eq!(ids[0][2], IMAGE_POSITION_OFFSET);
+        assert_eq!(ids[1][2], IMAGE_POSITION_OFFSET + 1.0);
     }
 }

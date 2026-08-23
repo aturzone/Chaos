@@ -975,3 +975,135 @@ fn every_id_is_unique() {
     );
     assert!(clashes.is_empty(), "ids used twice: {clashes:?}");
 }
+
+/// The strip must not say "no model running" while an image is being drawn.
+///
+/// Atur: *"now no model is load in app but image is in creation lol wtf is
+/// that"*. The strip only knew about the chat server, so it reported an idle
+/// machine through ten minutes of a child process reading 5.26 GiB per step.
+/// It is the one surface on every page; it has to know about every kind of
+/// work, not one kind.
+#[test]
+fn the_strip_reports_a_draw_as_work() {
+    let src = main_rs();
+    let i = src
+        .find(r#""no model running""#)
+        .expect("the strip no longer has that text");
+    // The decision is made from the draw state, near where the text lives.
+    let window = &src[i.saturating_sub(900)..(i + 400).min(src.len())];
+    assert!(
+        window.contains("draw"),
+        "the strip chooses its headline without consulting the draw state"
+    );
+}
+
+/// A log is not progress.
+///
+/// Atur: *"the progress of image creation is type logs not a bar progress"*.
+/// The log stays -- it carries the seconds per step and the time left, which a
+/// bar cannot -- but a bar is what answers "how far along is this".
+#[test]
+fn drawing_has_a_progress_bar_and_it_is_honest() {
+    let src = main_rs();
+    assert!(
+        src.contains("fn percent(&self) -> Option<u32>"),
+        "nothing computes a percentage for a draw"
+    );
+    // `Option`, not a number: before the first step there is nothing honest to
+    // show, and inventing a value is how progress bars come to be distrusted.
+    let i = src.find("fn percent(&self) -> Option<u32>").unwrap();
+    let body = &src[i..(i + 500).min(src.len())];
+    assert!(
+        body.contains("self.step?"),
+        "percent() invents a value before any step has happened"
+    );
+    // Drawn in two places: the page you started from, and the strip you see
+    // from every other page.
+    assert!(
+        src.matches("percent()").count() >= 2,
+        "the bar is drawn in only one place"
+    );
+}
+
+/// MONITOR exists to say what the machine is doing, and a draw is the machine
+/// working hard.
+#[test]
+fn monitor_shows_a_draw() {
+    let src = main_rs();
+    let i = src.find(r#""GENERATION""#).expect("no GENERATION section");
+    let before = &src[i.saturating_sub(1200)..i];
+    assert!(
+        before.contains(r#""DRAWING""#),
+        "MONITOR has no section for a draw in flight"
+    );
+}
+
+/// A crash that is not a panic must still leave a note.
+///
+/// A Rust panic writes `chaos-app-crash.log` and shows a box. **An access
+/// violation does neither** -- no Rust code runs and the process simply
+/// disappears, which is what a crash with no log looks like from outside.
+#[test]
+fn a_hardware_fault_is_recorded_too() {
+    let src = main_rs();
+    assert!(
+        src.contains("SetUnhandledExceptionFilter"),
+        "only Rust panics are recorded; an access violation vanishes silently"
+    );
+    let i = src.find("fn on_hardware_fault").expect("no fault handler");
+    let body = &src[i..(i + 2000).min(src.len())];
+    assert!(
+        body.contains("chaos-app-crash.log"),
+        "the fault handler writes nothing"
+    );
+    // And it does not swallow the fault: Windows Error Reporting and any
+    // debugger still get their turn.
+    assert!(
+        body.contains("EXCEPTION_CONTINUE_SEARCH"),
+        "the handler swallows the fault, trading one silent death for another"
+    );
+}
+
+/// The page says how long a draw will take before it is started.
+///
+/// Atur chose 1024x1024 at 50 steps and was ninety minutes into a **six and a
+/// half hour** render before any number appeared anywhere. The size drop-down
+/// said "slow", which is not a quantity.
+#[test]
+fn a_draw_is_costed_before_it_is_started() {
+    let src = main_rs();
+    assert!(
+        src.contains("fn draw_estimate("),
+        "nothing estimates how long a draw will take"
+    );
+    let i = src.find("fn draw_seconds(").expect("no draw_seconds");
+    let body = &src[i..(i + 1200).min(src.len())];
+    // **Guidance doubles it**, and leaving that out is the difference between
+    // "over lunch" and "overnight". It used to be hard-coded at two passes;
+    // now guidance can be turned off, so the estimate has to follow the
+    // setting -- an estimate that assumed guidance was always on is wrong by a
+    // factor of two the moment somebody turns it off to save the time.
+    assert!(
+        body.contains("cfg: f32"),
+        "the estimate does not know whether guidance is on"
+    );
+    assert!(
+        body.contains("if cfg == 1.0 { 1.0 } else { 2.0 }"),
+        "the estimate does not halve when guidance is off"
+    );
+    assert!(
+        body.contains("passes * f64::from(steps)"),
+        "the pass count is not what multiplies the steps"
+    );
+    // And it is shown, not merely computed.
+    assert!(
+        src.contains("draw_estimate(grid, steps, cfg)"),
+        "the estimate is never drawn on the page"
+    );
+    // The guidance control exists and names its cost, because "4" says nothing
+    // about an evening.
+    assert!(
+        src.contains("no guidance -- half the time"),
+        "the guidance options do not say what turning it off buys"
+    );
+}

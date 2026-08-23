@@ -131,6 +131,9 @@ pub const WS_TABSTOP: u32 = 0x0001_0000;
 
 pub const ES_MULTILINE: u32 = 0x0004;
 pub const ES_READONLY: u32 = 0x0800;
+/// Scroll horizontally rather than wrap: a single-line box for typing a search
+/// into, where a name longer than the box must still be typeable.
+pub const ES_AUTOHSCROLL: u32 = 0x0080;
 pub const ES_AUTOVSCROLL: u32 = 0x0040;
 pub const ES_WANTRETURN: u32 = 0x1000;
 
@@ -292,6 +295,33 @@ pub const LR_DEFAULTSIZE: u32 = 0x0000_0040;
 
 /// The sizes Windows actually wants, which are **not** 32 and 16 on a scaled
 /// display. On this 125% machine they are 40 and 20.
+/// What Windows reports for the crashes a Rust panic hook never sees.
+pub const EXCEPTION_ACCESS_VIOLATION: u32 = 0xC000_0005;
+pub const EXCEPTION_STACK_OVERFLOW: u32 = 0xC000_00FD;
+pub const EXCEPTION_ILLEGAL_INSTRUCTION: u32 = 0xC000_001D;
+/// Let the default handler run afterwards, so a debugger and Windows Error
+/// Reporting still see the fault rather than it vanishing into our log.
+pub const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
+
+/// The head of what `SetUnhandledExceptionFilter` hands over.
+///
+/// **Only the first two fields are read**, and they are the two that matter:
+/// which fault and where. The full record is much larger; declaring the rest
+/// would be more surface to get wrong for information nothing here uses.
+#[repr(C)]
+pub struct EXCEPTION_RECORD_HEAD {
+    pub ExceptionCode: u32,
+    pub ExceptionFlags: u32,
+    pub ExceptionRecord: *mut c_void,
+    pub ExceptionAddress: *mut c_void,
+}
+
+#[repr(C)]
+pub struct EXCEPTION_POINTERS {
+    pub ExceptionRecord: *mut EXCEPTION_RECORD_HEAD,
+    pub ContextRecord: *mut c_void,
+}
+
 pub const SM_CXICON: i32 = 11;
 pub const SM_CYICON: i32 = 12;
 /// Give up rather than wait for a hung window, and do not let this thread be
@@ -699,6 +729,13 @@ extern "system" {
     /// process's window to be gone without polling its process handle.
     pub fn IsWindow(hWnd: HWND) -> BOOL;
     pub fn GetSystemMetrics(nIndex: i32) -> i32;
+    /// Catch the faults a Rust panic hook cannot: an access violation is not a
+    /// panic, so it kills the process without running any Rust code at all.
+    pub fn SetUnhandledExceptionFilter(
+        lpTopLevelExceptionFilter: Option<
+            unsafe extern "system" fn(*mut EXCEPTION_POINTERS) -> i32,
+        >,
+    ) -> *mut c_void;
     pub fn SetForegroundWindow(hWnd: HWND) -> BOOL;
     pub fn IsWindowVisible(hWnd: HWND) -> BOOL;
     pub fn DestroyMenu(hMenu: HMENU) -> BOOL;
@@ -1286,6 +1323,17 @@ const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
 ///
 /// Returns `None` rather than falling back to something weaker: a key that
 /// silently is not random is worse than no key, because it is trusted.
+/// A random 64-bit number from the system generator.
+///
+/// **Not a clock.** Two draws started in the same millisecond would otherwise
+/// share a seed, which is the bug this exists to end rather than to reshape.
+pub fn random_u64() -> Option<u64> {
+    let mut b = [0u8; 8];
+    // SAFETY: writes exactly `len` bytes into a buffer of that size.
+    let rc = unsafe { BCryptGenRandom(std::ptr::null_mut(), b.as_mut_ptr(), 8, 2) };
+    (rc == 0).then(|| u64::from_le_bytes(b))
+}
+
 pub fn random_hex(n: usize) -> Option<String> {
     let mut buf = vec![0u8; n];
     let ok = unsafe {

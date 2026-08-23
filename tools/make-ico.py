@@ -162,11 +162,28 @@ def main():
           it is the difference between 13 and 15 pixels of drawing.
         """
         inner = max(1, int(round(px * (1 - 2 * INK_INSET))))
+        # **Same parity as the tile, or the margin cannot split evenly.**
+        # `off = (px - inner) // 2` floors, so an odd difference put the whole
+        # mark one pixel left of centre and one pixel above it. Four of the nine
+        # shipped sizes were like that -- 16, 32, 40 and 64 -- and 16 and 32 are
+        # the taskbar and notification-area sizes, which is exactly where Atur
+        # saw it: *"that svg logo must be in center of app icon and logo and
+        # everywhere we use it"*.
+        #
+        # Shrinking rather than growing: one pixel of drawing is a cheaper price
+        # than the mark touching the tile edge, which is what growing into an
+        # already-tight 4% inset would do at 16 px.
+        if (px - inner) % 2:
+            inner = max(1, inner - 1)
         art = rasterise(
             paths, inner, inner, inner * 8, inner * 8,
             inner * 8 / side, inner * 8 / side, ss=8, origin=(bx, by),
         )
         off = (px - inner) // 2
+        assert px - inner - off == off, (
+            f"{px}px tile: {off} left and {px - inner - off} right -- "
+            "the mark is not centred"
+        )
         out = []
         for y in range(px):
             row = []

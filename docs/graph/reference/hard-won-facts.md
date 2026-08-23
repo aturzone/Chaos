@@ -540,6 +540,20 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   gone sits in the tray until somebody hovers over it.
 - **On Windows 11 a new tray icon goes behind the `^` and there is no API to
   change that.** Do not spend time looking; say so in the manual.
+- **A round trip cannot check a convention, and this one cost six hours.** The
+  Ideogram 4 denoiser's vertical axis runs **bottom-up**: latent row 0 takes the
+  *highest* mRoPE `y`. Every internal check passed while it was wrong --
+  `try-orientation` proved the autoencoder does not flip in either direction,
+  and the token layout matched the position table -- because a latent from the
+  *denoiser* never passes through the encoder, so the mismatch cancels in every
+  test that starts from a real image and in none that starts from noise. A
+  1024x1024 render at 50 steps came out a perfect, photorealistic portrait,
+  upside down.
+  **Settle a convention with the velocity harness, not a round trip**: on a real
+  photograph at four noise levels, bottom-up beat top-down 12 of 12 --
+  `cos(-L)`, whether the model can see the image at all, rose 0.352 -> 0.438 at
+  sigma 0.3, and `x0` error fell on every row. `CHAOS_TOPDOWN_Y=1` repeats the
+  comparison.
 - **Nothing rescues a detailed mark at 16px.** Tried on the title-bar icon:
   averaging the subsamples gives blue mush, taking the maximum gives a solid
   white disc, and every blend between is one or the other. `make-ico.py` already

@@ -7,6 +7,125 @@
 
 use std::path::PathBuf;
 
+/// What a container is *for*.
+///
+/// **A chat model and an image model in one flat list is a real confusion**,
+/// not a cosmetic one: Atur pressed DRAW with no image model installed and
+/// pressed LOAD on a denoiser, and in both cases the list had told him they
+/// were the same kind of thing. Atur: *"list of model better management and
+/// sort and structured for users"*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A language model. It loads, and you talk to it.
+    Chat,
+    /// One of the four parts an image needs. It does not load and there is no
+    /// token loop to run on it -- it is used by `chaos-draw` on the IMAGE page.
+    ImagePart,
+}
+
+impl Kind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Chat => "chat",
+            Kind::ImagePart => "image",
+        }
+    }
+}
+
+/// What a file on disk is for, from its name.
+///
+/// Asks `chaos_model::image` rather than keeping a second list of image-model
+/// names here: two lists that must agree is how the installer and the
+/// downloader once ended up writing to different directories.
+pub fn kind_of(path: &std::path::Path) -> Kind {
+    let named = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    if chaos_model::image::role_of(named).is_some() {
+        Kind::ImagePart
+    } else {
+        Kind::Chat
+    }
+}
+
+/// How the list is ordered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    Name,
+    /// Largest first: the question a size sort answers is "what is eating the
+    /// disk", and that is the top of the list, not the bottom.
+    Size,
+    /// Chat models first, then image parts, each by name.
+    Kind,
+}
+
+impl Sort {
+    pub const ALL: [Sort; 3] = [Sort::Name, Sort::Size, Sort::Kind];
+    pub fn label(self) -> &'static str {
+        match self {
+            Sort::Name => "by name",
+            Sort::Size => "by size",
+            Sort::Kind => "by what it is",
+        }
+    }
+}
+
+/// Which kinds the list is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Filter {
+    All,
+    Chat,
+    Image,
+}
+
+impl Filter {
+    pub const ALL: [Filter; 3] = [Filter::All, Filter::Chat, Filter::Image];
+    pub fn label(self) -> &'static str {
+        match self {
+            Filter::All => "everything",
+            Filter::Chat => "chat models",
+            Filter::Image => "image models",
+        }
+    }
+    pub fn admits(self, k: Kind) -> bool {
+        match self {
+            Filter::All => true,
+            Filter::Chat => k == Kind::Chat,
+            Filter::Image => k == Kind::ImagePart,
+        }
+    }
+}
+
+/// Which entries to show, in which order, as indices into `entries`.
+///
+/// **Indices, not a copy.** The list box holds rows and the rest of the window
+/// holds entries; something has to map a clicked row back to the model it
+/// names, and a filtered list that forgot to do that would load the wrong
+/// model -- silently, because both are valid containers.
+pub fn arrange(entries: &[Entry], search: &str, sort: Sort, filter: Filter) -> Vec<usize> {
+    let needle = search.trim().to_lowercase();
+    let mut idx: Vec<usize> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| filter.admits(e.kind))
+        .filter(|(_, e)| needle.is_empty() || e.label.to_lowercase().contains(&needle))
+        .map(|(i, _)| i)
+        .collect();
+    match sort {
+        Sort::Name => idx.sort_by_key(|&i| entries[i].label.to_lowercase()),
+        Sort::Size => idx.sort_by_key(|&i| std::cmp::Reverse(entries[i].bytes.unwrap_or(0))),
+        Sort::Kind => idx.sort_by_key(|&i| {
+            (
+                // Chat first: it is what most people came for.
+                entries[i].kind != Kind::Chat,
+                entries[i].label.to_lowercase(),
+            )
+        }),
+    }
+    idx
+}
+
 /// A model as the list shows it.
 pub struct Entry {
     pub label: String,
@@ -20,6 +139,8 @@ pub struct Entry {
     /// found out was to press LOAD and read whatever the engine said three
     /// seconds later. Two of the models on this machine were in that state.
     pub incomplete: Option<String>,
+    /// Whether this is something to chat with or a part of an image pipeline.
+    pub kind: Kind,
 }
 
 /// Human-readable size, at the precision the number deserves.
@@ -94,6 +215,7 @@ pub fn list() -> Vec<Entry> {
         .map(|f| Entry {
             bytes: total_bytes(&f.path),
             incomplete: chaos_model::complete::why_incomplete(&f.path),
+            kind: kind_of(&f.path),
             label: f.label,
             path: f.path,
         })
@@ -125,6 +247,12 @@ pub fn columns(e: &Entry) -> Vec<String> {
     if let Some(b) = e.bytes {
         v.push(human_size(b));
     }
+    // **Said in the row, not only in a filter.** A filter answers the question
+    // for somebody who already knew to ask it; the row answers it for somebody
+    // about to press LOAD on an autoencoder.
+    if e.kind == Kind::ImagePart {
+        v.push("image".to_string());
+    }
     // Said in the list, not only on the model's own page: the list is where the
     // choice is made, and "9.00 GB" beside a file holding 911 MB is a lie.
     if e.incomplete.is_some() {
@@ -146,6 +274,7 @@ mod tests {
             path: std::path::PathBuf::from("x.gguf"),
             bytes: Some(5_027_785_568),
             incomplete: None,
+            kind: Kind::Chat,
         };
         let c = columns(&e);
         assert_eq!(c[0], "Qwen3-VL-8B-Instruct-Q4_K_M", "the name, whole");
@@ -174,6 +303,83 @@ mod tests {
         assert!(!row(&e).contains(COLUMN_SEP));
     }
 
+    fn entry(label: &str, bytes: u64, kind: Kind) -> Entry {
+        Entry {
+            label: label.into(),
+            path: format!("{label}.gguf").into(),
+            bytes: Some(bytes),
+            incomplete: None,
+            kind,
+        }
+    }
+
+    /// An image part must be recognisable as one from its row alone.
+    #[test]
+    fn an_image_part_says_so_in_its_row() {
+        let e = entry("ideogram4-Q4_0", 5_643_820_832, Kind::ImagePart);
+        assert!(row(&e).contains("image"));
+        let e = entry("Qwen3-14B-Q4_K_M", 9_000_000_000, Kind::Chat);
+        assert!(!row(&e).contains("image"));
+    }
+
+    /// What a file is for comes from `chaos_model::image`, so the app and the
+    /// drawing code cannot disagree about which files are image parts.
+    #[test]
+    fn the_kind_follows_the_filename() {
+        use std::path::Path;
+        assert_eq!(kind_of(Path::new("m/ideogram4-Q4_0.gguf")), Kind::ImagePart);
+        assert_eq!(
+            kind_of(Path::new("m/flux2-vae.safetensors")),
+            Kind::ImagePart
+        );
+        assert_eq!(kind_of(Path::new("m/Qwen3-14B-Q4_K_M.gguf")), Kind::Chat);
+    }
+
+    /// **The mapping is the whole point.** A filtered list that returned the
+    /// clicked *row* rather than the entry it names would load a different
+    /// model than the one pointed at -- silently, because both are containers.
+    #[test]
+    fn arranging_maps_rows_back_to_the_right_models() {
+        let e = vec![
+            entry("zeta-chat", 1_000, Kind::Chat),
+            entry("ideogram4-Q4_0", 9_000, Kind::ImagePart),
+            entry("alpha-chat", 5_000, Kind::Chat),
+        ];
+
+        // By name, everything.
+        let got = arrange(&e, "", Sort::Name, Filter::All);
+        assert_eq!(
+            got.iter().map(|&i| e[i].label.as_str()).collect::<Vec<_>>(),
+            ["alpha-chat", "ideogram4-Q4_0", "zeta-chat"]
+        );
+
+        // Largest first: a size sort answers "what is eating the disk".
+        let got = arrange(&e, "", Sort::Size, Filter::All);
+        assert_eq!(e[got[0]].label, "ideogram4-Q4_0");
+        assert_eq!(e[got[2]].label, "zeta-chat");
+
+        // Chat before image parts.
+        let got = arrange(&e, "", Sort::Kind, Filter::All);
+        assert_eq!(e[got[2]].kind, Kind::ImagePart);
+
+        // Filtered, and the indices still point at the right entries.
+        let got = arrange(&e, "", Sort::Name, Filter::Image);
+        assert_eq!(got.len(), 1);
+        assert_eq!(e[got[0]].label, "ideogram4-Q4_0");
+
+        // Search is case-insensitive and matches anywhere in the name, because
+        // the part of a name that tells two copies apart is at the end.
+        let got = arrange(&e, "CHAT", Sort::Name, Filter::All);
+        assert_eq!(got.len(), 2);
+        let got = arrange(&e, "  q4_0 ", Sort::Name, Filter::All);
+        assert_eq!(got.len(), 1);
+        assert_eq!(e[got[0]].label, "ideogram4-Q4_0");
+
+        // A search matching nothing is empty rather than everything: a filter
+        // that falls back to "show all" tells the user their search worked.
+        assert!(arrange(&e, "nothing-like-this", Sort::Name, Filter::All).is_empty());
+    }
+
     #[test]
     fn sizes_read_the_way_a_person_would_write_them() {
         assert_eq!(human_size(0), "0 B");
@@ -199,6 +405,7 @@ mod tests {
             path: "x".into(),
             bytes: None,
             incomplete: None,
+            kind: Kind::Chat,
         };
         assert_eq!(row(&e), "qwen3");
     }
@@ -211,6 +418,7 @@ mod tests {
             path: "x".into(),
             bytes: Some(911_499_264),
             incomplete: Some("the download did not finish".into()),
+            kind: Kind::Chat,
         };
         assert!(row(&e).contains("unfinished"));
     }

@@ -88,6 +88,10 @@ mod windows_app {
         drawn: Option<String>,
         /// Set when `chaos-draw` exits, whether it worked or not.
         draw_done: bool,
+        /// What the draw is doing, for the strip and MONITOR -- which knew
+        /// nothing about it and so reported an idle machine while it read
+        /// gigabytes per step.
+        draw: Option<Drawing>,
         /// A message box the UI thread must put up: its text, and whether it is
         /// good news.
         ///
@@ -120,6 +124,12 @@ mod windows_app {
         /// holding `chaos-app.exe` open. Windows will not let the installer
         /// overwrite a binary that is still executing.
         update_quit: bool,
+        /// A finished look at the models directory, waiting for the UI thread.
+        ///
+        /// The entries and, beside them, how many files each container is --
+        /// both come from the worker because both are disk, and counting shards
+        /// while painting is what put a `read_dir` inside a repaint once.
+        scan: Option<(Vec<models::Entry>, Vec<usize>)>,
     }
 
     /// Whether the next `WM_CLOSE` means "quit" or "hide".
@@ -138,6 +148,45 @@ mod windows_app {
     /// The id of our icon within this window. Any number; it only has to be
     /// stable between `NIM_ADD` and `NIM_DELETE`.
     const TRAY_ID: u32 = 1;
+
+    /// A draw in flight, as everything outside the IMAGE page needs to see it.
+    #[derive(Clone, Default)]
+    struct Drawing {
+        /// The prompt, shortened for a one-line summary.
+        prompt: String,
+        /// `1024x1024`, say.
+        size: String,
+        /// Steps done and steps asked for. `None` until the first step lands,
+        /// because the prompt has to be encoded first and that is not a step.
+        step: Option<(u32, u32)>,
+        /// What phase it is in, in words: encoding, denoising, decoding.
+        phase: String,
+        started: Option<Instant>,
+    }
+
+    impl Drawing {
+        /// 0..=100, or `None` while there is nothing honest to show.
+        ///
+        /// **Encoding and decoding are not free and are not steps**, so the bar
+        /// covers the denoising and stops short of the ends rather than
+        /// pretending the last stretch is instant.
+        fn percent(&self) -> Option<u32> {
+            let (done, total) = self.step?;
+            if total == 0 {
+                return None;
+            }
+            Some((5 + done * 90 / total).min(95))
+        }
+
+        fn line(&self) -> String {
+            match self.step {
+                Some((done, total)) => {
+                    format!("drawing {} -- step {done} of {total}", self.size)
+                }
+                None => format!("drawing {} -- {}", self.size, self.phase),
+            }
+        }
+    }
 
     /// Which set of models the MODELS page lists.
     #[derive(PartialEq, Clone, Copy)]
@@ -180,6 +229,17 @@ mod windows_app {
         /// per rescan. **Not counted while painting**: that is a directory scan,
         /// and the transcript repaints on every token.
         entry_files: Vec<usize>,
+        /// Which entries the list is showing, in list order.
+        ///
+        /// **A clicked row is not an entry index once the list can be filtered
+        /// or sorted.** Without this mapping, narrowing the list to "image
+        /// models" and pressing LOAD would load whatever model happened to sit
+        /// at that position in the unfiltered `entries` -- a real container, so
+        /// no error, just the wrong model.
+        shown: Vec<usize>,
+        sort: models::Sort,
+        filter: models::Filter,
+        search: String,
         offers: Vec<catalog::Offer>,
         free_bytes: u64,
         total_bytes: u64,
@@ -220,6 +280,16 @@ mod windows_app {
     fn busy() -> &'static AtomicBool {
         static B: AtomicBool = AtomicBool::new(false);
         &B
+    }
+
+    /// Whether a look at the models directory is already in flight.
+    ///
+    /// Switching tabs quickly used to mean switching *scans* quickly; one at a
+    /// time is enough, because the second would read the same directory and
+    /// arrive with the same answer.
+    fn scanning() -> &'static AtomicBool {
+        static S: AtomicBool = AtomicBool::new(false);
+        &S
     }
 
     /// The main window handle, readable from any thread.
@@ -286,7 +356,46 @@ mod windows_app {
     /// attached that means no message, no log and nothing to report. The hook
     /// runs *before* the abort, so it still gets to write the file and put a
     /// box on screen naming it.
+    /// Catch the crashes the panic hook never sees.
+    ///
+    /// **A Rust panic writes `chaos-app-crash.log` and shows a box. An access
+    /// violation does neither** -- it is not a panic, no Rust code runs, and
+    /// the process simply disappears. Atur reported a crash and there was no
+    /// log at all, which is exactly what that looks like from outside.
+    ///
+    /// This writes the same log for a hardware fault: which fault, and the
+    /// address. Then it returns `EXCEPTION_CONTINUE_SEARCH` so Windows Error
+    /// Reporting and any attached debugger still get their turn -- swallowing
+    /// the fault would trade one silent death for another.
+    unsafe extern "system" fn on_hardware_fault(info: *mut EXCEPTION_POINTERS) -> i32 {
+        if !info.is_null() {
+            let rec = (*info).ExceptionRecord;
+            if !rec.is_null() {
+                let code = (*rec).ExceptionCode;
+                let at = (*rec).ExceptionAddress as usize;
+                let name = match code {
+                    EXCEPTION_ACCESS_VIOLATION => "access violation (a bad pointer)",
+                    EXCEPTION_STACK_OVERFLOW => "stack overflow",
+                    EXCEPTION_ILLEGAL_INSTRUCTION => "illegal instruction",
+                    _ => "hardware fault",
+                };
+                let text = format!(
+                    "Chaos crashed.\n\n{name}\ncode 0x{code:08X} at 0x{at:016X}\n\n\
+                     This is not a Rust panic, so there is no source line. The \
+                     address and code are what a bug report needs.\n"
+                );
+                let path = std::env::temp_dir().join("chaos-app-crash.log");
+                let _ = std::fs::write(&path, &text);
+            }
+        }
+        EXCEPTION_CONTINUE_SEARCH
+    }
+
     pub fn install_panic_hook() {
+        // Before the hook: a fault during start-up is still a fault.
+        unsafe {
+            SetUnhandledExceptionFilter(Some(on_hardware_fault));
+        }
         std::panic::set_hook(Box::new(|info| {
             let where_ = info
                 .location()
@@ -773,7 +882,35 @@ mod windows_app {
             nav::ID_IMG_PROMPT,
             hinst,
         );
-        for id in [nav::ID_IMG_SIZE, nav::ID_IMG_STEPS] {
+        // ---- the MODELS list's own controls --------------------------------
+        //
+        // Atur: *"list of model better management and sort and structured for
+        // users"*. Thirty-nine containers in one flat alphabetical list, half
+        // of them parts of an image pipeline, is the list this replaces.
+        child(
+            hwnd,
+            "EDIT",
+            "",
+            ES_AUTOHSCROLL | WS_BORDER | WS_TABSTOP,
+            nav::ID_MODEL_SEARCH,
+            hinst,
+        );
+        for id in [nav::ID_MODEL_SORT, nav::ID_MODEL_KIND] {
+            child(
+                hwnd,
+                "COMBOBOX",
+                "",
+                CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL,
+                id,
+                hinst,
+            );
+        }
+        for id in [
+            nav::ID_IMG_MODEL,
+            nav::ID_IMG_SIZE,
+            nav::ID_IMG_STEPS,
+            nav::ID_IMG_CFG,
+        ] {
             child(
                 hwnd,
                 "COMBOBOX",
@@ -863,6 +1000,10 @@ mod windows_app {
                 },
                 entries: Vec::new(),
                 entry_files: Vec::new(),
+                shown: Vec::new(),
+                sort: models::Sort::Name,
+                filter: models::Filter::All,
+                search: String::new(),
                 offers: catalog::offers(),
                 free_bytes: free_memory_bytes(),
                 total_bytes: total_memory_bytes(),
@@ -1081,19 +1222,27 @@ mod windows_app {
         // The selection is read first: `LB_GETCURSEL` is a `SendMessageW`, and
         // this file's rule is that Windows is never called with `UI` open.
         let sel = selection();
-        let (installed, running, busy_now, unfinished) = UI.with(|u| {
+        let (installed, running, busy_now, unfinished, image_part) = UI.with(|u| {
             u.borrow()
                 .as_ref()
                 .map(|ui| {
+                    let picked = sel
+                        .and_then(|s| ui.shown.get(s))
+                        .and_then(|i| ui.entries.get(*i));
                     (
                         ui.tab == Tab::Installed,
                         ui.loaded.is_some(),
                         busy().load(Ordering::SeqCst),
-                        sel.and_then(|s| ui.entries.get(s))
-                            .is_some_and(|e| e.incomplete.is_some()),
+                        picked.is_some_and(|e| e.incomplete.is_some()),
+                        // **An image part has no token loop to run.** LOAD on
+                        // an autoencoder used to start a server and fail; grey
+                        // is the honest answer, and the row says "image" so the
+                        // greying is explained rather than mysterious.
+                        ui.tab == Tab::Installed
+                            && picked.is_some_and(|e| e.kind == models::Kind::ImagePart),
                     )
                 })
-                .unwrap_or((true, false, false, false))
+                .unwrap_or((true, false, false, false, false))
         });
         let set = |id: i32, on: bool| unsafe {
             EnableWindow(ctl(id), i32::from(on));
@@ -1101,7 +1250,10 @@ mod windows_app {
         // **An unfinished model cannot be loaded and can be finished.** Leaving
         // DOWNLOAD grey on the INSTALLED tab meant the one action that fixes
         // the problem was the one action not offered.
-        set(nav::ID_LOAD, installed && !running && !unfinished);
+        set(
+            nav::ID_LOAD,
+            installed && !running && !unfinished && !image_part,
+        );
         set(nav::ID_UNLOAD, running);
         set(nav::ID_GET, !installed || (unfinished && !running));
         set(nav::ID_DELETE, installed && !running);
@@ -1152,11 +1304,78 @@ mod windows_app {
 
     // -- actions -------------------------------------------------------------
 
+    /// Show the list, and ask the disk for a fresh one in the background.
+    ///
+    /// **The disk half used to be right here, on the UI thread.** Measured on
+    /// this machine with 39 models installed: `find::list()` 3.7 ms and
+    /// `models::list()` **1523 ms**, nearly all of it `why_incomplete` opening
+    /// every shard of every container and parsing megabytes of header. That ran
+    /// on every switch between INSTALLED and AVAILABLE, so the window stopped
+    /// answering for a second and a half each time. Atur: *"when i switch
+    /// between available and installed models installed models load with lag
+    /// and make problem"*.
+    ///
+    /// Two changes fix it and both were needed. `chaos_model::complete` now
+    /// remembers a container's verdict against its length and modified time, so
+    /// a repeat scan costs 4.2 ms instead of 1608. And the scan itself happens
+    /// on a worker, so even the *first* one -- which still has to read the disk
+    /// once -- does not hold the message loop.
     fn rescan() {
+        start_scan();
+        refill_list();
+    }
+
+    /// The disk half. Runs on a worker thread; touches no window and no `UI`.
+    fn scan_models() -> (Vec<models::Entry>, Vec<usize>) {
+        let entries = models::list();
+        // Counted here rather than while painting: this is a directory scan per
+        // model and the window repaints on every generated token.
+        let files = entries.iter().map(|e| shards_of(&e.path).len()).collect();
+        (entries, files)
+    }
+
+    /// Ask for a fresh look at the models directory, without waiting for it.
+    fn start_scan() {
+        // One at a time. A second scan would read the same directory and come
+        // back with the same answer.
+        if scanning().swap(true, Ordering::SeqCst) {
+            return;
+        }
+        std::thread::spawn(|| {
+            let got = scan_models();
+            if let Ok(mut sh) = shared().lock() {
+                sh.scan = Some(got);
+            }
+            scanning().store(false, Ordering::SeqCst);
+            notify();
+        });
+    }
+
+    /// Take a finished scan and put it in the window.
+    fn drain_scan() {
+        let got = {
+            let mut sh = shared().lock().unwrap();
+            sh.scan.take()
+        };
+        let Some((entries, files)) = got else {
+            return;
+        };
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                ui.entries = entries;
+                ui.entry_files = files;
+            }
+        });
+        refill_list();
+    }
+
+    /// Repaint the list from what the window already knows. No disk.
+    fn refill_list() {
         // Phase 1 -- read state and build the strings. Borrow ends here.
         let rows: Vec<String> = {
             let free = free_memory_bytes();
             let total = total_memory_bytes();
+            let looking = scanning().load(Ordering::SeqCst);
             UI.with(|u| {
                 let mut b = u.borrow_mut();
                 let Some(ui) = b.as_mut() else {
@@ -1166,22 +1385,42 @@ mod windows_app {
                 ui.total_bytes = total;
                 match ui.tab {
                     Tab::Installed => {
-                        ui.entries = models::list();
-                        // Counted here, once, rather than while painting: this
-                        // is a directory scan per model and the window
-                        // repaints on every generated token.
-                        ui.entry_files = ui
-                            .entries
-                            .iter()
-                            .map(|e| shards_of(&e.path).len())
-                            .collect();
+                        ui.shown = models::arrange(&ui.entries, &ui.search, ui.sort, ui.filter);
                         if ui.entries.is_empty() {
-                            vec!["nothing installed -- open AVAILABLE to download one".to_string()]
+                            // **"Nothing installed" is a claim, and before the
+                            // first scan finishes it is one nobody has
+                            // checked.** Saying it while still looking tells a
+                            // user with 39 models that they have none.
+                            vec![if looking {
+                                "looking for models...".to_string()
+                            } else {
+                                "nothing installed -- open AVAILABLE to download one".to_string()
+                            }]
+                        } else if ui.shown.is_empty() {
+                            // **Not silence.** An empty list after a search
+                            // looks exactly like an empty list after a failed
+                            // scan, and the difference is the only thing the
+                            // user needs to know.
+                            vec![format!(
+                                "nothing matches -- all {} installed models are                                  hidden by the search or the filter",
+                                ui.entries.len()
+                            )]
                         } else {
-                            ui.entries.iter().map(models::row).collect()
+                            ui.shown
+                                .iter()
+                                .filter_map(|i| ui.entries.get(*i))
+                                .map(models::row)
+                                .collect()
                         }
                     }
-                    Tab::Available => ui.offers.iter().map(|o| catalog::row(o, free)).collect(),
+                    Tab::Available => {
+                        // AVAILABLE is the catalogue, which is not filtered by
+                        // what is on disk -- but a row still maps to itself, and
+                        // leaving `shown` stale would point INSTALLED's actions
+                        // at the previous tab's arrangement.
+                        ui.shown = (0..ui.offers.len()).collect();
+                        ui.offers.iter().map(|o| catalog::row(o, free)).collect()
+                    }
                 }
             })
         };
@@ -1191,13 +1430,18 @@ mod windows_app {
         if list.is_null() {
             return;
         }
+        // **Kept across the refill.** A background scan lands whenever it
+        // lands; resetting to the first row while somebody is reading the
+        // seventh would move the selection under them, and the selection is
+        // what LOAD and DELETE act on.
+        let keep = selection().filter(|s| *s < rows.len()).unwrap_or(0);
         unsafe {
             SendMessageW(list, LB_RESETCONTENT, 0, 0);
             for r in &rows {
                 let t = wide(r);
                 SendMessageW(list, LB_ADDSTRING, 0, t.as_ptr() as LPARAM);
             }
-            SendMessageW(list, LB_SETCURSEL, 0, 0);
+            SendMessageW(list, LB_SETCURSEL, keep as WPARAM, 0);
         }
         sync_enabled();
         repaint();
@@ -1269,7 +1513,14 @@ mod windows_app {
             if ui.tab != Tab::Installed {
                 return None;
             }
-            let e = ui.entries.get(sel)?;
+            let e = ui.entries.get(*ui.shown.get(sel)?)?;
+            // **An image part is not something to chat with.** It has no
+            // tokenizer and no token loop; LOAD on an autoencoder used to spend
+            // seconds finding that out. The row says "image", and this refuses
+            // rather than starting a server that cannot come up.
+            if e.kind == models::Kind::ImagePart {
+                return None;
+            }
             Some((e.path.clone(), e.label.clone(), ui.cfg.clone()))
         });
         let Some((path, label, cfg)) = picked else {
@@ -1663,7 +1914,7 @@ mod windows_app {
             if ui.tab != Tab::Installed {
                 return None;
             }
-            let e = ui.entries.get(sel)?;
+            let e = ui.entries.get(*ui.shown.get(sel)?)?;
             Some((
                 e.path.clone(),
                 e.label.clone(),
@@ -1751,7 +2002,7 @@ mod windows_app {
             // disk is known by its file rather than by the name it was fetched
             // under, so the catalogue is asked which entry produces that
             // filename. `chaos-pull` then resumes from the bytes already there.
-            let e = ui.entries.get(sel)?;
+            let e = ui.entries.get(*ui.shown.get(sel)?)?;
             e.incomplete.as_ref()?;
             let file = e.path.file_name()?.to_str()?;
             let (entry, quant) = chaos_model::catalogue::find_by_file(file)?;
@@ -2936,12 +3187,28 @@ Any value a client sends is accepted.                      The server still list
                     },
                     t.stroke_1,
                 );
+                // **"No model running" was a lie while an image was being
+                // drawn.** The strip only knew about the chat server, so it
+                // reported an idle machine through ten minutes of a child
+                // process reading 5.26 GiB a step. It is the one thing on every
+                // page; it has to know about every kind of work.
+                let drawing = shared().lock().unwrap().draw.clone();
+                let (headline, under) = match &drawing {
+                    Some(d) => (
+                        d.line(),
+                        format!("chaos-draw -- {:?}", short(&d.prompt, 48)),
+                    ),
+                    None => (
+                        "no model running".to_string(),
+                        "Open MODELS, pick one, and press LOAD.".to_string(),
+                    ),
+                };
                 label(
                     hdc,
                     x + 16,
                     y + 1,
                     420,
-                    "no model running",
+                    &headline,
                     ui.fonts.body_bold,
                     t.fg_secondary,
                 );
@@ -2950,10 +3217,29 @@ Any value a client sends is accepted.                      The server still list
                     x + 16,
                     y + 21,
                     520,
-                    "Open MODELS, pick one, and press LOAD.",
+                    &under,
                     ui.fonts.small,
                     t.fg_tertiary,
                 );
+                // A bar in the strip too, so the progress is visible from
+                // whichever page you happen to be on.
+                if let Some(pct) = drawing.as_ref().and_then(|d| d.percent()) {
+                    let bar = RECT {
+                        left: x + 16,
+                        top: y + 38,
+                        right: x + 316,
+                        bottom: y + 42,
+                    };
+                    fill(hdc, bar, t.stroke_3);
+                    fill(
+                        hdc,
+                        RECT {
+                            right: bar.left + (300 * pct as i32) / 100,
+                            ..bar
+                        },
+                        t.accent,
+                    );
+                }
                 if !status.is_empty() {
                     text(
                         hdc,
@@ -3013,6 +3299,7 @@ Any value a client sends is accepted.                      The server still list
         let i = sel?;
         match ui.tab {
             Tab::Installed => {
+                let i = *ui.shown.get(i)?;
                 let e = ui.entries.get(i)?;
                 let running = ui.loaded.as_deref() == Some(e.label.as_str());
                 let files = ui.entry_files.get(i).copied().unwrap_or(1);
@@ -3215,10 +3502,99 @@ Any value a client sends is accepted.                      The server still list
         let w = page.right - x - metric::INSET;
         let top = content_top(page);
 
+        // **A bar, because a log is not progress.** Atur: "the progress of
+        // image creation is type logs not a bar progress". The log stays --
+        // it carries the seconds per step and the time left, which a bar
+        // cannot -- but the bar is what answers "how far along is this".
+        if let Some(d) = shared().lock().unwrap().draw.clone() {
+            let bar = RECT {
+                left: x,
+                top: page.bottom - metric::BUTTON - 30,
+                right: x + w,
+                bottom: page.bottom - metric::BUTTON - 22,
+            };
+            fill(hdc, bar, t.stroke_3);
+            if let Some(pct) = d.percent() {
+                fill(
+                    hdc,
+                    RECT {
+                        right: bar.left + ((bar.right - bar.left) * pct as i32) / 100,
+                        ..bar
+                    },
+                    t.accent,
+                );
+            }
+            label(
+                hdc,
+                x,
+                bar.bottom + 4,
+                w,
+                &d.line(),
+                ui.fonts.small,
+                t.fg_secondary,
+            );
+        }
+
         label(hdc, x, top, w, "PROMPT", ui.fonts.small, t.fg_tertiary);
-        let y = top + 22 + 64 + 6;
+        let my = top + 22 + 64 + 6;
+        label(
+            hdc,
+            x,
+            my,
+            240,
+            "IMAGE MODEL",
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
+        let y = my + metric::CONTROL + 26;
         label(hdc, x, y, 150, "SIZE", ui.fonts.small, t.fg_tertiary);
         label(hdc, x + 170, y, 150, "STEPS", ui.fonts.small, t.fg_tertiary);
+        label(
+            hdc,
+            x + 340,
+            y,
+            210,
+            "GUIDANCE",
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
+
+        // **How long this will take, before the button is pressed.** Atur was
+        // ninety minutes into a six-hour render before any number appeared;
+        // the drop-down said "slow", which is not a quantity. Read from the
+        // controls rather than from stored state, so it follows the selection
+        // as it changes.
+        let grid = unsafe { SendMessageW(sel_of(nav::ID_IMG_SIZE), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| SIZES.get(i))
+            .map(|(_, g)| *g)
+            .unwrap_or(32);
+        let steps = unsafe { SendMessageW(sel_of(nav::ID_IMG_STEPS), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| STEPS.get(i))
+            .copied()
+            .unwrap_or(20);
+        // **Guidance doubles the work**, so an estimate that ignored it was
+        // wrong by a factor of two on the one control that changes the answer.
+        let cfg = unsafe { SendMessageW(sel_of(nav::ID_IMG_CFG), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| GUIDANCE.get(i))
+            .map(|(_, v)| *v)
+            .unwrap_or(4.0);
+        let est = draw_estimate(grid, steps, cfg);
+        let long = draw_seconds(grid, steps, cfg) > 3600.0;
+        label(
+            hdc,
+            x + 560,
+            y + 20,
+            w - 560 - 260,
+            &est,
+            ui.fonts.body_bold,
+            if long { t.red } else { t.fg_secondary },
+        );
 
         // **The honest sentence, on the page, before the button is pressed.**
         // A 1024x1024 picture is minutes of work on this machine and the models
@@ -3314,6 +3690,35 @@ Any value a client sends is accepted.                      The server still list
         y += 32;
         rule(hdc, x, x + w, y, t.stroke_3);
         y += 20;
+
+        // **A draw is work this machine is doing**, and MONITOR exists to say
+        // what the machine is doing. It showed an idle box.
+        if let Some(d) = shared().lock().unwrap().draw.clone() {
+            label(hdc, x, y, w, "DRAWING", ui.fonts.small, t.fg_tertiary);
+            y += 24;
+            let elapsed = d
+                .started
+                .map(|t0| format!("{:.0}s", t0.elapsed().as_secs_f32()))
+                .unwrap_or_else(|| "-".into());
+            for (k, v) in [
+                ("prompt", short(&d.prompt, 60)),
+                ("size", d.size.clone()),
+                ("phase", d.phase.clone()),
+                (
+                    "step",
+                    match d.step {
+                        Some((a, b)) => format!("{a} of {b}"),
+                        None => "-".into(),
+                    },
+                ),
+                ("elapsed", elapsed),
+            ] {
+                label(hdc, x, y + 1, 160, k, ui.fonts.small, t.fg_tertiary);
+                label(hdc, x + 166, y, w - 166, &v, ui.fonts.mono, t.fg);
+                y += 24;
+            }
+            y += 20;
+        }
 
         label(hdc, x, y, w, "GENERATION", ui.fonts.small, t.fg_tertiary);
         y += 24;
@@ -3542,6 +3947,17 @@ Any value a client sends is accepted.                      The server still list
                     let mut y = top + 22;
                     m.push((nav::ID_IMG_PROMPT, x, y, w, 64));
                     y += 64 + 26;
+                    // Its own row, and wide: a row here reads
+                    // "ideogram4-Q4_0 -- ready, 16.7 GB", and the half that
+                    // matters is the half a narrow control would cut.
+                    m.push((
+                        nav::ID_IMG_MODEL,
+                        x,
+                        y,
+                        (w - 270).max(240),
+                        metric::CONTROL + metric::COMBO_ROW * 4,
+                    ));
+                    y += metric::CONTROL + 26;
                     let cw = 150;
                     m.push((
                         nav::ID_IMG_SIZE,
@@ -3556,6 +3972,13 @@ Any value a client sends is accepted.                      The server still list
                         y,
                         cw,
                         metric::CONTROL + metric::COMBO_ROW * 5,
+                    ));
+                    m.push((
+                        nav::ID_IMG_CFG,
+                        x + (cw + 20) * 2,
+                        y,
+                        cw + 60,
+                        metric::CONTROL + metric::COMBO_ROW * 4,
                     ));
                     m.push((nav::ID_IMG_DRAW, x + w - 250, y, 120, metric::BUTTON));
                     m.push((nav::ID_IMG_STOP, x + w - 120, y, 120, metric::BUTTON));
@@ -3579,7 +4002,27 @@ Any value a client sends is accepted.                      The server still list
                     m.push((nav::ID_TAB_AVAILABLE, x + 104, top, 96, metric::BUTTON));
                     // RESCAN belongs with the list it refreshes.
                     m.push((nav::ID_REFRESH, split - 84, top, 84, metric::BUTTON));
-                    let list_top = top + metric::BUTTON + 14;
+                    // A row of its own for finding things, because the tab row
+                    // has no space left and these three belong together.
+                    let fy = top + metric::BUTTON + 10;
+                    let lw = split - x - 20;
+                    let third = (lw - 16) / 3;
+                    m.push((nav::ID_MODEL_SEARCH, x, fy, third, metric::CONTROL));
+                    m.push((
+                        nav::ID_MODEL_SORT,
+                        x + third + 8,
+                        fy,
+                        third,
+                        metric::CONTROL + metric::COMBO_ROW * 3,
+                    ));
+                    m.push((
+                        nav::ID_MODEL_KIND,
+                        x + (third + 8) * 2,
+                        fy,
+                        third,
+                        metric::CONTROL + metric::COMBO_ROW * 3,
+                    ));
+                    let list_top = fy + metric::CONTROL + 14;
                     m.push((
                         nav::ID_LIST,
                         x,
@@ -3977,6 +4420,18 @@ Any value a client sends is accepted.                      The server still list
         );
     }
 
+    /// A prompt cut to fit a line, with an ellipsis if it was cut.
+    fn short(text: &str, n: usize) -> String {
+        let t = text.trim();
+        if t.chars().count() <= n {
+            return t.to_string();
+        }
+        // By characters, not bytes: a byte slice through a multi-byte prompt
+        // panics, and prompts are the one thing here a user writes freely.
+        let cut: String = t.chars().take(n.saturating_sub(1)).collect();
+        format!("{cut}\u{2026}")
+    }
+
     /// One row of the model list.
     unsafe fn draw_list_row(
         di: &DRAWITEMSTRUCT,
@@ -4182,6 +4637,59 @@ Any value a client sends is accepted.                      The server still list
     ];
     const STEPS: [u32; 5] = [4, 8, 20, 30, 50];
 
+    /// Seconds per denoiser pass, per latent token, measured on this machine.
+    ///
+    /// From a real run: 1024x1024 is a 64x64 grid, so 4096 tokens, and one pass
+    /// took 235 s. That is 0.0574 s per token per pass. The whole render of
+    /// 1024x1024 at two steps with guidance off took 519 s, which this model
+    /// puts at 2 x 235 + overhead -- close enough for a warning, nowhere near
+    /// good enough to quote as a benchmark.
+    const SECONDS_PER_TOKEN_PASS: f64 = 235.0 / 4096.0;
+
+    /// Roughly how long a draw of this shape will take, in seconds.
+    ///
+    /// **Guidance doubles it.** Classifier-free guidance runs the denoiser
+    /// twice per step -- once conditioned, once not -- and `chaos-draw`'s
+    /// default is guidance on. That factor of two is the difference between
+    /// "over lunch" and "overnight", so it is not left out of the arithmetic.
+    fn draw_seconds(grid: u32, steps: u32, cfg: f32) -> f64 {
+        let tokens = f64::from(grid) * f64::from(grid);
+        let per_pass = tokens * SECONDS_PER_TOKEN_PASS;
+        // **One pass a step, or two with guidance.** Guidance runs a second,
+        // separately trained denoiser on every step -- another 5.26 GiB read --
+        // so it is exactly a factor of two, and an estimate that assumed it was
+        // always on was wrong by that factor whenever it was not.
+        let passes = if cfg == 1.0 { 1.0 } else { 2.0 };
+        // Plus encoding the prompt and decoding the latent; the decode scales
+        // with the image, not the step count.
+        passes * f64::from(steps) * per_pass + 5.0 + tokens * 0.012
+    }
+
+    /// The estimate as a person would say it, deliberately coarse.
+    fn draw_estimate(grid: u32, steps: u32, cfg: f32) -> String {
+        let secs = draw_seconds(grid, steps, cfg);
+        let rough = if secs < 90.0 {
+            format!("{:.0} seconds", secs)
+        } else if secs < 5400.0 {
+            format!("{:.0} minutes", secs / 60.0)
+        } else {
+            format!("{:.1} hours", secs / 3600.0)
+        };
+        format!("about {rough} on this machine")
+    }
+
+    /// Guidance settings, as a user would describe them rather than as a float.
+    ///
+    /// **Guidance runs the denoiser a second time on every step**, so this is
+    /// the only control on the page that halves or doubles the wait. Naming the
+    /// cost in the label is the point: "4" says nothing about an evening.
+    const GUIDANCE: [(&str, f32); 4] = [
+        ("guidance 4 (default)", 4.0),
+        ("guidance 2 (looser)", 2.0),
+        ("guidance 6 (stricter)", 6.0),
+        ("no guidance -- half the time", 1.0),
+    ];
+
     /// Put the two drop-downs' options in, and cache them where the painter
     /// looks.
     ///
@@ -4207,11 +4715,94 @@ Any value a client sends is accepted.                      The server still list
                 note: String::new(),
             })
             .collect();
+        let guidance: Vec<Choice> = GUIDANCE
+            .iter()
+            .map(|(label, v)| Choice {
+                value: v.to_string(),
+                label: (*label).to_string(),
+                note: String::new(),
+            })
+            .collect();
+
+        // The list's own controls, from the enums rather than from strings
+        // repeated here: a label that drifts from what the sort actually does
+        // is a lie the compiler cannot catch.
+        for (id, list, selected) in [
+            (
+                nav::ID_MODEL_SORT,
+                models::Sort::ALL
+                    .iter()
+                    .map(|v| Choice {
+                        value: v.label().to_string(),
+                        label: v.label().to_string(),
+                        note: String::new(),
+                    })
+                    .collect::<Vec<_>>(),
+                0usize,
+            ),
+            (
+                nav::ID_MODEL_KIND,
+                models::Filter::ALL
+                    .iter()
+                    .map(|v| Choice {
+                        value: v.label().to_string(),
+                        label: v.label().to_string(),
+                        note: String::new(),
+                    })
+                    .collect::<Vec<_>>(),
+                0usize,
+            ),
+        ] {
+            let h = ctl(id);
+            if h.is_null() {
+                continue;
+            }
+            unsafe {
+                SendMessageW(h, CB_RESETCONTENT, 0, 0);
+                for c in &list {
+                    SendMessageW(h, CB_ADDSTRING, 0, wide(&c.label).as_ptr() as LPARAM);
+                }
+                SendMessageW(h, CB_SETCURSEL, selected, 0);
+                widen_dropdown(h, &list);
+            }
+            UI.with(|u| {
+                if let Some(ui) = u.borrow_mut().as_mut() {
+                    ui.lists.insert(id, list);
+                }
+            });
+        }
+
+        // **The image models actually on this machine.** Four hard-coded
+        // filenames is what "no select model options" meant, and it is also
+        // what let a draw start with nothing installed: the paths were a
+        // constant, so there was nothing to be missing.
+        let found = chaos_model::image::installed(&chaos_model::find::model_dirs());
+        let models: Vec<Choice> = if found.is_empty() {
+            vec![Choice {
+                value: String::new(),
+                label: "no image models -- get them on MODELS".to_string(),
+                note: String::new(),
+            }]
+        } else {
+            found
+                .iter()
+                .map(|m| Choice {
+                    value: m.name.clone(),
+                    label: m.summary(),
+                    note: String::new(),
+                })
+                .collect()
+        };
+        // The first ready one, which is what `installed` sorts to the front.
+        // Selecting a model that cannot draw would make the default unusable.
+        let ready = found.iter().position(chaos_model::image::ImageModel::ready);
 
         for (id, list, selected) in [
+            (nav::ID_IMG_MODEL, models, ready.unwrap_or(0)),
             // 512: large enough not to be a smear, small enough to finish.
             (nav::ID_IMG_SIZE, sizes, 1usize),
             (nav::ID_IMG_STEPS, steps, 2usize),
+            (nav::ID_IMG_CFG, guidance, 0usize),
         ] {
             let h = ctl(id);
             if h.is_null() {
@@ -4279,6 +4870,37 @@ Any value a client sends is accepted.                      The server still list
             .and_then(|i: usize| STEPS.get(i))
             .copied()
             .unwrap_or(20);
+        let cfg = unsafe { SendMessageW(ctl(nav::ID_IMG_CFG), CB_GETCURSEL, 0, 0) }
+            .try_into()
+            .ok()
+            .and_then(|i: usize| GUIDANCE.get(i))
+            .map(|(_, v)| *v)
+            .unwrap_or(4.0);
+
+        // **Which model, and refuse to start without one.** Atur: *"now i run
+        // to draw a image without select any model!! wtf is that lol"* -- the
+        // four paths were a constant, so the button worked with nothing
+        // installed and failed some minutes later inside the pipeline. The
+        // `Choice`'s value is the denoiser's name and is empty exactly when
+        // the list is the "nothing installed" placeholder.
+        let chosen = UI
+            .with(|u| {
+                let b = u.borrow();
+                let ui = b.as_ref()?;
+                let list = ui.lists.get(&nav::ID_IMG_MODEL)?;
+                let i: usize = unsafe { SendMessageW(ctl(nav::ID_IMG_MODEL), CB_GETCURSEL, 0, 0) }
+                    .try_into()
+                    .ok()?;
+                list.get(i).map(|c| c.value.clone())
+            })
+            .unwrap_or_default();
+        if chosen.is_empty() {
+            set_status(
+                "no image model installed -- get ideogram-4, ideogram-4-uncond, \
+                 qwen3-vl-8b and flux2-vae on the MODELS page",
+            );
+            return;
+        }
 
         // Beside this executable, the way `chaos-serve` and `chaos-pull` are
         // found: an install puts all twelve binaries in one directory.
@@ -4305,12 +4927,40 @@ Any value a client sends is accepted.                      The server still list
                 .unwrap_or(0)
         ));
 
+        // **A fresh seed every time.** `chaos-draw`'s default is 42 and the
+        // window never overrode it, so the same prompt produced a
+        // byte-identical picture on every press, for ever. Atur: "always same
+        // image". It was not the model repeating itself; it was one number.
+        //
+        // The seed goes in the log, because reproducibility is the whole point
+        // of having a seed and is no use if nobody is told which one was used.
+        let seed = random_u64().unwrap_or_else(|| {
+            // The system generator failing is not a reason to fall back to a
+            // constant -- that is the bug being fixed.
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x5DEE_CE66)
+        });
+
         let mut cmd = Command::new(&exe);
         cmd.arg(&prompt)
+            .arg("--model")
+            .arg(&chosen)
             .arg("--grid")
             .arg(grid.to_string())
             .arg("--steps")
             .arg(steps.to_string())
+            .arg("--cfg")
+            .arg(cfg.to_string())
+            .arg("--seed")
+            .arg(seed.to_string())
+            // **Always.** The latent is a few megabytes and it is the
+            // expensive half of the work; a 1024x1024 draw is hours of
+            // denoising and under a second to decode again from this. Six
+            // hours of it was thrown away once because only the PNG was kept.
+            .arg("--keep-latent")
+            .arg(file.with_extension("latent"))
             .arg("-o")
             .arg(&file)
             .stdout(std::process::Stdio::piped())
@@ -4332,12 +4982,19 @@ Any value a client sends is accepted.                      The server still list
             sh.drawing.clear();
             sh.draw_done = false;
             sh.drawn = Some(file.to_string_lossy().into_owned());
+            sh.draw = Some(Drawing {
+                prompt: prompt.clone(),
+                size: format!("{0}x{0}", grid * 16),
+                step: None,
+                phase: "starting".into(),
+                started: Some(Instant::now()),
+            });
         }
         unsafe {
             SetWindowTextW(ctl(nav::ID_IMG_LOG), wide("").as_ptr());
         }
         image_log(&format!(
-            "chaos-draw {:?}\r\n  {}x{} from a {}x{} grid, {steps} steps\r\n  writing {}\r\n\r\n",
+            "chaos-draw {:?}\r\n  {}x{} from a {}x{} grid, {steps} steps, seed {seed}\r\n  writing {}\r\n\r\n",
             prompt,
             grid * 16,
             grid * 16,
@@ -4404,6 +5061,43 @@ Any value a client sends is accepted.                      The server still list
         }
     }
 
+    /// Read the phase and the step out of what `chaos-draw` printed.
+    ///
+    /// It prints `[1/3] encoding the prompt`, `[2/3] denoising`,
+    /// `[3/3] decoding to pixels`, and `step 7/20  29s/step  about 380s left`.
+    /// Those are the words a person reads in the log, so they are also what the
+    /// bar and the strip are built from -- one source of truth rather than two.
+    fn update_drawing_from(text: &str) {
+        let mut sh = shared().lock().unwrap();
+        let Some(d) = sh.draw.as_mut() else { return };
+        for line in text.split(['\n', '\r']) {
+            let t = line.trim();
+            if let Some(rest) = t.strip_prefix("[1/3]") {
+                d.phase = rest.trim().to_string();
+            } else if t.starts_with("[2/3]") {
+                d.phase = "denoising".into();
+            } else if t.starts_with("[3/3]") {
+                d.phase = "decoding to pixels".into();
+                // The steps are finished; hold the bar near the end rather
+                // than dropping it to nothing for the final stretch.
+                if let Some((_, total)) = d.step {
+                    d.step = Some((total, total));
+                }
+            } else if let Some(rest) = t.strip_prefix("step ") {
+                if let Some((a, b)) = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|f| f.split_once('/'))
+                {
+                    if let (Ok(done), Ok(total)) = (a.parse::<u32>(), b.parse::<u32>()) {
+                        d.step = Some((done, total));
+                        d.phase = "denoising".into();
+                    }
+                }
+            }
+        }
+    }
+
     /// Move whatever the child printed into the log, and notice when it ends.
     fn drain_drawing() {
         let text = {
@@ -4411,6 +5105,11 @@ Any value a client sends is accepted.                      The server still list
             std::mem::take(&mut sh.drawing)
         };
         if !text.is_empty() {
+            // **Parsed as well as shown.** `chaos-draw` already prints exactly
+            // what a progress bar needs -- "step 3/20" and the phase headings --
+            // and re-deriving that in the window would be a second source of
+            // truth, free to drift from the one the user is reading.
+            update_drawing_from(&text);
             // `chaos-draw` redraws its progress line with a carriage return;
             // an EDIT has no cursor to move, so each update becomes its own
             // line rather than a wall of them overwriting nothing.
@@ -4430,7 +5129,11 @@ Any value a client sends is accepted.                      The server still list
             }
         };
         if let Some(ok) = finished {
-            shared().lock().unwrap().draw_done = true;
+            {
+                let mut sh = shared().lock().unwrap();
+                sh.draw_done = true;
+                sh.draw = None;
+            }
             if ok {
                 image_log("\r\n-- finished. Press OPEN THE PICTURE. --\r\n");
                 set_status("the picture is ready");
@@ -4925,6 +5628,7 @@ Any value a client sends is accepted.                      The server still list
             WM_APP_TICK => {
                 drain();
                 drain_drawing();
+                drain_scan();
                 0
             }
             // The shell sends mouse messages for the icon here, in `lParam`.
@@ -5059,6 +5763,43 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_GET, BN_CLICKED) => download_selected(),
                     (nav::ID_DELETE, BN_CLICKED) => delete_selected(),
                     (nav::ID_COPY_ENDPOINT, BN_CLICKED) => copy_endpoint(),
+                    // **Repainted, not rescanned.** Narrowing a list is not a
+                    // reason to read the disk again; `refill_list` re-arranges
+                    // what is already known and returns in single-digit ms.
+                    (nav::ID_MODEL_SEARCH, EN_CHANGE) => {
+                        let text = control_text(ctl(nav::ID_MODEL_SEARCH));
+                        UI.with(|u| {
+                            if let Some(ui) = u.borrow_mut().as_mut() {
+                                ui.search = text;
+                            }
+                        });
+                        refill_list();
+                    }
+                    (nav::ID_MODEL_SORT, CBN_SELCHANGE) => {
+                        let i: usize =
+                            unsafe { SendMessageW(ctl(nav::ID_MODEL_SORT), CB_GETCURSEL, 0, 0) }
+                                .try_into()
+                                .unwrap_or(0);
+                        UI.with(|u| {
+                            if let Some(ui) = u.borrow_mut().as_mut() {
+                                ui.sort = *models::Sort::ALL.get(i).unwrap_or(&models::Sort::Name);
+                            }
+                        });
+                        refill_list();
+                    }
+                    (nav::ID_MODEL_KIND, CBN_SELCHANGE) => {
+                        let i: usize =
+                            unsafe { SendMessageW(ctl(nav::ID_MODEL_KIND), CB_GETCURSEL, 0, 0) }
+                                .try_into()
+                                .unwrap_or(0);
+                        UI.with(|u| {
+                            if let Some(ui) = u.borrow_mut().as_mut() {
+                                ui.filter =
+                                    *models::Filter::ALL.get(i).unwrap_or(&models::Filter::All);
+                            }
+                        });
+                        refill_list();
+                    }
                     (nav::ID_TAB_INSTALLED, BN_CLICKED) => set_tab(Tab::Installed),
                     (nav::ID_TAB_AVAILABLE, BN_CLICKED) => set_tab(Tab::Available),
                     (nav::ID_SAVE, BN_CLICKED) => save_settings(),

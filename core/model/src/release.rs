@@ -397,6 +397,45 @@ mod tests {
         );
     }
 
+    /// **The APK must never be offered as a desktop update.**
+    ///
+    /// A release now carries `Chaos-vX-android-arm64.apk` alongside the five
+    /// desktop archives, and `linux-arm64` and `android-arm64` differ by one
+    /// word. Selection is exact string equality rather than a substring or an
+    /// arch match, which is what makes that safe -- this pins it, because the
+    /// failure would be an ARM Linux machine downloading an Android package
+    /// and reporting a corrupt archive.
+    #[test]
+    fn the_android_package_is_not_a_desktop_installer() {
+        let v = Version(0, 0, 16);
+        let feed = Release {
+            version: v,
+            assets: vec![
+                (
+                    "Chaos-v0.0.16-android-arm64.apk".into(),
+                    "https://example.invalid/apk".into(),
+                ),
+                (
+                    asset_for_platform(&v),
+                    "https://example.invalid/right".into(),
+                ),
+            ],
+        };
+        assert_eq!(feed.asset_url(), Some("https://example.invalid/right"));
+
+        // And with *only* the APK there, the answer is "nothing for you"
+        // rather than the nearest-looking file.
+        let apk_only = Release {
+            version: v,
+            assets: vec![(
+                "Chaos-v0.0.16-android-arm64.apk".into(),
+                "https://example.invalid/apk".into(),
+            )],
+        };
+        assert_eq!(apk_only.asset_url(), None);
+        assert!(!asset_for_platform(&v).contains("android"));
+    }
+
     #[test]
     fn a_newer_release_is_offered_and_an_older_one_is_not() {
         let newer = parse_latest(&feed("v0.0.12"));

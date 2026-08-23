@@ -61,6 +61,9 @@ fn main() -> ExitCode {
     let mut port = 8080u16;
     let mut cache_gib = 0f64;
     let mut api_key: Option<String> = None;
+    // **Loopback until somebody says otherwise.** Opening an inference server
+    // to a network is a decision, not a default.
+    let mut host = String::from("127.0.0.1");
     let mut context: Option<usize> = None;
     let mut force = false;
     let mut auto = false;
@@ -98,6 +101,16 @@ fn main() -> ExitCode {
             // because many OpenAI-compatible clients insist on sending one and
             // some refuse to work without a value, and because a shared machine
             // is a real thing.
+            // Where to listen. `0.0.0.0` makes the endpoint reachable from a
+            // phone on the same Wi-Fi, which is the whole point of the Android
+            // client -- and the moment it leaves loopback, the api key stops
+            // being optional. See `require_key_off_loopback`.
+            "--host" => {
+                if let Some(v) = args.get(i + 1) {
+                    host = v.to_string();
+                }
+                i += 2;
+            }
             "--api-key" => {
                 api_key = args
                     .get(i + 1)
@@ -189,7 +202,14 @@ fn main() -> ExitCode {
         eprintln!("             run `chaos-pull` again -- it resumes.");
         return ExitCode::from(2);
     }
-    match serve(&path, port, cache_gib, api_key, context, force, auto) {
+    // **Checked before the model loads, not after.** A four-minute load
+    // followed by "refusing to start" is the same refusal delivered at the
+    // worst possible moment.
+    if let Some(why) = refuse_to_start(&host, api_key.as_deref()) {
+        eprintln!("{why}");
+        std::process::exit(2);
+    }
+    match serve(&path, &host, port, cache_gib, api_key, context, force, auto) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("chaos-serve: {e}");
@@ -221,6 +241,9 @@ fn usage() {
     println!("  GET  /health                readiness, and what the engine is doing");
     println!();
     println!("  --api-key <key>   require `Authorization: Bearer <key>` on /v1/*");
+    println!("  --host <addr>     what to listen on (default 127.0.0.1;");
+    println!("                    0.0.0.0 reaches a phone on the same Wi-Fi and");
+    println!("                    then --api-key is required, not optional)");
     println!();
     println!("Binds to localhost only: no TLS, one request at a time.");
 }
@@ -243,8 +266,58 @@ fn declined(flag: &str) -> Option<&'static str> {
     }
 }
 
+/// Addresses that only this machine can reach.
+///
+/// `127.0.0.0/8` and `::1`. Anything else is a route somebody else can take,
+/// including `0.0.0.0`, which is *every* route.
+pub fn is_loopback(host: &str) -> bool {
+    let h = host.trim();
+    if h == "localhost" || h == "::1" || h == "[::1]" {
+        return true;
+    }
+    let mut parts = h.split('.');
+    let first = parts.next().and_then(|p| p.parse::<u8>().ok());
+    let rest: Vec<&str> = parts.collect();
+    first == Some(127) && rest.len() == 3 && rest.iter().all(|p| p.parse::<u8>().is_ok())
+}
+
+/// Why this server must not start, if it must not.
+///
+/// **The api key stops being optional the moment the socket leaves loopback.**
+/// Until now `--api-key` was a convenience -- the doc comment on the flag says
+/// so, and it was right, because a caller who can reach `127.0.0.1` can already
+/// read the weights off the disk. `--host 0.0.0.0` changes that completely:
+/// every device on the Wi-Fi can now spend this machine's memory and read
+/// whatever the model is asked to say. An unauthenticated LAN endpoint is not a
+/// default anyone should be able to reach by accident, so this refuses rather
+/// than warns.
+pub fn refuse_to_start(host: &str, api_key: Option<&str>) -> Option<String> {
+    if is_loopback(host) || api_key.is_some_and(|k| !k.is_empty()) {
+        return None;
+    }
+    Some(format!(
+        "refusing to listen on {host} with no api key.\n\
+         \n\
+         On 127.0.0.1 a key is optional -- there is no route in. On {host} there\n\
+         is: every device on this network could use this model, and nothing\n\
+         would ask them who they are.\n\
+         \n\
+         Pass one:\n\
+         \n\
+             chaos-serve <model> --host {host} --api-key <a-long-random-string>\n\
+         \n\
+         The Android app asks for the same string. Anything unguessable does;\n\
+         it is checked for equality, not strength."
+    ))
+}
+
+// Command-line options, not coupled state: a config struct here would add a
+// layer without removing a decision, which is the same call `chaos-run` makes
+// about `run_streaming` for the same reason.
+#[allow(clippy::too_many_arguments)]
 fn serve(
     path: &str,
+    host: &str,
     port: u16,
     cache_gib: f64,
     api_key: Option<String>,
@@ -340,7 +413,7 @@ fn serve(
             config: &config,
             asked: context,
         };
-        return run_loop(engine, &tokenizer, port, t0, api_key);
+        return run_loop(engine, &tokenizer, host, port, t0, api_key);
     }
 
     // Dense: Llama, Mistral, Qwen and everything else the qwen3 path covers.
@@ -421,18 +494,19 @@ fn serve(
         config: config.clone(),
         asked: context,
     };
-    run_loop(engine, &tokenizer, port, t0, api_key)
+    run_loop(engine, &tokenizer, host, port, t0, api_key)
 }
 
 /// Accept and answer requests, one at a time.
 fn run_loop(
     engine: Engine<'_>,
     tokenizer: &Tokenizer,
+    host: &str,
     port: u16,
     t0: std::time::Instant,
     api_key: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let addr = format!("127.0.0.1:{port}");
+    let addr = format!("{host}:{port}");
     let listener = TcpListener::bind(&addr)?;
     println!("ready      {addr} in {:.1}s", t0.elapsed().as_secs_f64());
     // The URL comes first and on its own line: most terminals make it
@@ -1772,6 +1846,54 @@ fn escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// **What counts as "only this machine".**
+    ///
+    /// `0.0.0.0` is the trap: it reads like "no address" and means *every*
+    /// address, so a rule that tested for a literal `127.0.0.1` would let the
+    /// most open binding through as though it were the most closed one.
+    #[test]
+    fn only_real_loopback_counts_as_loopback() {
+        for h in [
+            "127.0.0.1",
+            "127.0.0.2",
+            "127.1.2.3",
+            "localhost",
+            "::1",
+            "[::1]",
+        ] {
+            assert!(super::is_loopback(h), "{h} is loopback");
+        }
+        for h in ["0.0.0.0", "192.168.1.20", "10.0.0.5", "::", "1.2.3.4", ""] {
+            assert!(!super::is_loopback(h), "{h} is NOT loopback");
+        }
+        // Not a prefix match: an address that merely starts with the digits.
+        assert!(!super::is_loopback("127.0.0.1.evil.com"));
+        assert!(!super::is_loopback("1270.0.0.1"));
+    }
+
+    /// **A key is optional on loopback and required off it.**
+    ///
+    /// On `127.0.0.1` a key guards nothing -- a caller who can reach it can
+    /// read the weights off the disk anyway. On a LAN address it is the only
+    /// thing between the model and every device on the Wi-Fi, so the server
+    /// refuses to start rather than warning and starting anyway.
+    #[test]
+    fn a_lan_binding_without_a_key_is_refused() {
+        assert!(super::refuse_to_start("127.0.0.1", None).is_none());
+        assert!(super::refuse_to_start("localhost", Some("k")).is_none());
+        assert!(super::refuse_to_start("0.0.0.0", Some("a-long-key")).is_none());
+
+        let why = super::refuse_to_start("0.0.0.0", None).expect("must refuse");
+        assert!(why.contains("api key"), "{why}");
+        assert!(
+            why.contains("--api-key"),
+            "the refusal must say how to fix it"
+        );
+
+        // An empty key is not a key.
+        assert!(super::refuse_to_start("192.168.1.20", Some("")).is_some());
+    }
+
     use super::*;
 
     #[test]

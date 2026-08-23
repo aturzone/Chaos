@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The same palette as the desktop window, so the two read as one product. -->
+<resources>
+    <color name="bg">#0D1117</color>
+    <color name="panel">#161B22</color>
+    <color name="fg">#E6EDF3</color>
+    <color name="fg_secondary">#9DA7B3</color>
+    <color name="fg_tertiary">#6E7781</color>
+    <color name="accent">#0000F2</color>
+</resources>

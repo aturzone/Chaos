@@ -25,6 +25,8 @@
 //! interrupted multi-part fetch stops in the middle of exactly one of them.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 /// Where the header read starts, and where it gives up.
 ///
@@ -68,7 +70,7 @@ pub fn missing(first: &Path) -> Vec<Missing> {
         let Ok(have) = std::fs::metadata(&shard).map(|m| m.len()) else {
             continue;
         };
-        let Some(want) = expected_bytes(&shard) else {
+        let Some(want) = expected_bytes_cached(&shard) else {
             continue;
         };
         if have < want {
@@ -80,6 +82,64 @@ pub fn missing(first: &Path) -> Vec<Missing> {
         }
     }
     out
+}
+
+/// What has already been read, so a rescan does not read it again.
+///
+/// **This was 99.8% of a tab switch.** Measured on this machine with 39 models
+/// installed: `find::list()` 3.7 ms, `why_incomplete` across all of them
+/// **1885 ms** -- because each one opens every shard and parses up to 4 MB of
+/// header. The app calls it on every switch between INSTALLED and AVAILABLE, on
+/// the UI thread, so the window froze for a second and a half each time. Atur:
+/// *"when i switch between available and installed models installed models load
+/// with lag and make problem"*.
+///
+/// **The key is the file's own identity, not its name.** Length and modified
+/// time together: a container cannot gain the bytes it was missing, or lose the
+/// ones it had, without changing both. A download in flight changes them
+/// continuously, which is exactly right -- it is re-read until it stops moving.
+/// Caching on the path alone would freeze the verdict of a file being written.
+///
+/// `None` is cached as eagerly as a length. A file that will not parse costs
+/// *more* than one that will -- the read doubles from 4 MB to 64 MB before
+/// giving up -- so the failures are the ones most worth remembering.
+type Fingerprint = (PathBuf, u64, Option<SystemTime>);
+
+static EXPECTED: Mutex<Vec<(Fingerprint, Option<u64>)>> = Mutex::new(Vec::new());
+
+/// Above this the cache is emptied rather than searched.
+///
+/// A linear scan of a few dozen entries is faster than hashing them, and a
+/// models directory pointed at a whole drive is the only way to exceed this.
+/// Dropping everything is correct if crude: the next scan pays what the first
+/// one paid, which is the behaviour before this cache existed.
+const CACHE_MAX: usize = 512;
+
+fn fingerprint(path: &Path) -> Fingerprint {
+    let m = std::fs::metadata(path).ok();
+    (
+        path.to_path_buf(),
+        m.as_ref().map(|m| m.len()).unwrap_or(0),
+        m.and_then(|m| m.modified().ok()),
+    )
+}
+
+/// `expected_bytes`, answered from memory when the file has not changed.
+fn expected_bytes_cached(path: &Path) -> Option<u64> {
+    let key = fingerprint(path);
+    if let Ok(c) = EXPECTED.lock() {
+        if let Some((_, v)) = c.iter().find(|(k, _)| *k == key) {
+            return *v;
+        }
+    }
+    let v = expected_bytes(path);
+    if let Ok(mut c) = EXPECTED.lock() {
+        if c.len() >= CACHE_MAX {
+            c.clear();
+        }
+        c.push((key, v));
+    }
+    v
 }
 
 /// What one shard's own index says its length must be.
@@ -217,6 +277,69 @@ mod tests {
             want: 8_000,
         };
         assert_eq!(m.short_by(), 0);
+    }
+
+    /// **The cache's whole correctness argument is its key.** A container
+    /// cannot gain the bytes it was missing, or lose the ones it had, without
+    /// its length or its modified time changing -- so a fingerprint tracking
+    /// both is safe to trust. One that tracked only the path would freeze the
+    /// verdict of a download still in flight, which is precisely the file a
+    /// user most needs the truth about.
+    ///
+    /// This checks the key, not the timing: a test that asserted "the second
+    /// call was faster" would pass on a machine with a warm page cache no
+    /// matter what this module did.
+    #[test]
+    fn the_fingerprint_moves_when_the_file_does() {
+        let dir = std::env::temp_dir().join("chaos-complete-test-fingerprint");
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("growing.gguf");
+
+        std::fs::write(&p, b"half a download").unwrap();
+        let before = fingerprint(&p);
+
+        std::fs::write(&p, b"half a download, and then the rest of it").unwrap();
+        let after = fingerprint(&p);
+
+        assert_ne!(
+            before, after,
+            "a file that grew must not be answered from the cache"
+        );
+        assert_ne!(before.1, after.1, "length alone separates these two");
+
+        // Untouched, it fingerprints identically -- otherwise the cache would
+        // never hit and the 1885 ms this exists to remove would be back.
+        assert_eq!(after, fingerprint(&p));
+
+        // A file that is not there at all still yields a key rather than
+        // panicking, so a model deleted between the scan and the check is a
+        // cache miss and not a crash.
+        std::fs::remove_file(&p).unwrap();
+        assert_ne!(fingerprint(&p), after);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The cached answer must be the answer, not merely a fast one.
+    ///
+    /// A file that will not parse is the case worth pinning: it costs *more*
+    /// than one that will, because the read doubles from 4 MB to 64 MB before
+    /// giving up, so it is both the most valuable thing to remember and the
+    /// easiest to get wrong by caching only successes.
+    #[test]
+    fn a_repeat_call_gives_the_same_verdict() {
+        let dir = std::env::temp_dir().join("chaos-complete-test-repeat");
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("x.gguf");
+        std::fs::write(&p, b"not a gguf at all").unwrap();
+
+        let first = expected_bytes_cached(&p);
+        let second = expected_bytes_cached(&p);
+        assert_eq!(first, second);
+        assert_eq!(first, None, "unparseable has no length to report");
+        assert_eq!(missing(&p), missing(&p));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

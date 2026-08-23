@@ -158,10 +158,20 @@ can be checked, because "better" cannot.
   Android Rust target. It is also two different products (a small-model runner,
   or a client for a Chaos on a PC) and building the wrong one satisfies nobody.
   `backlog/android-app.md` has the audit and the decision to put to Atur first.
-- [ ] **6. Genuinely better than llama.cpp.** Today: parity on everything that
+- [ ] **6. Devices as resources — one model, many machines.** Other machines on
+  the LAN hold expert slices in RAM and answer with activations. The arithmetic
+  is favourable and decisive: an activation is **16 KB**, a token's experts are
+  **3.3 GB**, so expert-parallel costs ~66 ms of network to replace ~1560 ms of
+  disk. **Send the work to the weights, never the weights to the work.** Four
+  machines get single-digit tok/s on V4-Flash, not 20 — say so before building.
+  `backlog/devices-as-resources.md`.
+- [ ] **7. Genuinely better than llama.cpp.** Today: parity on everything that
   streams, 1.20–1.27x behind on the dense path hand-tuned, 1.23x ahead out of
   the box. A claim is not citable until the competitor's exact command line and
   output are in a doc, alternating in one session.
+
+**The full plan, ordered, with a definition of done for every item:
+`backlog/the-plan-v0-1-0.md`.** Read it before deciding what to do next.
 
 ## Next
 

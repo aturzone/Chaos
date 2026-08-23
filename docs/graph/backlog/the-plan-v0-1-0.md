@@ -145,6 +145,14 @@ CI, installs on a real phone, opens, and does what the notes say it does.
 - Order: `chaos-worker` on loopback → expert routing with local fallback →
   **measure and stop** → discovery → tensor-parallel only if the numbers earn it.
 
+**Step one is done and the measurement is in**:
+`research/worker-protocol-measured-2026-08-24.md`. A token's expert-parallel
+traffic is **4.94 MB**, 39.5 ms of 1 GbE plus **36.0 ms of measured protocol
+cost**, replacing **1560 ms** of disk. Activations over a real socket are
+**bit-identical** to the local path. The stop is here: the next number is a LAN
+round trip on two machines, and nothing should be wired into the forward pass
+until somebody has it.
+
 ## Part 6 — R6, self-configuration — **done**
 
 Read the probe, pick quant, cache size, prefill block and I/O mode, **and say

@@ -29,8 +29,9 @@ members = [
     # What a person types.
     "cli/run",        # chaos-run: a model, a prompt, a terminal
 
-    # What an agent talks to.
+    # What an agent talks to, and what another machine talks to.
     "network/serve",  # chaos-serve: the OpenAI API and a browser page
+    "network/worker", # chaos-worker: holds experts in RAM, answers with activations
 
     # What a person opens.
     "gui/app",        # the Windows window

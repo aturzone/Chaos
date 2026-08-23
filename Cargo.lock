@@ -145,3 +145,14 @@ dependencies = [
  "chaos-gguf",
  "chaos-model",
 ]
+
+[[package]]
+name = "chaos-worker"
+version = "0.0.16"
+dependencies = [
+ "chaos-build",
+ "chaos-ggml",
+ "chaos-gguf",
+ "chaos-model",
+ "chaos-probe",
+]

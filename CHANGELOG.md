@@ -8,6 +8,137 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+### Switching to INSTALLED froze the window for a second and a half
+
+Atur: *"when i switch between available and installed models installed models
+load with lag and make problem"*. Measured with real clicks into the real
+window, warm page cache, 39 models installed:
+
+```
+ 202  AVAILABLE        6.1 ms
+ 201  INSTALLED    1,584.4 ms   <-- every single time
+ 202  AVAILABLE        2.7 ms
+ 201  INSTALLED    1,535.8 ms
+```
+
+Not the list box and not the painting. `rescan()` called `models::list()` on
+the UI thread, and that calls `why_incomplete` on every model — which opens
+every shard of every container and parses up to 4 MB of header out of each.
+`find::list()` is 3.7 ms; `why_incomplete` across 39 models is **1885 ms**.
+99.8% of the click, re-derived on every switch to produce an answer that could
+not have changed.
+
+A container's verdict is now remembered against the file's own length and
+modified time. It cannot gain the bytes it was missing without changing both,
+and a download still in flight changes them continuously — so it is re-read
+until it stops moving, which is the file a user most needs the truth about.
+The scan itself moved to a worker thread, and the list says "looking for
+models..." while it runs, because *"nothing installed"* is a claim and before
+the first scan it is one nobody has checked.
+
+**After: worst click 10.8 ms.**
+
+### The image generator chooses a model, keeps the latent, and can turn guidance off
+
+Atur: *"why image generator do not have select model options??"* and *"now i
+run to draw a image without select any model!! wtf is that lol"*. Both had one
+cause: the four filenames were a constant, so there was nothing to choose and
+nothing to be missing — DRAW worked with no image models installed at all and
+failed minutes later inside the pipeline.
+
+**An image model is four files, not one**: a denoiser, a separately trained
+unconditional twin of it for guidance, a text encoder, and an autoencoder.
+`chaos_model::image` groups them, the unit chosen is the denoiser, and the
+other three are found by role. The filename is the only signal there is:
+`ideogram4-Q4_0.gguf` has 458 tensors and **zero metadata keys**.
+
+- `chaos-draw --list-models`, `-m <name>`, and a chooser on the IMAGE page.
+- **`--keep-latent`**, on by default from the window. Six hours of correct
+  denoising was thrown away once because only the PNG was written. A 128x128
+  draw took 21 s; `--from-latent` re-decoded it in **0.7 s** to a
+  byte-identical PNG. At 1024x1024 that is seconds against hours.
+- **Guidance is a control.** It runs a second 5.26 GiB denoiser on every step,
+  so it is exactly a factor of two on the wait; the options say so, and the
+  estimate follows the setting rather than assuming guidance is always on.
+
+### The model list sorts, filters, searches, and says what each model is for
+
+Thirty-nine containers in one flat alphabetical list, several of them parts of
+an image pipeline rather than models to talk to. Now: sort by name, by size or
+by what it is; show everything, chat models or image models; and a search box.
+An image part says "image" in its row and LOAD greys out for one.
+
+A clicked row is no longer an entry index — `ui.shown` maps position back to
+model. Without that, filtering to image models and pressing LOAD would have
+loaded whatever sat at that position in the unfiltered list: a real container,
+so no error, just the wrong model.
+
+AVAILABLE now marks what is already downloaded. It said nothing, so a model
+fetched ten minutes ago looked identical to one never fetched — and
+`flux2-vae.safetensors` is not a GGUF, so it never appeared on INSTALLED
+either: downloaded, and invisible in both lists.
+
+### Four of the nine icon sizes were a pixel off centre
+
+Atur asked three times. He was right, and it was one line: `make-ico.py`
+centred the mark with `off = (px - inner) // 2`, which floors, so an odd
+margin put the whole thing one pixel left of centre and one pixel high — at
+16, 32, 40 and 64 px. **16 and 32 are the taskbar and notification-area
+sizes**, which is where it was noticed.
+
+Measured on the file that ships rather than on the arithmetic:
+`tools/check-logo-centred.py` decodes every frame and reports the four
+margins. **4 of 9 frames exactly centred before, 8 of 9 after.** The ninth is
+the mark's own geometry, not its placement.
+
+The threshold alone would have hidden this: the broken icon was also "centred
+to within 1 px".
+
+### An Android app, shipped as an APK
+
+**A client for a Chaos on a PC**, which is the half that makes the *big*
+models usable from a phone. One Activity, framework views, **no androidx and
+no dependencies at all** — the Rust side has none either. It reads the phone's
+memory and names the largest model that would fit, while saying plainly that
+it does not run models yet.
+
+`chaos-serve --host` opens the endpoint to the LAN, and **the api key stops
+being optional the moment the socket leaves loopback**: a non-loopback bind
+with no key refuses to start, before the model loads rather than four minutes
+after.
+
+**It is built in CI because it cannot be built here.** `dl.google.com` — the
+sole distributor of the Android SDK, build-tools and androidx — answers 404 to
+every request from this network, including a Go download that certainly
+exists. So the CI build is the only check the app has had, and the phone is
+Atur's. The APK is debug-signed: an unsigned release APK cannot be installed,
+and a per-build key would stop Android upgrading in place.
+
+### `--auto` configures itself, and says what to expect first
+
+```
+threads    -t 4 to generate, -tb 20 to prefill
+batch      -b 512 tokens per prefill block, from 5.5 GiB free
+io         direct, bypassing the page cache -- the model does not fit
+expect     about 1.42 tok/s -- 1.02 GiB per token at 2.07 GiB/s
+```
+
+Measured on that run: **1.51 tok/s**. Within 6%.
+
+It said 4.25 at first, because a token's expert slice was computed as the pool
+divided by the layer count — a different quantity that looks plausible and is
+3x too small.
+
+The read speed is never measured automatically; the benchmark writes a file
+larger than RAM. `chaos-probe --bandwidth` writes what it measured and
+`--auto` reads it. With nothing there it states the byte count and names the
+command that supplies the rest — a guessed disk speed times a real byte count
+is a confident number with nothing behind it.
+
+The I/O mode had to move *before* the container is opened: `Model::open_split`
+reads `CHAOS_IO` as it opens each shard, so deciding afterwards printed
+"buffered" over a model already opened with direct I/O.
+
 ### Every generated image was upside down
 
 Atur's 1024x1024 render — fifty steps, six and a half hours — came out a

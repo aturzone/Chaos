@@ -31,7 +31,7 @@ always broken"*. The pictures were correct, inverted, and identical.
 
 **Target 2 on the roadmap.** Orientation and seed are done. What remains:
 
-- [ ] **Model selection.** Atur: *"why image generator do not have select model
+- [x] **Model selection.** Done. `chaos_model::image` groups a denoiser with its twin, text encoder and autoencoder; the IMAGE page chooses among them and DRAW refuses with none installed. Atur: *"why image generator do not have select model
       options??"* The four files are hard-coded. The page needs a chooser over
       *installed* image models, the way MODELS lists text models, with the four
       roles named (denoiser, unconditional twin, text encoder, autoencoder) so
@@ -44,12 +44,19 @@ always broken"*. The pictures were correct, inverted, and identical.
       woman in a business jacket. Colour and scene follow; object form and
       clothing do not. Structured JSON-shaped prompts condition ~3x more
       strongly — the page should offer that shape rather than documenting it.
-- [ ] **`--keep-latent`.** Six hours of correct denoising was thrown away
+- [x] **`--keep-latent`.** Done, and on by default from the window. A 128x128 draw took 21 s; `--from-latent` re-decoded it in **0.7 s** to a byte-identical PNG. Six hours of correct denoising was thrown away
       because the PNG was written and the latent discarded. A latent is a few MB;
       keeping it means a re-decode is seconds instead of a night.
-- [ ] **A negative prompt and a CFG control.** Guidance is fixed at the default
-      and doubles every render's cost; a user who does not want it should be
-      able to say so and halve the time.
+- [x] **A CFG control.** Done: the IMAGE page offers guidance 2/4/6 and "no
+      guidance -- half the time", and the time estimate follows it. Guidance
+      runs a second 5.26 GiB denoiser on every step, so it is exactly a factor
+      of two, and the estimate assumed it was always on.
+- [ ] **A negative prompt.** *Not done, deliberately.* This pipeline's guidance
+      uses a separately trained unconditional twin fed **no text at all**, not
+      an empty prompt, so a negative prompt means running the *conditional*
+      model on the negative text instead -- a real change to which weights run
+      on every step. Worth doing, and not worth shipping unmeasured: the
+      quality harness that would judge it does not exist yet.
 
 ## Part 2 — The model list, properly managed
 
@@ -57,16 +64,22 @@ always broken"*. The pictures were correct, inverted, and identical.
 for users"*, and *"when i switch between available and installed models,
 installed models load with lag and make problem"*.
 
-- [ ] **The tab-switch stall.** Reproduce first — it may be `rescan()` doing
+- [x] **The tab-switch stall.** Done. Reproduced first, as the plan required: **1584 ms** per switch to INSTALLED, of which 1885/1889 was `why_incomplete` re-reading every container's header. Cached against length and mtime, and moved to a worker. Now **10.8 ms**. Reproduce first — it may be `rescan()` doing
       disk I/O on the UI thread on every switch. If so, cache and refresh in the
       background; the list must never block on a spinning `read_dir`.
-- [ ] **Sort and group.** By size, by name, by whether it fits this machine, and
+- [x] **Sort and group.** Done: by name, by size, by what it is; and a kind per row, so an image part is recognisable before LOAD is pressed. LOAD greys out for one. By size, by name, by whether it fits this machine, and
       **by what it is for** — a chat model and an image model in one flat list is
       the confusion behind *"why can I draw without loading a model"*.
-- [ ] **Search**, once there are more than about twenty rows.
-- [ ] **Download problems.** Atur: *"download models have problem"* — needs the
-      specific failure before anything is changed. `chaos-pull` already handles
-      resume and the too-large-file trap; what is not known is which part he hit.
+- [x] **Search.** Done. Measured in the window: "qwen" 11 rows, "GEMMA" 6, "q4_k_m" 29, each under 11 ms.
+- [~] **Download problems.** Atur: *"download models have problem"* — the
+      specific failure is still not known, and `chaos-pull` already handles
+      resume and the too-large-file trap. One thing found while looking: **the
+      catalogue said nothing about what was already downloaded**, so a model
+      fetched ten minutes ago looked identical to one never fetched. The
+      autoencoder was worse — `flux2-vae.safetensors` is not a GGUF, so it
+      never appeared on INSTALLED either: downloaded, and invisible in both
+      lists. AVAILABLE now marks what is on disk. Whether that was his
+      complaint is unknown; **ask before assuming it is closed.**
 - [ ] **CHAT and IMAGE follow the model.** His design instinct was right: the
       app should present what the *selected* model can do, rather than two pages
       with different rules about whether anything needs loading.
@@ -77,16 +90,16 @@ Atur: *"that svg logo must be in center of app icon and logo and everywhere we
 use it; sometimes it is not exactly in center … you must change svg file size
 for each place and export an image icon exactly with svg for that place"*.
 
-- [ ] **Audit every place the mark is drawn**: the `.ico` at nine sizes, the rail
+- [x] **Audit every place the mark is drawn**: the `.ico` at nine sizes, the rail
       at 64px, the setup window at 96 and 56, the terminal banner, the README.
-- [ ] **Centre it by ink, not by canvas.** `ink_box` already finds the drawing's
+- [x] **Centre it by ink, not by canvas.** It already was, in `ink_box`. The defect was elsewhere: `make-ico.py` floored an odd margin, putting **four of nine sizes** a pixel left and a pixel high. `ink_box` already finds the drawing's
       bounding box; the centring must use that, because an SVG's canvas and its
       ink are not the same rectangle and that is exactly how a mark ends up
       looking off-centre while being mathematically centred.
-- [ ] **Render per place at that place's exact pixel size** from the vector —
+- [x] **Render per place at that place's exact pixel size** from the vector —
       never scale a raster. This is already true of the `.ico` and the rail; the
       audit is to find the places where it is not.
-- [ ] **A test that the mark's ink is centred** to within a pixel at each size,
+- [x] **A test that the mark's ink is centred** at eight sizes, ablated with a deliberate two-pixel shift. Plus `tools/check-logo-centred.py`, which measures the shipped `.ico`: **4 of 9 exact before, 8 of 9 after**. to within a pixel at each size,
       so this cannot drift back.
 
 ## Part 4 — Android, in every release
@@ -99,7 +112,7 @@ question that node asks:
 
 **So it is both, and in this order:**
 
-- [ ] **Phase A — a client.** Kotlin against `/v1/chat/completions`, talking to a
+- [x] **Phase A — a client.** Done and building in CI: an 887 KB APK with manifest, dex, resources and all ten icons. **Never run** — see `android-app.md` for why the SDK cannot be installed here. Kotlin against `/v1/chat/completions`, talking to a
       Chaos on the PC. No NDK, no ggml, no Rust on the device. This makes the
       *big* models usable from the phone, which local inference never can, and it
       is the shortest path to an `.apk` that does something real.
@@ -107,7 +120,7 @@ question that node asks:
       Needs the NDK, ggml for `aarch64-linux-android`, and the Rust core
       cross-compiled. `core/probe` is the only crate with a platform assumption
       that has to change.
-- [ ] **Phase C — the phone as a worker.** Rejected for now, and the reason is
+- [x] **Phase C — the phone as a worker.** Decided: rejected for now, reason recorded. Rejected for now, and the reason is
       in `devices-as-resources.md`: Wi-Fi latency and battery make a phone a poor
       member of a layer loop. Revisit only with measurements.
 
@@ -132,10 +145,23 @@ CI, installs on a real phone, opens, and does what the notes say it does.
 - Order: `chaos-worker` on loopback → expert routing with local fallback →
   **measure and stop** → discovery → tensor-parallel only if the numbers earn it.
 
-## Part 6 — R6, self-configuration
+## Part 6 — R6, self-configuration — **done**
 
-Read the probe, pick quant, cache size, prefill block and I/O mode for 8/16/48/
-128 GiB, **and say the expected tok/s before doing anything**. On a phone this
+Read the probe, pick quant, cache size, prefill block and I/O mode, **and say
+the expected tok/s before doing anything**. `--auto` now does all of it:
+
+```
+threads    -t 4 to generate, -tb 20 to prefill
+batch      -b 512 tokens per prefill block, from 5.5 GiB free
+io         direct, bypassing the page cache -- the model does not fit
+expect     about 1.42 tok/s -- 1.02 GiB per token at 2.07 GiB/s
+```
+
+**Measured on that run: 1.51 tok/s.** Within 6%. It said 4.25 first, because a
+token's expert slice was computed as the pool over the layer count -- a
+plausible-looking quantity that is 3x too small.
+
+The original text: On a phone this
 matters more, not less: the download is somebody's data allowance.
 
 *(R7, R8 and R9 were merged in PR #55. If those numbers mean something else to
@@ -147,9 +173,9 @@ Atur: *"you must run app and check every function and work and wait, check it is
 really work"*. Fair, and earned — several things shipped this week that a single
 run would have caught.
 
-- [ ] A written pass over **every** control on every page: what was clicked,
+- [x] A written pass over **every** control on every page. `scripts/run-through.ps1`: **22 exercised, 6 skipped by policy, worst blocking call 36.9 ms**. DELETE, RESET and BROWSE are listed rather than pressed.: what was clicked,
       what happened, whether it matched the label.
-- [ ] The crash he reported on the INSTALLED/AVAILABLE tabs is **still not
+- [x] The crash on the INSTALLED/AVAILABLE tabs: **still not reproduced**, now over 60 rapid switches on the rewritten code -- worst 28.9 ms, process alive and responding. The fault handler writes an address, so the next occurrence is evidence. Original text: **still not
       reproduced** — 20 rounds of real clicks survived. The fault handler now
       writes an address, so the next occurrence is evidence instead of silence.
 - [ ] Install → update → uninstall from a real downloaded setup, on the machine,

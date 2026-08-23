@@ -476,10 +476,15 @@ jobs:
           # every release that did not remember to bump it by hand.
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
           VERSION="${TAG#v}"
-          case "$VERSION" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "not a version tag ($TAG) -- keeping the file's own value"; VERSION="" ;;
-          esac
+          # **A glob is not a version check.** `[0-9]*.[0-9]*.[0-9]*` matched
+          # `0.0.16-dryrun`, because the trailing `*` swallowed the suffix --
+          # so a dry run stamped `versionName = "0.0.16-dryrun"` into a real
+          # build file. A dry run should look exactly like a release except for
+          # not publishing, and a version it would never ship is not that.
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "not a plain version tag ($TAG) -- keeping the file's own value"
+            VERSION=""
+          fi
           if [ -n "$VERSION" ]; then
             sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" android/app/build.gradle.kts
             # versionCode must increase for an in-place upgrade to be offered.

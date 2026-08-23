@@ -21,7 +21,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # GPU work needs build-vulkan/ggml/src instead. That build has NO Vulkan archive,
 # and the GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 828 tests
+cargo test --release          # 854 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo build --release
 ./target/release/chaos-run <name-or-path> "prompt" -n 16   # bare `chaos-run` lists models
@@ -48,62 +48,22 @@ safetensors, FLUX.2 VAE, the sampler.
 `cli/run` chaos-run · `network/serve` chaos-serve · `gui/app` the window ·
 `gui/setup` the installer. Benchmarks stay beside the crate they measure.
 
-## Traps — one line each, full text in `docs/graph/reference/hard-won-facts.md`
-
-**Read that node before proposing any optimisation.** About half of its entries
-are the measurement that killed an appealing idea.
+## Traps — **read `docs/graph/reference/hard-won-facts.md` before proposing any
+optimisation.** About half its entries are the measurement that killed an
+appealing idea. The five that bite most often:
 
 - **ggml aborts rather than returning errors** — exhausted arena, bad device
-  index, misaligned pointer. Size arenas up front, scale them with the prefill
-  block, and check on the Rust side. It kills whole test binaries, not one test.
+  index, misaligned pointer. It kills whole test binaries, not one test.
 - **ggml `ne[0]` is the fastest dimension**; row-major reading transposes every
-  matrix and yields confident nonsense. A PyTorch `[OC,IC,KH,KW]` conv weight is
-  ggml `[KW,KH,IC,OC]` — the same bytes reversed, never transposed.
-- **An image decoder is checked by round trip, never by looking.** Encode a real
-  photo, score the reconstruction, and ablate the check first: three deliberate
-  bugs each still produced a recognisable picture. `ggml_group_norm` applies no
-  weight/bias, and `ggml_pad` is right/bottom-only — which is exactly what
-  diffusers' downsampler wants.
-- **`compute()` re-evaluates the whole ancestor graph** — call it only before a
-  `to_vec_*`/`set_*`. **`compute(&t, 0)` runs on ONE thread**, not all cores.
-- **Weights are bound zero-copy**; a copy needs 2× the model and will not fit.
-- **A wrong forward pass produces fluent nonsense, never a crash.** Loading is
-  not evidence, answering in English is not evidence — only a diff against
-  llama.cpp counts, and that is what `VERIFIED_ARCHITECTURES` membership means.
-  Nothing in a GGUF records the FFN activation; GELU-for-SiLU is silent.
-  **An exit code is not a diff** — a sweep once reported twelve of twelve models
-  working while one printed Thai. And **an architecture name is not a shape**:
-  `qwen35` is exact at 24 blocks and nonsense at 64, so
-  `catalogue::verified_block_counts` records what was diffed and both binaries
-  warn otherwise.
-- **When llama.cpp fails on the same file, the port is not what is wrong.**
-  Chaos and llama.cpp agree to five significant figures on every layer of
-  Qwen3.6-27B and then both go NaN at `l_out-5`; llama.cpp's own answer is
-  `333333`. Run the competitor on the container before suspecting this engine.
-- **Prompt length decides which code paths run** on V4-Flash — 2, 5, 165 and
-  2048 tokens each reach a different attention builder.
-- **Routing is not bitwise stable across sequence lengths**; a test demanding
-  equal routing across batch shapes will fail on correct code.
+  matrix and yields confident nonsense.
+- **A wrong forward pass produces fluent nonsense, never a crash.** Only a diff
+  against llama.cpp counts, which is what `VERIFIED_ARCHITECTURES` means. An
+  exit code is not a diff, and an architecture name is not a shape.
 - **Threads are two levers pulling opposite ways**: generation wants 2-4 (`-t`),
-  prefill wants all of them (`-tb`). The MoE expert path wants **one**.
-- **Cache hit rate is not a success metric** — a "hit" on bytes the OS has paged
-  out is a page fault in disguise, and the tok/s-versus-budget curve plateaus
-  (~6 GiB on Qwen3-30B) rather than climbing. Only tok/s at a stated footprint
-  counts.
-- **Score any residency policy out of sample**, with a uniform null and a noise
-  ceiling. In-sample hot sets have lied here twice.
-- **Only compare within one session.** V4-Flash drifts a lot with page-cache
-  state, the first GPU run pays shader compilation inside the timed region
-  (discard it), and an orphaned benchmark process holding 9 GiB looks exactly
-  like a 10x regression — `Get-Process` before trusting a surprising number.
-- **The load rate is not the re-read rate.** A load is one stream; a residency
-  spill comes back across the 8-handle pool ~1.6x faster, and pricing the
-  shortfall by the load rate oversold "close these apps" by half. A counter
-  inside the R2-overlapped prefetch is worse — it measures occupancy (0.80
-  GiB/s) not cost (2.44). Price it by re-reading the spilled tensors themselves.
-- **The drive tops out at 2.74 GiB/s at four handles**, so the 8-handle pool is
-  not the limit; the remaining gap is the per-block barrier, which cannot be
-  filled because the next block's addresses depend on routing not yet computed.
+  prefill wants all of them (`-tb`), the MoE expert path wants **one**.
+- **Only compare within one session**, and `Get-Process` before trusting a
+  surprising number — an orphaned benchmark holding 9 GiB looks like a 10x
+  regression.
 
 ## Working rules
 
@@ -130,57 +90,55 @@ are the measurement that killed an appealing idea.
 ## Roadmap — Atur's targets, in his order
 
 **This list is the agreement. Do not let a session end having quietly dropped an
-item; if one is not done, say which and why.** Each has a definition of done that
-can be checked, because "better" cannot.
+item; if one is not done, say which and why.**
 
-- [ ] **1. V4-Flash at 20 tok/s on THIS machine.** *Stretch, and measured as
-  out of reach here.* A token is 1.56 s of expert read plus 0.84 s that never
-  touches the disk, so with **every** expert resident this CPU tops out at
-  **1.19 tok/s** — the fixed cost alone is 17x over a 50 ms budget. 20 tok/s
-  also needs 67.7 GB/s to the experts, which is a GPU-memory specification.
-  Atur has excluded this from the next release. **Do not report progress on it
-  without a measurement**; the honest routes are a bigger machine or a resident
-  GPU, both of which need hardware this project does not have.
-- [ ] **2. The image generator: good, and with model selection.** Orientation is
-  fixed and the fixed seed is fixed. What remains: choosing among installed
-  image models rather than four hard-coded files, prompt adherence (colour and
-  scene follow, an object's form may not), and quality at sizes below 1024.
-- [ ] **3. The model list, properly managed.** Sorting, grouping, search, and a
-  structure that tells a user which models are for chat and which are for
-  images. Switching tabs must not stall.
-- [ ] **4. R6 — self-configuration.** One binary that reads the probe and picks
-  the quant, cache size, prefill block and I/O mode on 8, 16, 48 or 128 GiB,
-  **and says what tok/s to expect before doing anything**. `lts-0-0-0.md` R5/T1–T5.
-  *(R7, R8 and R9 were merged in PR #55 long ago — if those numbers mean
-  something else to Atur, ask before assuming.)*
-- [ ] **5. An Android app, shipped as `.apk` with every release.** The largest
-  item here, and **nothing for it is installed** — no JDK, SDK, NDK, Gradle or
-  Android Rust target. It is also two different products (a small-model runner,
-  or a client for a Chaos on a PC) and building the wrong one satisfies nobody.
-  `backlog/android-app.md` has the audit and the decision to put to Atur first.
-- [ ] **6. Devices as resources — one model, many machines.** Other machines on
-  the LAN hold expert slices in RAM and answer with activations. The arithmetic
-  is favourable and decisive: an activation is **16 KB**, a token's experts are
-  **3.3 GB**, so expert-parallel costs ~66 ms of network to replace ~1560 ms of
-  disk. **Send the work to the weights, never the weights to the work.** Four
-  machines get single-digit tok/s on V4-Flash, not 20 — say so before building.
-  `backlog/devices-as-resources.md`.
+- [ ] **1. V4-Flash at 20 tok/s on THIS machine.** *Excluded by Atur, and
+  measured as out of reach here.* A token is 1.56 s of expert read plus 0.84 s
+  that never touches the disk, so with **every** expert resident this CPU tops
+  out at **1.19 tok/s**. 20 tok/s also needs 67.7 GB/s to the experts, which is
+  a GPU-memory specification. **Do not report progress without a measurement.**
+- [x] **2. The image generator, with model selection.** Orientation, seed,
+  model selection, `--keep-latent` and a guidance control are done. **Open**:
+  quality below 1024, prompt adherence, and a negative prompt — which needs a
+  real pipeline change (the twin is fed no text, not an empty prompt) and a
+  quality harness to judge it.
+- [x] **3. The model list.** Sort, filter, search, a kind per row, and no
+  stall: 1584 ms → 10.8 ms per switch.
+- [x] **4. R6 — self-configuration.** `--auto` picks device, cache, threads,
+  prefill block and I/O mode, and predicts tok/s: 1.42 predicted against 1.51
+  measured on Qwen3-30B-A3B.
+- [x] **5. An Android app, `.apk` with every release.** A *client*; Phase B
+  (models on the phone) is blocked — `dl.google.com` 404s this whole network,
+  so the SDK cannot be installed here and CI is the only build. **Never run on
+  a phone.** `backlog/android-app.md`.
+- [ ] **6. Devices as resources — one model, many machines.** An activation is
+  **16 KB**, a token's experts are **3.3 GB**, so expert-parallel costs ~66 ms
+  of network to replace ~1560 ms of disk. **Send the work to the weights, never
+  the weights to the work.** Four machines get single-digit tok/s on V4-Flash,
+  not 20 — say so before building. `backlog/devices-as-resources.md`.
 - [ ] **7. Genuinely better than llama.cpp.** Today: parity on everything that
   streams, 1.20–1.27x behind on the dense path hand-tuned, 1.23x ahead out of
   the box. A claim is not citable until the competitor's exact command line and
   output are in a doc, alternating in one session.
 
-**The full plan, ordered, with a definition of done for every item:
-`backlog/the-plan-v0-1-0.md`.** Read it before deciding what to do next.
+**The full plan, with a definition of done for every item:
+`backlog/the-plan-v0-1-0.md`.**
 
 ## Next
 
-**v0.0.15 released 2026-08-21**: eight assets, five builds (Intel Mac and arm64
-Linux are new). The window runs in the background — closing hides it to the
-notification area, **Exit** is the only thing that stops the engine — updates
-itself from inside the app, and **draws**: the IMAGE page runs `chaos-draw` as
-a child process.
-`STATUS.md` is the scoreboard; `backlog/next-session-handoff.md` is the queue.
+**v0.0.16 ready, not yet tagged**: nine assets now — the five desktop builds,
+the Windows installer, the two Linux packages, and an **Android APK**. The tab
+stall is gone (1584 → 10.8 ms), the IMAGE page chooses a model and keeps its
+latent, the model list sorts and searches, four of nine icon sizes were a pixel
+off centre and are not, and `--auto` predicts tok/s within 6%.
+`STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue.
+
+**Three instruments, kept because they are how the above was measured**:
+`scripts/poke-app.ps1` (click a control, time the UI thread, check a layout for
+overlaps), `scripts/run-through.ps1` (every control, every page, one
+transcript), `tools/check-logo-centred.py` (decode the shipped `.ico`, report
+the margins). A screen grab is uniform black in a session with no composited
+display, which is why these read rectangles rather than pixels.
 
 **Against llama.cpp, measured 2026-08-16 with both engines alternating**
 (`where-we-stand-vs-llamacpp-2026-08-16.md`): **parity on everything that

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   One screen: where the PC is, what this phone is, the conversation, and a box
-  to type in. Framework views only -- no androidx, so this lays out with
+  to type in. Framework views only – no androidx, so this lays out with
   LinearLayout rather than ConstraintLayout, which is a fair trade for an APK
   with no dependencies in it.
 -->

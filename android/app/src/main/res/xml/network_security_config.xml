@@ -9,7 +9,7 @@
   talk to.
 
   So cleartext is permitted, and the API key is what actually guards the
-  endpoint -- which is why `chaos-serve` refuses to bind a non-loopback address
+  endpoint – which is why `chaos-serve` refuses to bind a non-loopback address
   without one. Traffic on the local Wi-Fi is readable by anyone already on that
   Wi-Fi; anyone sending something they would not say on that network should not
   be sending it over this.

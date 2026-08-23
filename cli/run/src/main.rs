@@ -1591,7 +1591,7 @@ fn main() -> ExitCode {
     // tok/s and 4096 gives 43.6. The limit is memory — every arena in the
     // forward pass scales with the block — so 2048 is the default and -b
     // raises it when there is RAM to spare.
-    let mut prefill_block = 2048usize;
+    let mut prefill_block = DEFAULT_PREFILL_BLOCK;
     let mut cache_budget: Option<u64> = None;
     // Greedy by default, so existing behaviour is unchanged until asked.
     let mut sampler = SamplerConfig::default();
@@ -3200,8 +3200,51 @@ struct AutoPlan {
     device: Option<usize>,
     gpu_layers: Option<usize>,
     cache_bytes: Option<u64>,
+    /// Generation threads. **Not the same number as prefill's**, and that is
+    /// the entire point of having two.
+    threads: Option<usize>,
+    /// Prefill threads.
+    batch_threads: Option<usize>,
+    /// Tokens per prefill block. Bigger is faster and needs a bigger arena.
+    prefill_block: Option<usize>,
     why: Vec<String>,
 }
+
+/// `direct` or `buffered`, from the container's size against free memory.
+///
+/// **Bypassing the page cache is right exactly when the cache cannot help.** A
+/// working set larger than memory cannot be cached, and trying spends the
+/// memory the expert cache wants -- which is what makes streaming a 144 GB
+/// model predictable. When the whole model fits, the page cache is doing
+/// precisely the right thing and bypassing it means re-reading from disk what
+/// was already in RAM.
+///
+/// Sizes come from the filesystem rather than from a parsed container: this
+/// runs before the model is opened, and `stat` is all it needs.
+fn pick_io_mode(path: &str) -> &'static str {
+    let on_disk: u64 = chaos_model::discover_shards(std::path::Path::new(path))
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+        .sum();
+    let avail = chaos_probe::Machine::probe(std::path::Path::new("."), false)
+        .ram_available_bytes
+        .unwrap_or(0);
+    // Zero on either side means something could not be read; direct is the
+    // safer default, because it is the one that does not depend on the OS
+    // making a good caching decision about a file it cannot hold.
+    if on_disk == 0 || avail == 0 || on_disk > avail {
+        "direct"
+    } else {
+        "buffered"
+    }
+}
+
+/// Tokens per prefill block when nobody has said otherwise.
+///
+/// Named rather than written twice, because `--auto` has to be able to tell
+/// "still on the default" from "the user typed 2048" and the only evidence
+/// available is the value itself.
+const DEFAULT_PREFILL_BLOCK: usize = 2048;
 
 /// VRAM left for activations, KV and arenas once the weights are placed.
 const AUTO_VRAM_MARGIN: u64 = 1 << 30;
@@ -3241,6 +3284,131 @@ fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
         None
     };
 
+    // **Threads are two levers pulling opposite ways.** Generation is
+    // latency-bound on a small matmul and stops scaling at 2-4; prefill is a
+    // big batched matmul and wants every core. Setting one number for both is
+    // how this was wrong for a long time -- `-t 16` made generation *slower*
+    // while `-tb 16` made prefill faster, and a single `--threads` could not
+    // express that.
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let gen_threads = cores.clamp(1, 4);
+    why.push(format!(
+        "threads    -t {gen_threads} to generate, -tb {cores} to prefill \
+         ({cores} cores: generation stops scaling past 4, prefill does not)"
+    ));
+
+    // The prefill block sets the arena, and **an exhausted ggml arena aborts
+    // the process with no message**. Scale it with memory rather than picking a
+    // constant that is either wasteful on a big machine or fatal on a small
+    // one. The arena is roughly n_embd * block * 4 bytes * 24.
+    let machine = chaos_probe::Machine::probe(std::path::Path::new("."), false);
+    let avail = machine.ram_available_bytes.unwrap_or(0);
+    let prefill_block = if avail >= (24u64 << 30) {
+        4096
+    } else if avail >= (8u64 << 30) {
+        2048
+    } else {
+        512
+    };
+    why.push(format!(
+        "batch      -b {prefill_block} tokens per prefill block, from {:.1} GiB free \
+         (the arena scales with this, and an exhausted arena aborts)",
+        gib(avail)
+    ));
+
+    // **Direct I/O when the model cannot fit, buffered when it can.** Bypassing
+    // the page cache is what makes streaming a 144 GB model predictable: the OS
+    // cannot cache a working set larger than memory, and trying wastes the
+    // memory that the expert cache wants. When the whole model fits, the page
+    // cache is doing exactly the right thing and bypassing it means re-reading
+    // from disk what was already in RAM.
+    // **Reported, not decided.** The decision was made in `pick_io_mode`
+    // before the container was opened, because that is the only moment it can
+    // take effect. Reading it back here means this line cannot disagree with
+    // what actually happened -- which it did, for exactly one build.
+    let direct = std::env::var("CHAOS_IO")
+        .map(|v| !v.eq_ignore_ascii_case("buffered"))
+        .unwrap_or(true);
+    why.push(format!(
+        "io         {} ({:.1} GiB of model against {:.1} GiB free)",
+        if direct {
+            "direct, bypassing the page cache -- the model does not fit, so the cache cannot help"
+        } else {
+            "buffered -- the model fits in memory, so the page cache is worth having"
+        },
+        gib(total),
+        gib(avail)
+    ));
+
+    // **What to expect, before anything is loaded.** R6's actual requirement:
+    // "says what tok/s to expect before doing anything". A number that turns
+    // out wrong is still worth more than a four-minute wait with no idea
+    // whether the answer will be one token a second or twenty.
+    // **A token's experts are the used/total fraction of the pool, not one
+    // layer's worth.** Dividing the pool by the layer count is a different
+    // quantity that happens to look plausible, and it was wrong by exactly the
+    // factor the prediction was wrong by: on Qwen3-30B-A3B it gave 0.34 GiB
+    // where the answer is 8/128 of 16.35 GiB, and the predicted 4.25 tok/s
+    // against a measured 1.51 was that 3x, near enough.
+    //
+    // `ModelProfile::from_gguf` computes exactly this and is tested; it wants a
+    // `Gguf` and what is in hand here is an open `Model`, so this is the same
+    // arithmetic rather than a second idea about it: experts within a layer are
+    // the same shape, so a token's slice is the used/total fraction of the pool.
+    let per_token = {
+        let (used, total) = (config.n_expert_used as u64, config.n_expert as u64);
+        let slice = if total > 0 && used > 0 && used <= total {
+            experts / total * used
+        } else {
+            0
+        };
+        dense.saturating_sub(avail) + slice
+    };
+    if per_token == 0 {
+        why.push(
+            "expect     everything a token needs is resident, so this is compute-bound \
+             rather than disk-bound"
+                .into(),
+        );
+    } else {
+        // **The measurement is never taken here.** Measuring read bandwidth
+        // means writing a temporary file larger than RAM, which is right for a
+        // benchmark and unacceptable on every launch. `chaos-probe --bandwidth`
+        // writes what it measured; this reads it back.
+        match chaos_probe::cache::load() {
+            Some(m) => {
+                let ceiling = m.bytes_per_sec / per_token as f64;
+                why.push(format!(
+                    "expect     about {:.2} tok/s -- {:.2} GiB per token at {:.2} GiB/s, \
+                     measured {}",
+                    // 0.7: what the disk delivers inside a token loop against
+                    // what it delivers in a benchmark. The gap is the per-block
+                    // barrier, which cannot be filled because the next block's
+                    // addresses depend on routing not yet computed.
+                    ceiling * 0.7,
+                    gib(per_token),
+                    m.bytes_per_sec / (1024.0 * 1024.0 * 1024.0),
+                    m.age()
+                ));
+            }
+            None => {
+                // **A number is not invented.** A guessed disk speed multiplied
+                // by a real byte count gives a confident tok/s figure with
+                // nothing behind it, and this project has been burned by
+                // exactly that shape of claim more than once. Say the byte
+                // count, which is known, and name the command that supplies
+                // the rest.
+                why.push(format!(
+                    "expect     {:.2} GiB read per token. Run `chaos-probe --bandwidth` once \
+                     for a tok/s estimate -- no disk speed has been measured here",
+                    gib(per_token)
+                ));
+            }
+        }
+    }
+
+    let knobs = (Some(gen_threads), Some(cores), Some(prefill_block));
+
     let gpu = chaos_ggml::devices()
         .ok()
         .into_iter()
@@ -3254,6 +3422,9 @@ fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
             device: None,
             gpu_layers: None,
             cache_bytes,
+            threads: knobs.0,
+            batch_threads: knobs.1,
+            prefill_block: knobs.2,
             why,
         };
     };
@@ -3270,6 +3441,9 @@ fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
             device: Some(index),
             gpu_layers: Some(usize::MAX),
             cache_bytes,
+            threads: knobs.0,
+            batch_threads: knobs.1,
+            prefill_block: knobs.2,
             why,
         };
     }
@@ -3286,6 +3460,9 @@ fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
             device: Some(index),
             gpu_layers: Some(0),
             cache_bytes,
+            threads: knobs.0,
+            batch_threads: knobs.1,
+            prefill_block: knobs.2,
             why,
         };
     }
@@ -3303,6 +3480,9 @@ fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
             device: Some(index),
             gpu_layers: Some(0),
             cache_bytes,
+            threads: knobs.0,
+            batch_threads: knobs.1,
+            prefill_block: knobs.2,
             why,
         };
     }
@@ -3316,6 +3496,9 @@ fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
         device: Some(index),
         gpu_layers: Some(blocks),
         cache_bytes,
+        threads: knobs.0,
+        batch_threads: knobs.1,
+        prefill_block: knobs.2,
         why,
     }
 }
@@ -3334,7 +3517,7 @@ fn run_streaming(
     tokenizer: &Tokenizer,
     mut tokens: Vec<u32>,
     n_predict: usize,
-    prefill_block: usize,
+    mut prefill_block: usize,
     cache_budget: Option<u64>,
     sampler_cfg: SamplerConfig,
     ctx_size: Option<usize>,
@@ -3411,6 +3594,35 @@ fn run_streaming(
         for line in &plan.why {
             chaos_arch::info!("{line}");
         }
+
+        // **Every derived value is applied, and every one of them is still
+        // overridable.** R6/T4.3: a value that is computed and then not used is
+        // a report, not self-configuration -- and one that overrules a flag the
+        // user typed is worse than not having the flag.
+        //
+        // The test for "did the user say" is whether the environment variable
+        // is already set: `-t`, `-tb` and `--no-direct-io` all set these, so an
+        // unset variable means nobody asked.
+        if let Some(t) = plan.threads {
+            if std::env::var("CHAOS_THREADS").is_err() {
+                std::env::set_var("CHAOS_THREADS", t.to_string());
+            }
+        }
+        if let Some(t) = plan.batch_threads {
+            if std::env::var("CHAOS_THREADS_BATCH").is_err() {
+                std::env::set_var("CHAOS_THREADS_BATCH", t.to_string());
+            }
+        }
+        if let Some(b) = plan.prefill_block {
+            // **The default, not an override.** `-b` sets `prefill_block`
+            // during argument parsing, and there is no separate flag to tell
+            // "the user typed 2048" from "nobody said anything" -- so `--auto`
+            // moves it only when it is still sitting on the built-in default.
+            if prefill_block == DEFAULT_PREFILL_BLOCK {
+                prefill_block = b;
+            }
+        }
+
         (
             gpu_device.or(plan.device.filter(|_| plan.gpu_layers != Some(0))),
             gpu_layers.or(plan.gpu_layers),
@@ -4222,6 +4434,17 @@ fn run(
     };
     if let Some(g) = &grammar {
         chaos_arch::info!("grammar    {} rules", g.rule_count());
+    }
+
+    // **The I/O mode has to be decided before the open, not after.**
+    // `Model::open_split` reads `CHAOS_IO` when it opens each shard, so
+    // `--auto` deciding it later produced a line saying "buffered" over a model
+    // already opened with direct I/O -- a report of a decision that had not
+    // happened. The choice needs only two numbers, and both are available
+    // without parsing anything: how big the container is on disk, and how much
+    // memory is free.
+    if auto && std::env::var("CHAOS_IO").is_err() {
+        std::env::set_var("CHAOS_IO", pick_io_mode(path));
     }
 
     let mut model = Model::open_split(path)?;

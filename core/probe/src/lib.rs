@@ -16,6 +16,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 mod bandwidth;
+/// A measured read speed, remembered between runs, so `--auto` can predict
+/// tok/s without running a multi-gigabyte benchmark on every launch.
+pub mod cache;
 mod gpu;
 mod platform;
 pub mod processes;

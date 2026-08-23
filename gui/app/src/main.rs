@@ -871,7 +871,7 @@ mod windows_app {
             nav::ID_IMG_PROMPT,
             hinst,
         );
-        for id in [nav::ID_IMG_SIZE, nav::ID_IMG_STEPS] {
+        for id in [nav::ID_IMG_MODEL, nav::ID_IMG_SIZE, nav::ID_IMG_STEPS] {
             child(
                 hwnd,
                 "COMBOBOX",
@@ -3453,7 +3453,9 @@ Any value a client sends is accepted.                      The server still list
         }
 
         label(hdc, x, top, w, "PROMPT", ui.fonts.small, t.fg_tertiary);
-        let y = top + 22 + 64 + 6;
+        let my = top + 22 + 64 + 6;
+        label(hdc, x, my, 240, "IMAGE MODEL", ui.fonts.small, t.fg_tertiary);
+        let y = my + metric::CONTROL + 26;
         label(hdc, x, y, 150, "SIZE", ui.fonts.small, t.fg_tertiary);
         label(hdc, x + 170, y, 150, "STEPS", ui.fonts.small, t.fg_tertiary);
 
@@ -3837,6 +3839,17 @@ Any value a client sends is accepted.                      The server still list
                     let mut y = top + 22;
                     m.push((nav::ID_IMG_PROMPT, x, y, w, 64));
                     y += 64 + 26;
+                    // Its own row, and wide: a row here reads
+                    // "ideogram4-Q4_0 -- ready, 16.7 GB", and the half that
+                    // matters is the half a narrow control would cut.
+                    m.push((
+                        nav::ID_IMG_MODEL,
+                        x,
+                        y,
+                        (w - 270).max(240),
+                        metric::CONTROL + metric::COMBO_ROW * 4,
+                    ));
+                    y += metric::CONTROL + 26;
                     let cw = 150;
                     m.push((
                         nav::ID_IMG_SIZE,
@@ -4551,7 +4564,33 @@ Any value a client sends is accepted.                      The server still list
             })
             .collect();
 
+        // **The image models actually on this machine.** Four hard-coded
+        // filenames is what "no select model options" meant, and it is also
+        // what let a draw start with nothing installed: the paths were a
+        // constant, so there was nothing to be missing.
+        let found = chaos_model::image::installed(&chaos_model::find::model_dirs());
+        let models: Vec<Choice> = if found.is_empty() {
+            vec![Choice {
+                value: String::new(),
+                label: "no image models -- get them on MODELS".to_string(),
+                note: String::new(),
+            }]
+        } else {
+            found
+                .iter()
+                .map(|m| Choice {
+                    value: m.name.clone(),
+                    label: m.summary(),
+                    note: String::new(),
+                })
+                .collect()
+        };
+        // The first ready one, which is what `installed` sorts to the front.
+        // Selecting a model that cannot draw would make the default unusable.
+        let ready = found.iter().position(chaos_model::image::ImageModel::ready);
+
         for (id, list, selected) in [
+            (nav::ID_IMG_MODEL, models, ready.unwrap_or(0)),
             // 512: large enough not to be a smear, small enough to finish.
             (nav::ID_IMG_SIZE, sizes, 1usize),
             (nav::ID_IMG_STEPS, steps, 2usize),
@@ -4623,6 +4662,30 @@ Any value a client sends is accepted.                      The server still list
             .copied()
             .unwrap_or(20);
 
+        // **Which model, and refuse to start without one.** Atur: *"now i run
+        // to draw a image without select any model!! wtf is that lol"* -- the
+        // four paths were a constant, so the button worked with nothing
+        // installed and failed some minutes later inside the pipeline. The
+        // `Choice`'s value is the denoiser's name and is empty exactly when
+        // the list is the "nothing installed" placeholder.
+        let chosen = UI.with(|u| {
+            let b = u.borrow();
+            let ui = b.as_ref()?;
+            let list = ui.lists.get(&nav::ID_IMG_MODEL)?;
+            let i: usize = unsafe { SendMessageW(ctl(nav::ID_IMG_MODEL), CB_GETCURSEL, 0, 0) }
+                .try_into()
+                .ok()?;
+            list.get(i).map(|c| c.value.clone())
+        })
+        .unwrap_or_default();
+        if chosen.is_empty() {
+            set_status(
+                "no image model installed -- get ideogram-4, ideogram-4-uncond, \
+                 qwen3-vl-8b and flux2-vae on the MODELS page",
+            );
+            return;
+        }
+
         // Beside this executable, the way `chaos-serve` and `chaos-pull` are
         // found: an install puts all twelve binaries in one directory.
         let Some(exe) = std::env::current_exe()
@@ -4666,6 +4729,8 @@ Any value a client sends is accepted.                      The server still list
 
         let mut cmd = Command::new(&exe);
         cmd.arg(&prompt)
+            .arg("--model")
+            .arg(&chosen)
             .arg("--grid")
             .arg(grid.to_string())
             .arg("--steps")

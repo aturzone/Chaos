@@ -129,6 +129,31 @@ impl Paths {
         }
     }
 
+    /// The four files of a model that was discovered rather than assumed.
+    ///
+    /// **`under` hard-codes four filenames.** That was right while there was
+    /// exactly one image model and wrong the moment there were two: Atur asked
+    /// *"why image generator do not have select model options??"* and the
+    /// answer was that the paths were a constant. `chaos_model::image` groups
+    /// what is on disk into choices; this turns one of those choices into the
+    /// paths the pipeline reads.
+    ///
+    /// A part that was not found keeps its conventional name under `dir`, so
+    /// `missing` still reports it with the command that fetches it rather than
+    /// with an empty path.
+    pub fn of(model: &chaos_model::image::ImageModel, dir: &std::path::Path) -> Self {
+        let fallback = Paths::under(dir);
+        Paths {
+            text_encoder: model
+                .text_encoder
+                .clone()
+                .unwrap_or(fallback.text_encoder),
+            denoiser: model.denoiser.clone(),
+            uncond: model.uncond.clone().unwrap_or(fallback.uncond),
+            autoencoder: model.autoencoder.clone().unwrap_or(fallback.autoencoder),
+        }
+    }
+
     /// Which of the four are absent, with the command that fetches each.
     pub fn missing(&self) -> Vec<(&'static str, String)> {
         [

@@ -57,6 +57,8 @@ fn main() {
         ..Default::default()
     };
     let mut out = String::from("chaos-image.png");
+    let mut model: Option<String> = None;
+    let mut list = false;
     let mut dir = {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
@@ -97,6 +99,14 @@ fn main() {
                 dir = std::path::PathBuf::from(take(i));
                 i += 2;
             }
+            "--model" | "-m" => {
+                model = Some(take(i));
+                i += 2;
+            }
+            "--list-models" => {
+                list = true;
+                i += 1;
+            }
             "-h" | "--help" => {
                 usage();
                 return;
@@ -118,12 +128,71 @@ fn main() {
             }
         }
     }
+    // Where to look: whatever `--models` named, then everywhere the rest of
+    // the workspace looks, so a model installed by the app is found by the
+    // command line too without either being told where the other put it.
+    let mut dirs = vec![dir.clone()];
+    dirs.extend(chaos_model::find::model_dirs());
+    dirs.dedup();
+
+    if list {
+        let all = chaos_model::image::installed(&dirs);
+        if all.is_empty() {
+            println!("no image models installed.");
+            println!();
+            println!("An image needs four files. To get the set that is verified here:");
+            for cmd in [
+                "chaos-pull ideogram-4",
+                "chaos-pull ideogram-4-uncond",
+                "chaos-pull qwen3-vl-8b",
+                "chaos-pull flux2-vae",
+            ] {
+                println!("  {cmd}");
+            }
+            return;
+        }
+        for m in &all {
+            println!("{}", m.summary());
+            for role in m.missing() {
+                println!("      {:<20} {}", role.label(), role.how_to_get(&m.family));
+            }
+        }
+        return;
+    }
+
     if req.prompt.is_empty() {
         usage();
         std::process::exit(2);
     }
 
-    let paths = Paths::under(&dir);
+    // **Which model, said before six hours of work rather than during them.**
+    // The four filenames used to be a constant, so there was nothing to choose
+    // and nothing to report; now the choice is named in the header above, next
+    // to the seed and the size.
+    let chosen = match &model {
+        Some(name) => match chaos_model::image::by_name(&dirs, name) {
+            Some(m) => Some(m),
+            None => {
+                eprintln!("chaos-draw: no image model called {name:?}");
+                eprintln!("            `chaos-draw --list-models` says what there is");
+                std::process::exit(2);
+            }
+        },
+        None => chaos_model::image::best(&dirs),
+    };
+    let paths = match &chosen {
+        Some(m) => Paths::of(m, &dir),
+        // Nothing discovered: fall back to the conventional names so the
+        // "missing, and here is the command" report still happens, rather than
+        // failing with a different and less useful message.
+        None => Paths::under(&dir),
+    };
+    println!(
+        "model        {}",
+        chosen
+            .as_ref()
+            .map_or_else(|| "none found".to_string(), |m| m.summary())
+    );
     println!("prompt       {:?}", req.prompt);
     println!(
         "image        {0}x{0} from a {1}x{1} grid, {2} tokens",
@@ -249,6 +318,8 @@ fn usage() {
     println!("  -t, --threads N");
     println!("  -o, --out FILE where to write the PNG (default chaos-image.png)");
     println!("  --models DIR   where the four model files are");
+    println!("  -m, --model N  which image model, by name (default: the first ready one)");
+    println!("  --list-models  what is installed, and what each one is missing");
     println!("  --version");
     println!();
     println!("  grid 16 -> 256x256, 256 tokens      quick, and flat");

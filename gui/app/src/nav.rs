@@ -157,6 +157,13 @@ pub const ID_IMG_STOP: i32 = 705;
 pub const ID_IMG_OPEN: i32 = 706;
 /// Where the progress lines go.
 pub const ID_IMG_LOG: i32 = 707;
+/// Which image model to draw with.
+///
+/// **An image model is four files, not one**, so this is not the MODELS list
+/// with a filter over it -- `chaos_model::image` groups a denoiser with its
+/// unconditional twin, a text encoder and an autoencoder, and this offers the
+/// groups. Atur: *"why image generator do not have select model options??"*
+pub const ID_IMG_MODEL: i32 = 708;
 
 // The shell: 400. Present on every page.
 pub const ID_NAV_CHAT: i32 = 401;
@@ -255,6 +262,7 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_IMG_STOP,
             ID_IMG_OPEN,
             ID_IMG_LOG,
+            ID_IMG_MODEL,
         ],
         // Painted entirely. Every number on it is read from the machine each
         // tick, so a static control would be a second place to keep in step.

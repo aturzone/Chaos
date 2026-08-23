@@ -25,6 +25,8 @@ param(
     [int[]] $Ids = @(),
     [int]   $Repeat = 1,
     [switch] $List,
+    [switch] $Layout,
+    [int[]] $Combo = @(),
     [int]   $SettleMs = 250
 )
 
@@ -53,6 +55,16 @@ public static class Poke {
     public static extern int GetClassNameW(IntPtr hwnd, StringBuilder buf, int max);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
     public static extern int GetWindowTextW(IntPtr hwnd, StringBuilder buf, int max);
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr hwnd, out RECT r);
+    [DllImport("user32.dll")]
+    public static extern bool ScreenToClient(IntPtr hwnd, ref POINT p);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
     public static string ClassOf(IntPtr h) {
         var sb = new StringBuilder(256); GetClassNameW(h, sb, 256); return sb.ToString();
     }
@@ -84,6 +96,84 @@ if ($List) {
             $en  = if ([Poke]::IsWindowEnabled($c)) { 'on ' } else { 'off' }
             "{0,4}  {1,-16} {2,-6} {3}  {4}" -f $id, $cls, $vis, $en, $txt | Write-Host
         }
+    }
+    exit 0
+}
+
+if ($Layout) {
+    # Where every visible control actually sits, and whether any two of them
+    # are on top of each other.
+    #
+    # **This is the check a screenshot would have been.** A screen grab is
+    # black in a session with no composited display, and a page whose two
+    # labels overlap is exactly the failure a picture catches and a click test
+    # does not. Rectangles cross the process boundary as integers, so this
+    # works where pixels do not.
+    $client = New-Object Poke+RECT
+    [Poke]::GetClientRect($hwnd, [ref]$client) | Out-Null
+    "client area {0} x {1}" -f $client.Right, $client.Bottom | Write-Host
+    ''
+
+    $boxes = @()
+    foreach ($id in 100..999) {
+        $c = [Poke]::GetDlgItem($hwnd, $id)
+        if ($c -eq [IntPtr]::Zero) { continue }
+        if (-not [Poke]::IsWindowVisible($c)) { continue }
+        $r = New-Object Poke+RECT
+        [Poke]::GetWindowRect($c, [ref]$r) | Out-Null
+        $tl = New-Object Poke+POINT; $tl.X = $r.Left;  $tl.Y = $r.Top
+        $br = New-Object Poke+POINT; $br.X = $r.Right; $br.Y = $r.Bottom
+        [Poke]::ScreenToClient($hwnd, [ref]$tl) | Out-Null
+        [Poke]::ScreenToClient($hwnd, [ref]$br) | Out-Null
+        $boxes += [pscustomobject]@{
+            Id = $id; Text = [Poke]::TextOf($c)
+            L = $tl.X; T = $tl.Y; R = $br.X; B = $br.Y
+        }
+    }
+
+    foreach ($b in $boxes) {
+        $off = ''
+        if ($b.L -lt 0 -or $b.T -lt 0 -or $b.R -gt $client.Right -or $b.B -gt $client.Bottom) {
+            $off = '  <-- OUTSIDE THE PAGE'
+        }
+        "{0,4}  ({1,4},{2,4}) {3,4}x{4,-4}  {5}{6}" -f `
+            $b.Id, $b.L, $b.T, ($b.R - $b.L), ($b.B - $b.T), $b.Text, $off | Write-Host
+    }
+
+    ''
+    $clashes = 0
+    for ($i = 0; $i -lt $boxes.Count; $i++) {
+        for ($j = $i + 1; $j -lt $boxes.Count; $j++) {
+            $a = $boxes[$i]; $b = $boxes[$j]
+            $w = [Math]::Min($a.R, $b.R) - [Math]::Max($a.L, $b.L)
+            $h = [Math]::Min($a.B, $b.B) - [Math]::Max($a.T, $b.T)
+            if ($w -gt 0 -and $h -gt 0) {
+                $clashes++
+                "OVERLAP  {0} and {1}  -- {2}x{3} px" -f $a.Id, $b.Id, $w, $h | Write-Host
+            }
+        }
+    }
+    if ($clashes -eq 0) { "{0} visible controls, none overlapping" -f $boxes.Count | Write-Host }
+    exit 0
+}
+
+if ($Combo.Count -gt 0) {
+    # How many rows a drop-down holds, and which is picked.
+    #
+    # **Counts, not text.** `CB_GETLBTEXT` writes into a buffer in the *asking*
+    # process, and the window is another one, so a cross-process read returns
+    # nothing whatever the control contains -- the same trap that nearly had
+    # the IMAGE log reported as broken. A count and a selection are integers
+    # returned in the message result, so they cross the boundary honestly.
+    $CB_GETCOUNT  = 0x0146
+    $CB_GETCURSEL = 0x0147
+    foreach ($id in $Combo) {
+        $c = [Poke]::GetDlgItem($hwnd, $id)
+        if ($c -eq [IntPtr]::Zero) { "{0,4}  -- no such control" -f $id | Write-Host; continue }
+        $n   = [int][Poke]::SendMessageW($c, $CB_GETCOUNT,  [IntPtr]::Zero, [IntPtr]::Zero)
+        $sel = [int][Poke]::SendMessageW($c, $CB_GETCURSEL, [IntPtr]::Zero, [IntPtr]::Zero)
+        $note = if ($n -le 0) { '  <-- EMPTY' } elseif ($sel -lt 0) { '  <-- nothing selected' } else { '' }
+        "{0,4}  {1} rows, selection {2}{3}" -f $id, $n, $sel, $note | Write-Host
     }
     exit 0
 }

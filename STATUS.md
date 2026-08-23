@@ -5,13 +5,28 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-24 · **Version**: **v0.0.15** released,
-**v0.0.16 ready on `ticket/r73-drawing-visible`** · **Open PRs**: none.
+**Last updated**: 2026-08-24 · **Version**: **v0.0.16**, published
+2026-08-24 · **Branch**: `main` · **Open PRs**: none.
 
 ## v0.0.16 — the six things Atur asked for, measured (2026-08-24)
 
-**854 tests.** Nine assets now: the five desktop builds, the Windows installer,
-the two Linux packages, and an **Android APK**.
+**854 tests.** **Nine assets**, read back off the releases API rather than
+predicted from the workflow:
+
+```
+Chaos-v0.0.16-android-arm64.apk          0.84 MB   <-- new
+Chaos-v0.0.16-linux-arm64.tar.gz         6.31 MB
+Chaos-v0.0.16-linux-x86_64.AppImage      6.09 MB
+Chaos-v0.0.16-linux-x86_64.tar.gz        6.77 MB
+Chaos-v0.0.16-macos-arm64.tar.gz         5.19 MB
+Chaos-v0.0.16-macos-x86_64.tar.gz        5.88 MB
+Chaos-v0.0.16-windows-x86_64-Setup.exe  27.29 MB
+Chaos-v0.0.16-windows-x86_64.zip        19.34 MB
+chaos_0.0.16_amd64.deb                   5.62 MB
+```
+
+CI's own check on the Windows runner: *"setup: install / run / uninstall clean,
+models untouched"*, 13 binaries installed.
 
 | what he said | what it was | now |
 |---|---|---|

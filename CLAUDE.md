@@ -126,7 +126,7 @@ item; if one is not done, say which and why.**
 
 ## Next
 
-**v0.0.16 ready, not yet tagged**: nine assets now — the five desktop builds,
+**v0.0.16 released 2026-08-24**: nine assets — the five desktop builds,
 the Windows installer, the two Linux packages, and an **Android APK**. The tab
 stall is gone (1584 → 10.8 ms), the IMAGE page chooses a model and keeps its
 latent, the model list sorts and searches, four of nine icon sizes were a pixel

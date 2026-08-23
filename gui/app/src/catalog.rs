@@ -29,6 +29,14 @@ pub struct Offer {
     pub unsupported: Option<&'static str>,
     /// Adult content. Marked in the list, and confirmed before a download.
     pub adult: bool,
+    /// Whether every file of this quant is already on disk.
+    ///
+    /// **The catalogue used to say nothing about it.** So a model downloaded
+    /// ten minutes ago sat in AVAILABLE looking exactly like one that had never
+    /// been fetched, and the only way to tell was to remember. The autoencoder
+    /// makes it worse: `flux2-vae.safetensors` is not a GGUF, so it never
+    /// appears on INSTALLED either -- downloaded, invisible in both lists.
+    pub installed: bool,
 }
 
 /// What must stay resident for an installed model, if the catalogue knows it.
@@ -61,10 +69,25 @@ pub fn resident_for(stem: &str) -> Option<u64> {
 
 /// Everything fetchable, flattened to one row per quantisation.
 pub fn offers() -> Vec<Offer> {
+    // Read once for the whole catalogue rather than per row: this is a
+    // directory listing, and the catalogue has enough rows for per-row
+    // `exists()` calls to be a visible cost on a slow disk.
+    let on_disk = files_on_disk();
     let mut out = Vec::new();
     for e in chaos_model::catalogue::CATALOGUE {
         for q in e.quants {
             out.push(Offer {
+                installed: {
+                    let want = e.files(q);
+                    !want.is_empty()
+                        && want.iter().all(|f| {
+                            // A repo-relative path lands on disk as its
+                            // filename alone -- `split_files/vae/flux2-vae.
+                            // safetensors` becomes `flux2-vae.safetensors`.
+                            let name = f.rsplit('/').next().unwrap_or(f);
+                            on_disk.contains(&name.to_ascii_lowercase())
+                        })
+                },
                 name: e.name.to_string(),
                 quant: q.name.to_string(),
                 bytes: q.bytes,
@@ -74,6 +97,35 @@ pub fn offers() -> Vec<Offer> {
                 unsupported: chaos_model::catalogue::why_not_runnable(e.arch),
                 adult: e.adult,
             });
+        }
+    }
+    out
+}
+
+/// Every filename in every models directory, lowercased.
+///
+/// One level down as well, because a big sharded model lives in its own folder
+/// -- the rule `find::scan_into` follows, for the same reason.
+fn files_on_disk() -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for dir in chaos_model::find::model_dirs() {
+        let mut roots = vec![dir.clone()];
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                if e.path().is_dir() {
+                    roots.push(e.path());
+                }
+            }
+        }
+        for root in roots {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                if let Some(n) = e.file_name().to_str() {
+                    out.insert(n.to_ascii_lowercase());
+                }
+            }
         }
     }
     out
@@ -147,7 +199,16 @@ pub fn columns(o: &Offer, free_bytes: u64) -> Vec<String> {
     let size = human_size(o.bytes);
     let needs = human_size(o.always_read);
     let mut v = vec![
-        format!("{}{} {}", o.name, flag, o.quant),
+        // **"installed" leads the name**, not trails the row: it changes what
+        // the row is *for* -- from something to download into something you
+        // already have -- and a trailing column is the part a narrow list cuts.
+        format!(
+            "{}{}{} {}",
+            if o.installed { "* " } else { "" },
+            o.name,
+            flag,
+            o.quant
+        ),
         format!("{size}{shards}"),
     ];
     // **Both numbers, but only when they are two numbers.** The download size
@@ -188,6 +249,20 @@ mod tests {
         assert!(row(&o, 1 << 30).contains("[18+]"), "{}", row(&o, 1 << 30));
     }
 
+    /// **An offer already on disk must say so.** Without it a model downloaded
+    /// ten minutes ago looks identical to one never fetched, and the
+    /// autoencoder is worse still: it is not a GGUF, so it never appears on
+    /// INSTALLED either and was invisible in both lists once downloaded.
+    #[test]
+    fn an_offer_already_on_disk_is_marked() {
+        let mut o = offer(1 << 30, 1 << 30);
+        assert!(!row(&o, 1 << 40).starts_with('*'), "{}", row(&o, 1 << 40));
+        o.installed = true;
+        assert!(row(&o, 1 << 40).starts_with("* "), "{}", row(&o, 1 << 40));
+        // The name survives the marker: it is the column the row exists for.
+        assert!(row(&o, 1 << 40).contains(&o.name));
+    }
+
     fn offer(bytes: u64, always: u64) -> Offer {
         Offer {
             name: "m".into(),
@@ -195,6 +270,7 @@ mod tests {
             bytes,
             always_read: always,
             adult: false,
+            installed: false,
             shards: 1,
             arch: "a".into(),
             unsupported: None,

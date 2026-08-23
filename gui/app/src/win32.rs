@@ -131,6 +131,9 @@ pub const WS_TABSTOP: u32 = 0x0001_0000;
 
 pub const ES_MULTILINE: u32 = 0x0004;
 pub const ES_READONLY: u32 = 0x0800;
+/// Scroll horizontally rather than wrap: a single-line box for typing a search
+/// into, where a name longer than the box must still be typeable.
+pub const ES_AUTOHSCROLL: u32 = 0x0080;
 pub const ES_AUTOVSCROLL: u32 = 0x0040;
 pub const ES_WANTRETURN: u32 = 0x1000;
 

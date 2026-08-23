@@ -120,6 +120,12 @@ pub const ID_GET: i32 = 206;
 pub const ID_DELETE: i32 = 207;
 pub const ID_REFRESH: i32 = 208;
 pub const ID_COPY_ENDPOINT: i32 = 209;
+/// Narrow the list by typing part of a name.
+pub const ID_MODEL_SEARCH: i32 = 210;
+/// By name, by size, or by what the model is for.
+pub const ID_MODEL_SORT: i32 = 211;
+/// Everything, chat models only, or image models only.
+pub const ID_MODEL_KIND: i32 = 212;
 
 // Settings: 300
 pub const ID_CACHE: i32 = 301;
@@ -253,6 +259,9 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_DELETE,
             ID_REFRESH,
             ID_COPY_ENDPOINT,
+            ID_MODEL_SEARCH,
+            ID_MODEL_SORT,
+            ID_MODEL_KIND,
         ],
         Page::Image => &[
             ID_IMG_PROMPT,

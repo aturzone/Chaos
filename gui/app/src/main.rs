@@ -229,6 +229,17 @@ mod windows_app {
         /// per rescan. **Not counted while painting**: that is a directory scan,
         /// and the transcript repaints on every token.
         entry_files: Vec<usize>,
+        /// Which entries the list is showing, in list order.
+        ///
+        /// **A clicked row is not an entry index once the list can be filtered
+        /// or sorted.** Without this mapping, narrowing the list to "image
+        /// models" and pressing LOAD would load whatever model happened to sit
+        /// at that position in the unfiltered `entries` -- a real container, so
+        /// no error, just the wrong model.
+        shown: Vec<usize>,
+        sort: models::Sort,
+        filter: models::Filter,
+        search: String,
         offers: Vec<catalog::Offer>,
         free_bytes: u64,
         total_bytes: u64,
@@ -871,6 +882,29 @@ mod windows_app {
             nav::ID_IMG_PROMPT,
             hinst,
         );
+        // ---- the MODELS list's own controls --------------------------------
+        //
+        // Atur: *"list of model better management and sort and structured for
+        // users"*. Thirty-nine containers in one flat alphabetical list, half
+        // of them parts of an image pipeline, is the list this replaces.
+        child(
+            hwnd,
+            "EDIT",
+            "",
+            ES_AUTOHSCROLL | WS_BORDER | WS_TABSTOP,
+            nav::ID_MODEL_SEARCH,
+            hinst,
+        );
+        for id in [nav::ID_MODEL_SORT, nav::ID_MODEL_KIND] {
+            child(
+                hwnd,
+                "COMBOBOX",
+                "",
+                CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL,
+                id,
+                hinst,
+            );
+        }
         for id in [nav::ID_IMG_MODEL, nav::ID_IMG_SIZE, nav::ID_IMG_STEPS] {
             child(
                 hwnd,
@@ -961,6 +995,10 @@ mod windows_app {
                 },
                 entries: Vec::new(),
                 entry_files: Vec::new(),
+                shown: Vec::new(),
+                sort: models::Sort::Name,
+                filter: models::Filter::All,
+                search: String::new(),
                 offers: catalog::offers(),
                 free_bytes: free_memory_bytes(),
                 total_bytes: total_memory_bytes(),
@@ -1179,19 +1217,27 @@ mod windows_app {
         // The selection is read first: `LB_GETCURSEL` is a `SendMessageW`, and
         // this file's rule is that Windows is never called with `UI` open.
         let sel = selection();
-        let (installed, running, busy_now, unfinished) = UI.with(|u| {
+        let (installed, running, busy_now, unfinished, image_part) = UI.with(|u| {
             u.borrow()
                 .as_ref()
                 .map(|ui| {
+                    let picked = sel
+                        .and_then(|s| ui.shown.get(s))
+                        .and_then(|i| ui.entries.get(*i));
                     (
                         ui.tab == Tab::Installed,
                         ui.loaded.is_some(),
                         busy().load(Ordering::SeqCst),
-                        sel.and_then(|s| ui.entries.get(s))
-                            .is_some_and(|e| e.incomplete.is_some()),
+                        picked.is_some_and(|e| e.incomplete.is_some()),
+                        // **An image part has no token loop to run.** LOAD on
+                        // an autoencoder used to start a server and fail; grey
+                        // is the honest answer, and the row says "image" so the
+                        // greying is explained rather than mysterious.
+                        ui.tab == Tab::Installed
+                            && picked.is_some_and(|e| e.kind == models::Kind::ImagePart),
                     )
                 })
-                .unwrap_or((true, false, false, false))
+                .unwrap_or((true, false, false, false, false))
         });
         let set = |id: i32, on: bool| unsafe {
             EnableWindow(ctl(id), i32::from(on));
@@ -1199,7 +1245,7 @@ mod windows_app {
         // **An unfinished model cannot be loaded and can be finished.** Leaving
         // DOWNLOAD grey on the INSTALLED tab meant the one action that fixes
         // the problem was the one action not offered.
-        set(nav::ID_LOAD, installed && !running && !unfinished);
+        set(nav::ID_LOAD, installed && !running && !unfinished && !image_part);
         set(nav::ID_UNLOAD, running);
         set(nav::ID_GET, !installed || (unfinished && !running));
         set(nav::ID_DELETE, installed && !running);
@@ -1331,6 +1377,7 @@ mod windows_app {
                 ui.total_bytes = total;
                 match ui.tab {
                     Tab::Installed => {
+                        ui.shown = models::arrange(&ui.entries, &ui.search, ui.sort, ui.filter);
                         if ui.entries.is_empty() {
                             // **"Nothing installed" is a claim, and before the
                             // first scan finishes it is one nobody has
@@ -1341,11 +1388,31 @@ mod windows_app {
                             } else {
                                 "nothing installed -- open AVAILABLE to download one".to_string()
                             }]
+                        } else if ui.shown.is_empty() {
+                            // **Not silence.** An empty list after a search
+                            // looks exactly like an empty list after a failed
+                            // scan, and the difference is the only thing the
+                            // user needs to know.
+                            vec![format!(
+                                "nothing matches -- all {} installed models are                                  hidden by the search or the filter",
+                                ui.entries.len()
+                            )]
                         } else {
-                            ui.entries.iter().map(models::row).collect()
+                            ui.shown
+                                .iter()
+                                .filter_map(|i| ui.entries.get(*i))
+                                .map(models::row)
+                                .collect()
                         }
                     }
-                    Tab::Available => ui.offers.iter().map(|o| catalog::row(o, free)).collect(),
+                    Tab::Available => {
+                        // AVAILABLE is the catalogue, which is not filtered by
+                        // what is on disk -- but a row still maps to itself, and
+                        // leaving `shown` stale would point INSTALLED's actions
+                        // at the previous tab's arrangement.
+                        ui.shown = (0..ui.offers.len()).collect();
+                        ui.offers.iter().map(|o| catalog::row(o, free)).collect()
+                    }
                 }
             })
         };
@@ -1438,7 +1505,14 @@ mod windows_app {
             if ui.tab != Tab::Installed {
                 return None;
             }
-            let e = ui.entries.get(sel)?;
+            let e = ui.entries.get(*ui.shown.get(sel)?)?;
+            // **An image part is not something to chat with.** It has no
+            // tokenizer and no token loop; LOAD on an autoencoder used to spend
+            // seconds finding that out. The row says "image", and this refuses
+            // rather than starting a server that cannot come up.
+            if e.kind == models::Kind::ImagePart {
+                return None;
+            }
             Some((e.path.clone(), e.label.clone(), ui.cfg.clone()))
         });
         let Some((path, label, cfg)) = picked else {
@@ -1832,7 +1906,7 @@ mod windows_app {
             if ui.tab != Tab::Installed {
                 return None;
             }
-            let e = ui.entries.get(sel)?;
+            let e = ui.entries.get(*ui.shown.get(sel)?)?;
             Some((
                 e.path.clone(),
                 e.label.clone(),
@@ -1920,7 +1994,7 @@ mod windows_app {
             // disk is known by its file rather than by the name it was fetched
             // under, so the catalogue is asked which entry produces that
             // filename. `chaos-pull` then resumes from the bytes already there.
-            let e = ui.entries.get(sel)?;
+            let e = ui.entries.get(*ui.shown.get(sel)?)?;
             e.incomplete.as_ref()?;
             let file = e.path.file_name()?.to_str()?;
             let (entry, quant) = chaos_model::catalogue::find_by_file(file)?;
@@ -3217,6 +3291,7 @@ Any value a client sends is accepted.                      The server still list
         let i = sel?;
         match ui.tab {
             Tab::Installed => {
+                let i = *ui.shown.get(i)?;
                 let e = ui.entries.get(i)?;
                 let running = ui.loaded.as_deref() == Some(e.label.as_str());
                 let files = ui.entry_files.get(i).copied().unwrap_or(1);
@@ -3887,7 +3962,27 @@ Any value a client sends is accepted.                      The server still list
                     m.push((nav::ID_TAB_AVAILABLE, x + 104, top, 96, metric::BUTTON));
                     // RESCAN belongs with the list it refreshes.
                     m.push((nav::ID_REFRESH, split - 84, top, 84, metric::BUTTON));
-                    let list_top = top + metric::BUTTON + 14;
+                    // A row of its own for finding things, because the tab row
+                    // has no space left and these three belong together.
+                    let fy = top + metric::BUTTON + 10;
+                    let lw = split - x - 20;
+                    let third = (lw - 16) / 3;
+                    m.push((nav::ID_MODEL_SEARCH, x, fy, third, metric::CONTROL));
+                    m.push((
+                        nav::ID_MODEL_SORT,
+                        x + third + 8,
+                        fy,
+                        third,
+                        metric::CONTROL + metric::COMBO_ROW * 3,
+                    ));
+                    m.push((
+                        nav::ID_MODEL_KIND,
+                        x + (third + 8) * 2,
+                        fy,
+                        third,
+                        metric::CONTROL + metric::COMBO_ROW * 3,
+                    ));
+                    let list_top = fy + metric::CONTROL + 14;
                     m.push((
                         nav::ID_LIST,
                         x,
@@ -4563,6 +4658,54 @@ Any value a client sends is accepted.                      The server still list
                 note: String::new(),
             })
             .collect();
+
+        // The list's own controls, from the enums rather than from strings
+        // repeated here: a label that drifts from what the sort actually does
+        // is a lie the compiler cannot catch.
+        for (id, list, selected) in [
+            (
+                nav::ID_MODEL_SORT,
+                models::Sort::ALL
+                    .iter()
+                    .map(|v| Choice {
+                        value: v.label().to_string(),
+                        label: v.label().to_string(),
+                        note: String::new(),
+                    })
+                    .collect::<Vec<_>>(),
+                0usize,
+            ),
+            (
+                nav::ID_MODEL_KIND,
+                models::Filter::ALL
+                    .iter()
+                    .map(|v| Choice {
+                        value: v.label().to_string(),
+                        label: v.label().to_string(),
+                        note: String::new(),
+                    })
+                    .collect::<Vec<_>>(),
+                0usize,
+            ),
+        ] {
+            let h = ctl(id);
+            if h.is_null() {
+                continue;
+            }
+            unsafe {
+                SendMessageW(h, CB_RESETCONTENT, 0, 0);
+                for c in &list {
+                    SendMessageW(h, CB_ADDSTRING, 0, wide(&c.label).as_ptr() as LPARAM);
+                }
+                SendMessageW(h, CB_SETCURSEL, selected, 0);
+                widen_dropdown(h, &list);
+            }
+            UI.with(|u| {
+                if let Some(ui) = u.borrow_mut().as_mut() {
+                    ui.lists.insert(id, list);
+                }
+            });
+        }
 
         // **The image models actually on this machine.** Four hard-coded
         // filenames is what "no select model options" meant, and it is also
@@ -5539,6 +5682,43 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_GET, BN_CLICKED) => download_selected(),
                     (nav::ID_DELETE, BN_CLICKED) => delete_selected(),
                     (nav::ID_COPY_ENDPOINT, BN_CLICKED) => copy_endpoint(),
+                    // **Repainted, not rescanned.** Narrowing a list is not a
+                    // reason to read the disk again; `refill_list` re-arranges
+                    // what is already known and returns in single-digit ms.
+                    (nav::ID_MODEL_SEARCH, EN_CHANGE) => {
+                        let text = control_text(ctl(nav::ID_MODEL_SEARCH));
+                        UI.with(|u| {
+                            if let Some(ui) = u.borrow_mut().as_mut() {
+                                ui.search = text;
+                            }
+                        });
+                        refill_list();
+                    }
+                    (nav::ID_MODEL_SORT, CBN_SELCHANGE) => {
+                        let i: usize =
+                            unsafe { SendMessageW(ctl(nav::ID_MODEL_SORT), CB_GETCURSEL, 0, 0) }
+                                .try_into()
+                                .unwrap_or(0);
+                        UI.with(|u| {
+                            if let Some(ui) = u.borrow_mut().as_mut() {
+                                ui.sort = *models::Sort::ALL.get(i).unwrap_or(&models::Sort::Name);
+                            }
+                        });
+                        refill_list();
+                    }
+                    (nav::ID_MODEL_KIND, CBN_SELCHANGE) => {
+                        let i: usize =
+                            unsafe { SendMessageW(ctl(nav::ID_MODEL_KIND), CB_GETCURSEL, 0, 0) }
+                                .try_into()
+                                .unwrap_or(0);
+                        UI.with(|u| {
+                            if let Some(ui) = u.borrow_mut().as_mut() {
+                                ui.filter =
+                                    *models::Filter::ALL.get(i).unwrap_or(&models::Filter::All);
+                            }
+                        });
+                        refill_list();
+                    }
                     (nav::ID_TAB_INSTALLED, BN_CLICKED) => set_tab(Tab::Installed),
                     (nav::ID_TAB_AVAILABLE, BN_CLICKED) => set_tab(Tab::Available),
                     (nav::ID_SAVE, BN_CLICKED) => save_settings(),

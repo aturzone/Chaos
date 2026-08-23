@@ -175,7 +175,7 @@ pub fn logo_scaled(n: usize) -> Vec<u8> {
     bits
 }
 
-/// A stroke in a glyph, in a 0..1 square, to be scaled at paint time./// A stroke in a glyph, in a 0..1 square, to be scaled at paint time.
+/// A stroke in a glyph, in a 0..1 square, to be scaled at paint time.
 pub type Stroke = (f32, f32, f32, f32);
 
 /// Line art for the app's controls, as coordinates rather than pixels.
@@ -222,6 +222,68 @@ pub mod glyph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The mark is in the middle, at every size the app draws it.**
+    ///
+    /// Atur asked for this three times -- *"that svg logo must be in center of
+    /// app icon and logo and everywhere we use it"* -- and one of the three was
+    /// a real defect: four of the nine `.ico` sizes were a pixel left of centre
+    /// and a pixel high, because `make-ico.py` floored an odd margin. That was
+    /// in the icon exporter; this is the other renderer, the one the rail and
+    /// the installer window use, and it needs its own guard.
+    ///
+    /// **Measured on the ink, not the canvas.** An SVG's canvas and its drawing
+    /// are different rectangles -- this file's first path is a full-canvas white
+    /// background -- so a mark can be mathematically centred on the canvas and
+    /// visibly off-centre on the page. `ink_box` in the exporter squares and
+    /// centres the *ink*; this checks the result of that all the way through to
+    /// pixels.
+    ///
+    /// One pixel of tolerance, because ink an odd number of pixels wide cannot
+    /// have equal margins and rounding has to fall somewhere.
+    #[test]
+    fn the_mark_is_centred_at_every_size_it_is_drawn() {
+        // 44 and 64 are the rail; 96 and 56 are the installer window; the rest
+        // bracket them so a regression at an untried size is still caught.
+        for n in [16usize, 24, 32, 44, 56, 64, 96, 128] {
+            let cov = logo_coverage(n);
+            assert_eq!(cov.len(), n * n);
+
+            // Any coverage at all is ink. A threshold here would measure the
+            // antialiased edge rather than the drawing.
+            let (mut x0, mut x1, mut y0, mut y1) = (n, 0usize, n, 0usize);
+            for y in 0..n {
+                for x in 0..n {
+                    if cov[y * n + x] > 0 {
+                        x0 = x0.min(x);
+                        x1 = x1.max(x);
+                        y0 = y0.min(y);
+                        y1 = y1.max(y);
+                    }
+                }
+            }
+            assert!(x0 <= x1, "{n}px: no ink at all");
+
+            let (left, right) = (x0, n - 1 - x1);
+            let (top, bottom) = (y0, n - 1 - y1);
+            let dx = left.abs_diff(right);
+            let dy = top.abs_diff(bottom);
+            assert!(
+                dx <= 1 && dy <= 1,
+                "{n}px: margins left {left} right {right}, top {top} bottom \
+                 {bottom} -- the mark is off-centre by {dx}x{dy} px"
+            );
+
+            // And it must actually fill the box it is given: a mark centred in
+            // a tenth of the square would pass the test above and look wrong.
+            let width = x1 - x0 + 1;
+            assert!(
+                width * 4 >= n * 3,
+                "{n}px: the mark is only {width} px wide -- it is not filling \
+                 the space it was given"
+            );
+        }
+    }
 
     #[test]
     fn the_logo_has_both_values() {

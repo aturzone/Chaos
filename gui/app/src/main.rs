@@ -124,6 +124,12 @@ mod windows_app {
         /// holding `chaos-app.exe` open. Windows will not let the installer
         /// overwrite a binary that is still executing.
         update_quit: bool,
+        /// A finished look at the models directory, waiting for the UI thread.
+        ///
+        /// The entries and, beside them, how many files each container is --
+        /// both come from the worker because both are disk, and counting shards
+        /// while painting is what put a `read_dir` inside a repaint once.
+        scan: Option<(Vec<models::Entry>, Vec<usize>)>,
     }
 
     /// Whether the next `WM_CLOSE` means "quit" or "hide".
@@ -263,6 +269,16 @@ mod windows_app {
     fn busy() -> &'static AtomicBool {
         static B: AtomicBool = AtomicBool::new(false);
         &B
+    }
+
+    /// Whether a look at the models directory is already in flight.
+    ///
+    /// Switching tabs quickly used to mean switching *scans* quickly; one at a
+    /// time is enough, because the second would read the same directory and
+    /// arrive with the same answer.
+    fn scanning() -> &'static AtomicBool {
+        static S: AtomicBool = AtomicBool::new(false);
+        &S
     }
 
     /// The main window handle, readable from any thread.
@@ -1234,11 +1250,78 @@ mod windows_app {
 
     // -- actions -------------------------------------------------------------
 
+    /// Show the list, and ask the disk for a fresh one in the background.
+    ///
+    /// **The disk half used to be right here, on the UI thread.** Measured on
+    /// this machine with 39 models installed: `find::list()` 3.7 ms and
+    /// `models::list()` **1523 ms**, nearly all of it `why_incomplete` opening
+    /// every shard of every container and parsing megabytes of header. That ran
+    /// on every switch between INSTALLED and AVAILABLE, so the window stopped
+    /// answering for a second and a half each time. Atur: *"when i switch
+    /// between available and installed models installed models load with lag
+    /// and make problem"*.
+    ///
+    /// Two changes fix it and both were needed. `chaos_model::complete` now
+    /// remembers a container's verdict against its length and modified time, so
+    /// a repeat scan costs 4.2 ms instead of 1608. And the scan itself happens
+    /// on a worker, so even the *first* one -- which still has to read the disk
+    /// once -- does not hold the message loop.
     fn rescan() {
+        start_scan();
+        refill_list();
+    }
+
+    /// The disk half. Runs on a worker thread; touches no window and no `UI`.
+    fn scan_models() -> (Vec<models::Entry>, Vec<usize>) {
+        let entries = models::list();
+        // Counted here rather than while painting: this is a directory scan per
+        // model and the window repaints on every generated token.
+        let files = entries.iter().map(|e| shards_of(&e.path).len()).collect();
+        (entries, files)
+    }
+
+    /// Ask for a fresh look at the models directory, without waiting for it.
+    fn start_scan() {
+        // One at a time. A second scan would read the same directory and come
+        // back with the same answer.
+        if scanning().swap(true, Ordering::SeqCst) {
+            return;
+        }
+        std::thread::spawn(|| {
+            let got = scan_models();
+            if let Ok(mut sh) = shared().lock() {
+                sh.scan = Some(got);
+            }
+            scanning().store(false, Ordering::SeqCst);
+            notify();
+        });
+    }
+
+    /// Take a finished scan and put it in the window.
+    fn drain_scan() {
+        let got = {
+            let mut sh = shared().lock().unwrap();
+            sh.scan.take()
+        };
+        let Some((entries, files)) = got else {
+            return;
+        };
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                ui.entries = entries;
+                ui.entry_files = files;
+            }
+        });
+        refill_list();
+    }
+
+    /// Repaint the list from what the window already knows. No disk.
+    fn refill_list() {
         // Phase 1 -- read state and build the strings. Borrow ends here.
         let rows: Vec<String> = {
             let free = free_memory_bytes();
             let total = total_memory_bytes();
+            let looking = scanning().load(Ordering::SeqCst);
             UI.with(|u| {
                 let mut b = u.borrow_mut();
                 let Some(ui) = b.as_mut() else {
@@ -1248,17 +1331,16 @@ mod windows_app {
                 ui.total_bytes = total;
                 match ui.tab {
                     Tab::Installed => {
-                        ui.entries = models::list();
-                        // Counted here, once, rather than while painting: this
-                        // is a directory scan per model and the window
-                        // repaints on every generated token.
-                        ui.entry_files = ui
-                            .entries
-                            .iter()
-                            .map(|e| shards_of(&e.path).len())
-                            .collect();
                         if ui.entries.is_empty() {
-                            vec!["nothing installed -- open AVAILABLE to download one".to_string()]
+                            // **"Nothing installed" is a claim, and before the
+                            // first scan finishes it is one nobody has
+                            // checked.** Saying it while still looking tells a
+                            // user with 39 models that they have none.
+                            vec![if looking {
+                                "looking for models...".to_string()
+                            } else {
+                                "nothing installed -- open AVAILABLE to download one".to_string()
+                            }]
                         } else {
                             ui.entries.iter().map(models::row).collect()
                         }
@@ -1273,13 +1355,18 @@ mod windows_app {
         if list.is_null() {
             return;
         }
+        // **Kept across the refill.** A background scan lands whenever it
+        // lands; resetting to the first row while somebody is reading the
+        // seventh would move the selection under them, and the selection is
+        // what LOAD and DELETE act on.
+        let keep = selection().filter(|s| *s < rows.len()).unwrap_or(0);
         unsafe {
             SendMessageW(list, LB_RESETCONTENT, 0, 0);
             for r in &rows {
                 let t = wide(r);
                 SendMessageW(list, LB_ADDSTRING, 0, t.as_ptr() as LPARAM);
             }
-            SendMessageW(list, LB_SETCURSEL, 0, 0);
+            SendMessageW(list, LB_SETCURSEL, keep as WPARAM, 0);
         }
         sync_enabled();
         repaint();
@@ -5252,6 +5339,7 @@ Any value a client sends is accepted.                      The server still list
             WM_APP_TICK => {
                 drain();
                 drain_drawing();
+                drain_scan();
                 0
             }
             // The shell sends mouse messages for the icon here, in `lParam`.

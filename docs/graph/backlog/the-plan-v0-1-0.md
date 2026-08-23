@@ -36,10 +36,16 @@ always broken"*. The pictures were correct, inverted, and identical.
       *installed* image models, the way MODELS lists text models, with the four
       roles named (denoiser, unconditional twin, text encoder, autoencoder) so
       a missing one is a sentence rather than a failure at step three.
-- [ ] **Quality below 1024.** 256 and 512 are visibly worse than a linear
-      reading of the size ladder suggests. Measure the velocity cosine at each
-      grid before blaming the sampler — this is the instrument that already
-      found the flip.
+- [x] **Quality below 1024 — measured, and it is the model.** The velocity
+      cosine at light noise runs 0.858 / 0.898 / 0.918 / 0.934 / 0.941 across
+      grids 16, 24, 32, 40, 48 — monotonic, and 2.4x worse in error terms at 16
+      than at 48, before a single sampler step. **Do not go looking for a
+      sampler bug**; that was the obvious next move and this removes it. The
+      size labels now say what was measured.
+      `research/small-images-are-the-model-2026-08-24.md`.
+- [ ] **More steps at small grids**, which is the one lever left this side of
+      the model: if each step's direction is 2.4x worse, more of them may
+      partly compensate. Untried. The app defaults to 20 regardless of size.
 - [ ] **Prompt adherence.** "A photo of a Russian girl in a bikini" produced a
       woman in a business jacket. Colour and scene follow; object form and
       clothing do not. Structured JSON-shaped prompts condition ~3x more

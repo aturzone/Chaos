@@ -4630,10 +4630,19 @@ Any value a client sends is accepted.                      The server still list
 
     /// Grid values, and what they cost. The number is `--grid`; the image is
     /// sixteen times it.
+    /// **Measured, not described.** The labels used to be impressions -- "flat",
+    /// "faceted" -- and Atur reported that small images were worse than the
+    /// ladder suggested. They are, and it is the model rather than the sampler:
+    /// the denoiser's velocity cosine at light noise runs 0.858 at grid 16,
+    /// 0.918 at 32 and 0.941 at 48, monotonically.
+    /// `research/small-images-are-the-model-2026-08-24.md`.
+    ///
+    /// So the rows say what a person gets rather than what it looks like to
+    /// somebody who already knows.
     const SIZES: [(&str, u32); 3] = [
-        ("256 x 256 -- quick, and flat", 16),
-        ("512 x 512 -- faceted", 32),
-        ("1024 x 1024 -- photorealistic, and slow", 64),
+        ("256 x 256 -- fast, and the model is weakest here", 16),
+        ("512 x 512 -- a fair likeness", 32),
+        ("1024 x 1024 -- photorealistic, and hours", 64),
     ];
     const STEPS: [u32; 5] = [4, 8, 20, 30, 50];
 

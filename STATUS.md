@@ -5,12 +5,12 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-24 · **Version**: **v0.0.16**, published
-2026-08-24 · **Branch**: `ticket/r74-worker-and-measurements` ahead of `main`.
+**Last updated**: 2026-08-24 · **Version**: **v0.0.17**, being cut from `main`
+· previous release **v0.0.16**, published 2026-08-24.
 
-## After v0.0.16 — a worker, and two measurements that changed the advice (2026-08-24)
+## v0.0.17 — the app runs, a worker exists, and two claims are retracted (2026-08-24)
 
-**871 tests.** On `ticket/r74-worker-and-measurements`, not yet released.
+**871 Rust tests and 9 Kotlin tests.** Everything below is on `main`.
 
 ### The Android app runs, and running it found four defects
 

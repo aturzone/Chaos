@@ -8,6 +8,98 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.17] — 2026-08-24
+
+### The Android app runs, and running it found four defects
+
+v0.0.16 shipped an APK that had never been started. It has now been started —
+on an Android 34 emulator, against a real `chaos-serve` on the host — and it
+answered the project's own correctness prompt:
+
+> **The capital of France is \*\*Paris\*\*.**
+
+`chaos-serve` logged `GET /v1/models -> 200` and `POST /v1/chat/completions ->
+200 (stream)`. Four defects were on the screen within a minute, and **not one of
+them could have been found by building it**:
+
+| what running it showed | cause |
+|---|---|
+| "Chaos" twice, stacked | the framework theme draws an ActionBar with the app label, and the layout has its own heading |
+| the key field read `API key (required` | CONNECT sits beside it, so the hint did not fit |
+| a bare `<think>`/`</think>` around every reply | **the tags arrive split across streamed pieces** — Qwen3 emits `<`, `think`, `>` as three tokens — so filtering each piece as it arrives sees none of them |
+| the address and key were lost | saved in `onPause`, which **never runs when the process is killed** rather than paused |
+
+`ThinkFilter` accumulates the stream and holds back only a tail that could still
+be forming a tag. It is the one piece of real logic in the app and the one that
+cannot be checked by looking, so it has nine unit tests — including that the
+result does not depend on how the stream was chunked, and that an *unterminated*
+block is released rather than swallowed, because a truncated stream showing
+nothing is indistinguishable from a server that never replied. CI runs them
+before it builds the APK.
+
+**Still not run on real hardware.** An emulator is not a phone.
+
+### `chaos-worker` — one machine holds the experts, another asks
+
+The first step of "devices as resources": a process that keeps expert weights in
+RAM and answers with activations. `chaos-run`'s arithmetic without its token
+loop. The plan's order was protocol, then a worker that computes, then **measure
+and stop** — this is all three, and it stops here.
+
+```
+request             8268 bytes      scaled to a V4-Flash token:
+answer             49172 bytes        on the wire     4.94 MB
+                                      over 1 GbE        41 ms
+                                      read from disk  1560 ms
+```
+
+**38x in favour of sending the work to the weights.** The protocol is measured
+rather than estimated, and the measurement is the deliverable; a second machine
+is what would make it about a real network, and this machine is one machine.
+
+### 1024×1024 encodes, because the graph is planned now
+
+`encode_planned` mirrors `decode_planned`: `ggml_gallocr` reuses buffers for
+tensors whose lifetimes do not overlap, which is the difference between an arena
+that fits and one that aborts. Encoding a 1024×1024 image is possible in this
+process for the first time.
+
+### What the prompt advice said, and what it should have said
+
+`chaos-draw --help` and `docs/APP.md` now say **describe the picture, do not
+just name it**, with the measurement behind it — and `--template` prints the
+description frame for a person to fill in rather than silently wrapping their
+prompt in it, because a flag that wrapped it would look like it helped and would
+not.
+
+### Fixed
+
+- **`chaos-worker` was not packaged.** The new binary was built and then not put
+  in any archive — caught by the release check, before a release rather than
+  after one.
+- **The release dry run stamped `0.0.16-dryrun` into the Android build file.**
+  `[0-9]*.[0-9]*.[0-9]*` is a glob, not a version check: the trailing `*`
+  swallowed the suffix. A dry run should differ from a release only in not
+  publishing, and a version it would never ship is not that.
+
+### Retracted
+
+- **"Structured, JSON-shaped prompts condition about three times as strongly as
+  a bare phrase."** Published in four places, measured on **one latent** — in a
+  quantity that varies nineteen-fold between latents. Over eight: a phrase
+  wrapped in an empty JSON frame scores **0.9x** the bare phrase, and a phrase
+  *written out* — lighting, background, palette — scores **11.3x**. It is the
+  sentences, not the braces. The STRUCTURE button that was built on the old
+  claim was measured and not shipped.
+  `research/prompt-shape-does-nothing-2026-08-24.md`.
+- **"If 4 steps looks acceptable, 256×256 gets five times faster."** Never
+  published, and wrong: four steps confines the whole image to a **56-level
+  grey band** (1st–99th percentile 123–179 out of 255). `chaos-draw` prints the
+  standard deviation of every picture it writes and had already printed 12.2 for
+  that render. **8 steps is where to start looking**, at 0.4x the default's
+  time; the default is unchanged, because ruling one option out does not rank
+  the rest. `research/step-count-never-settles-2026-08-24.md`.
+
 ## [0.0.16] — 2026-08-24
 
 ### Switching to INSTALLED froze the window for a second and a half
@@ -1622,7 +1714,9 @@ Qwen3-30B-A3B Q4_K_M prefill, Chaos / llama.cpp:
   requires a competitor's exact command line and output before any competitive
   claim is citable.
 
-[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.15...HEAD
+[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.17...HEAD
+[0.0.17]: https://github.com/aturzone/Chaos/releases/tag/v0.0.17
+[0.0.16]: https://github.com/aturzone/Chaos/releases/tag/v0.0.16
 [0.0.15]: https://github.com/aturzone/Chaos/releases/tag/v0.0.15
 [0.0.14]: https://github.com/aturzone/Chaos/releases/tag/v0.0.14
 [0.0.13]: https://github.com/aturzone/Chaos/releases/tag/v0.0.13

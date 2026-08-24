@@ -1437,6 +1437,7 @@ fn usage_rest() -> ExitCode {
     eprintln!("  --no-perf           omit the timing summary");
     eprintln!("  --version           print the version and exit");
     eprintln!("  --update            check for a newer Chaos and install it");
+    eprintln!("  --update --yes      the same without the question, for scripts");
     eprintln!("  --perplexity        score a corpus instead of generating");
     eprintln!("  --ppl-chunk N       perplexity chunk size (default 512)");
     eprintln!("  --seed S            reproducible sampling");
@@ -1463,7 +1464,17 @@ fn usage_rest() -> ExitCode {
 /// **One installer updates everything.** It carries the whole payload -- this
 /// binary, `chaos-serve`, the window, all of it -- so there is nothing to do
 /// per-binary and no version skew to manage.
-fn update_in_place() -> ExitCode {
+/// `--update`, and `--update --yes` for anything that is not a person.
+///
+/// **The prompt was the only way through, and that made the update path
+/// untestable.** `scripts/install-update-uninstall.ps1` piped a `y` at it, the
+/// read came back empty, and the script reported *"the update check found the
+/// newer release"* -- true -- while no update had happened. A check that passes
+/// while the thing it checks fails is worse than no check at all.
+///
+/// Not a default. A download and an installer launch should not happen because
+/// somebody typed a flag whose name suggests only a question.
+fn update_in_place(assume_yes: bool) -> ExitCode {
     use chaos_model::release;
     let running = release::running();
     println!("chaos-run {}", running.text());
@@ -1496,14 +1507,24 @@ fn update_in_place() -> ExitCode {
 
     let name = release::asset_for_platform(&version);
     let dest = std::env::temp_dir().join(&name);
-    print!("\nDownload {name} and start the installer? [y/N] ");
-    let _ = std::io::Write::flush(&mut std::io::stdout());
-    let mut line = String::new();
-    if std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line).is_err()
-        || !matches!(line.trim(), "y" | "Y" | "yes")
-    {
-        println!("nothing downloaded -- {url}");
-        return ExitCode::SUCCESS;
+    if assume_yes {
+        println!("\nDownload {name} and start the installer? [y/N] y  (--yes)");
+    } else {
+        print!("\nDownload {name} and start the installer? [y/N] ");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let mut line = String::new();
+        let read = std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line);
+        if read.is_err() || !matches!(line.trim(), "y" | "Y" | "yes") {
+            println!("nothing downloaded -- {url}");
+            // **Nothing on stdin is not consent, and it is what a script gives
+            // by accident.** Saying so turns a silent no-op into an
+            // instruction; without it the caller sees the question and the
+            // answer in one line and cannot tell nobody was asked.
+            if matches!(read, Ok(0)) {
+                println!("(no answer on stdin -- use --update --yes to skip the question)");
+            }
+            return ExitCode::SUCCESS;
+        }
     }
 
     println!("downloading to {}", dest.display());
@@ -1522,12 +1543,28 @@ fn update_in_place() -> ExitCode {
     }
 
     // The installer replaces this very binary, and Windows keeps a running
-    // executable's file open -- so it is started with its window and this
-    // process exits immediately. By the time anyone presses INSTALL there is
-    // nothing holding the file.
-    match std::process::Command::new(&dest).spawn() {
+    // executable's file open -- so it is started and this process exits
+    // immediately. By the time the installer reaches these files there is
+    // nothing holding them.
+    //
+    // **`--yes` means the whole way through, not just past the question.**
+    // Without `/S` here the flag downloaded silently and then opened a window
+    // waiting for somebody to press INSTALL, which is not an unattended update
+    // -- it is an unattended download and a stuck script. That is what
+    // `install-update-uninstall.ps1` sat waiting on for three minutes.
+    let mut cmd = std::process::Command::new(&dest);
+    if assume_yes {
+        cmd.arg("/S");
+    }
+    match cmd.spawn() {
         Ok(_) => {
-            println!("\nthe installer is open. Close this window; your models are not touched.");
+            if assume_yes {
+                println!("\nthe installer is running silently. Your models are not touched.");
+            } else {
+                println!(
+                    "\nthe installer is open. Close this window; your models are not touched."
+                );
+            }
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -1572,7 +1609,10 @@ fn main() -> ExitCode {
             // Here as well as in the main loop, for the same reason `--version`
             // is: asking to be updated should not first require a model that
             // loads.
-            "--update" => return update_in_place(),
+            "--update" => {
+                let yes = std::env::args().any(|a| a == "--yes" || a == "-y");
+                return update_in_place(yes);
+            }
             // One list rather than two that drift apart: this falls into the
             // same usage block the no-argument path uses.
             "--help" | "-h" => return usage(),
@@ -2707,7 +2747,7 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--update" => {
-                return update_in_place();
+                return update_in_place(rest.iter().any(|a| a == "--yes" || a == "-y"));
             }
             // --- RoPE, for a container whose metadata is wrong or absent ---
             "--rope-freq-base" => {

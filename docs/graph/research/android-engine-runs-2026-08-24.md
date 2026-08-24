@@ -80,11 +80,43 @@ The work completes and the output is correct; the process then aborts. It
 happens on `--version` and `--help`, and on `chaos-probe` too, so it is **not
 specific to the runner or to a model being loaded**.
 
-**Android's libc is stricter than the ones this has run on.** bionic's FORTIFY
-checks that a mutex is not destroyed twice; glibc and Windows tolerate it
-silently, so the same double-destroy has presumably been happening everywhere
-and nothing said so. Not diagnosed further yet: what is known is that it is at
-teardown, it is reproducible, and it would abort on a real phone.
+**Diagnosed, 2026-08-25.** The tombstone symbolises to:
+
+```
+#00 abort
+#01 __fortify_fatal
+#02 HandleUsingDestroyedMutex          pthread_mutex.cpp
+#03 pthread_mutex_destroy
+#04 std::__ndk1::mutex::~mutex()
+#05 __cxa_finalize
+#06 exit
+#07 __real_libc_init
+```
+
+The reported address ends `5b0`, and `ggml_critical_section_mutex` — ggml's one
+global `std::mutex`, in `ggml-threading.cpp` — sits at `0x42d5b0` in `.bss`. It
+is that mutex.
+
+**It is not duplicate linkage**, which was the first theory and is testable:
+`llvm-nm` finds exactly one definition of the symbol in the binary, the staging
+directory holds exactly three archives, and `ggml-threading.cpp.o` is in
+`ggml-base` alone. So a single static destructor is running, and bionic
+considers the mutex already destroyed when it does.
+
+**A ggml-free Rust binary exits cleanly** — a `main` that locks and unlocks a
+`std::sync::Mutex` returns 0 on the same device — so this is ggml's global, not
+Rust's runtime or the NDK.
+
+**Everything works first.** `--list-devices` enumerates the CPU backend and
+prints the emulator's 2.42 GB correctly; the abort is strictly in `exit()`.
+
+**Which probably means it does not affect Phase B — reasoning, not a
+measurement.** The failing frame is `exit → __cxa_finalize`. An Android app does
+not `exit()`: it loads a `.so`, calls into it through JNI, and the process is
+later killed outright, so `__cxa_finalize` never runs and this destructor never
+fires. The abort should therefore be a CLI-only artefact. **Not verified** — it
+needs the JNI library that does not exist yet, and it must be checked rather
+than assumed before anyone relies on it.
 
 ### 2. `/.chaos/models` — which is not a bug, and the first note here said it was
 
@@ -109,11 +141,13 @@ what the code does with it.
 
 ## What is still not done
 
-**The abort**, which needs a debugger on the device: two theories are already
-ruled out — the threading translation unit is in exactly one archive
-(`ggml-base`, not `ggml-cpu` or `ggml`), and `libc++_static.a` does not contain
-`libc++abi`, so naming both is correct rather than a duplication. Whatever
-destroys a mutex twice is somewhere else.
+**The abort itself.** It is located exactly (ggml's `ggml_critical_section_mutex`,
+destroyed by `__cxa_finalize`) and three theories are eliminated — duplicate
+archives, a duplicated C++ runtime, and Rust's own runtime. What is left is why
+bionic believes that mutex was already destroyed, which is a question about
+ggml's global and belongs upstream rather than in a local patch to a vendored
+tree. **It is not blocking**: the work completes, and the frame is `exit()`,
+which a JNI library never reaches.
 
 Then the part that makes this a feature rather than a milestone: a JNI entry point the Kotlin side can call, model files on the
 device, and a way to choose a model that fits **this** phone — Atur's "a

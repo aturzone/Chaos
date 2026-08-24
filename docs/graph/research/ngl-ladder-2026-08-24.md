@@ -51,26 +51,72 @@ about the hardware. **Do not quote this as "the GPU is slower at generation".**
 It is "Chaos's Vulkan path is slower at generation here, by 2.2x, and nobody has
 looked at why".
 
+## A second model, and the trend is the finding
+
+**Qwen3-8B-Q4_K_M, 4.68 GiB against 5.11 GiB free VRAM** — the same ladder, the
+same prompt, the same session rules.
+
+```
+   ngl  prefill tok/s     gen tok/s    vs ngl 0
+     0         45.96          4.02       1.00x     <- CPU only
+     8         52.81          2.91       0.72x
+    16         59.75          3.34       0.83x
+    24         71.42          3.41       0.85x
+    32         81.20          3.36       0.84x
+    99        106.13          2.35       0.58x
+```
+
+Same shape — prefill monotone up, generation never once above the CPU — and
+**better on both axes than the smaller model**:
+
+| | Qwen3-4B (2.32 GiB) | Qwen3-8B (4.68 GiB) |
+|---|---|---|
+| prefill | 1.77x | **2.31x** |
+| generation | 0.46x | **0.58x** |
+| saved per prompt token | 5.63 ms | **12.34 ms** |
+| lost per generated token | 185.97 ms | **176.78 ms** |
+| break-even ratio | 33 : 1 | **14 : 1** |
+
+**The bigger model gets more out of the card and loses less.** That is the
+sensible direction — a larger matrix is more arithmetic per byte moved — and it
+matters more than either ladder alone, because it says the right answer
+**depends on model size** and a fixed rule cannot be right for both.
+
+**Two points are a direction, not a curve.** This card cannot hold anything
+larger than about 5 GiB, so the trend cannot be followed further here, and
+nothing above 4.68 GiB has been measured. Do not extrapolate a crossover.
+
 ## Where the GPU stops paying
 
 From the two ends of the ladder: the GPU saves **5.63 ms per prompt token** and
 loses **185.97 ms per generated token**.
 
 ```
-break-even prompt:generation ratio = 33 : 1
+break-even prompt:generation ratio    Qwen3-4B  33 : 1
+                                      Qwen3-8B  14 : 1
 ```
 
+**These are lower bounds on the ratio, not estimates.** They come from rates
+measured over 32 generated tokens, and the measured `-n 200` run below shows the
+device path degrading faster than the CPU as the context grows — so the real
+break-even is further out than either number.
+
 ```
-prompt  1080, generate   16: CPU   16.4s  GPU   13.3s  -> GPU by 19%
-prompt  1080, generate  200: CPU   45.2s  GPU   76.3s  -> CPU by 41%
-prompt  1080, generate  512: CPU   94.1s  GPU  183.2s  -> CPU by 49%
-prompt   200, generate  200: CPU   33.9s  GPU   69.9s  -> CPU by 52%
-prompt  4000, generate  200: CPU   82.9s  GPU   97.6s  -> CPU by 15%
+Qwen3-4B   prompt 1080, generate  16: CPU  16.4s  GPU  13.3s -> GPU by 19%
+Qwen3-4B   prompt 1080, generate 200: CPU  45.2s  GPU  76.3s -> CPU by 41%
+Qwen3-4B   prompt 1080, generate 512: CPU  94.1s  GPU 183.2s -> CPU by 49%
+Qwen3-4B   prompt  200, generate 200: CPU  33.9s  GPU  69.9s -> CPU by 52%
+
+Qwen3-8B   prompt 1080, generate  16: CPU  27.5s  GPU  17.0s -> GPU by 38%
+Qwen3-8B   prompt 1080, generate 200: CPU  73.2s  GPU  95.3s -> CPU by 23%
 ```
 
-**A prompt has to be 33 times longer than the answer before the card is worth
-using.** Summarising a long document qualifies. A chat turn does not; neither
-does anything that writes code.
+**A prompt has to be 33 times longer than the answer on the 4B and 14 times on
+the 8B before the card is worth using.** Summarising a long document qualifies.
+A chat turn does not; neither does anything that writes code. Both thresholds
+sit well above the 2:1 to 10:1 of ordinary use, so **on this machine the CPU is
+the right default for both** — but the gap is closing with model size, not
+widening.
 
 ## `--auto` decides on fit, and fit is the wrong question
 
@@ -83,15 +129,36 @@ generated  16 tokens in 3.7s (4.34 tok/s)
 ```
 
 It is choosing on **"does it fit"**. At `-n 16` that happens to be right, by
-19%. At `-n 200` — an ordinary reply — **the same decision is 41% slower than
-leaving the GPU alone**, and `--auto` had `-n` on its own command line the whole
-time.
+19%. At `-n 200` — an ordinary reply — the same decision is much worse, and
+**the projection above understated how much**.
 
-**Not fixed here, deliberately.** The rule is one line, and one line derived
-from one model on one machine is how this project has been wrong before. What
-would make it safe is the ratio measured per machine, the way `--auto` already
-measures threads — and that measurement does not exist. Filed rather than
-guessed.
+### Measured rather than projected, because the projection was wrong
+
+The 41% figure that stood here first was extrapolated from the ladder's
+per-token rates. Run end to end instead, same model, same 1080-token prompt,
+`-n 200`, wall clock including load:
+
+```
+--auto     prefill 1080 in 10.2s (106.04 tok/s)   generated 200 in 101.7s (1.97 tok/s)   total 117.0s
+CPU only   prefill 1080 in 14.6s ( 73.78 tok/s)   generated 200 in  37.1s (5.39 tok/s)   total  54.6s
+```
+
+**2.14x slower, not 41%.**
+
+**Why the projection was optimistic, which is the transferable part.** The
+ladder measured generation over **32** tokens; this is 200. Both rates fall as
+the context grows — 6.39 → 5.39 on the CPU — but the device path falls further,
+2.92 → 1.97, so the ratio worsens from 2.19x to 2.74x. **A per-token rate
+measured over 32 tokens is not a constant**, and multiplying it by 200 quietly
+assumes it is. The ladder is right about the shape and about which side wins; it
+is not a calculator for a longer run.
+
+**Not fixed here, deliberately, and the second model is why.** The break-even
+moved from 33:1 to 14:1 between two models on the *same* card, so a constant is
+wrong by more than a factor of two across a single machine's model library. The
+rule `--auto` needs is a function of model size and of `-n`, fitted to a
+per-machine measurement it does not yet take — the way it already measures
+threads. Filed rather than guessed.
 
 ## What the instrument cost, because it is the same lesson three times
 
@@ -120,7 +187,10 @@ throughput. The same model on the same CPU reads 20.73 tok/s on five tokens and
 1. **Why is resident-in-VRAM generation 2.2x slower than CPU?** The bandwidth
    argument says it should be about 2x faster. Until that is understood, the
    GPU tier's generation number is a symptom, not a specification.
-2. **The same ladder on a model that does not fit**, where partial offload is
-   the only option rather than a choice.
+2. **A model too large for the card at all.** Both models here fit; 8B at
+   4.68 GiB is as close to the 5.11 GiB limit as this machine allows. Partial
+   offload as a *necessity* rather than a choice — which is Chaos's whole
+   premise — is still unmeasured, and it needs a bigger model than this card can
+   hold or a card smaller than it.
 3. **`--auto` should weigh `-n` against the prompt**, once the per-machine ratio
    is measurable rather than assumed.

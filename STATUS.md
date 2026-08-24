@@ -27,11 +27,22 @@ fully resident.** The GPU saves 5.63 ms per prompt token and loses 185.97 ms per
 generated token, so **it pays only above a prompt:generation ratio of 33:1** —
 summarising a long document qualifies; a chat turn does not.
 
+**Qwen3-8B (4.68 GiB, against 5.11 GiB of VRAM) says the same shape and better
+numbers**: prefill **2.31x**, generation **0.58x**, break-even **14:1**. The
+bigger model gets more out of the card and loses less, which is the sensible
+direction — more arithmetic per byte moved. **Two points are a direction, not a
+curve**, and this card cannot hold anything larger, so do not extrapolate a
+crossover. What it does establish is that **a constant rule is wrong**: the
+break-even moved by more than 2x between two models on one machine.
+
 **`--auto` decides on whether the model fits**, offloads everything, and is 19%
-faster at `-n 16` and **41% slower at `-n 200`** — with `-n` on its own command
-line. Not fixed: one line derived from one model on one machine is how this
-project has been wrong before, and the per-machine ratio it would need is not
-measured yet.
+faster at `-n 16` and — measured end to end, not projected — **2.14x slower at
+`-n 200`**: 117.0 s against 54.6 s, with `-n` on its own command line. The
+projection from the ladder said 41%; **a per-token rate measured over 32 tokens
+is not a constant**, and the device path degrades faster than the CPU as the
+context grows. Not fixed, and the second model is the reason: the rule it needs is a
+function of model size and `-n`, fitted to a measurement `--auto` does not yet
+take, not a constant.
 
 **Do not quote the generation row as "the GPU is slower."** VRAM bandwidth is
 about 2x this laptop's DDR5, so resident weights should read *faster*. The 2.2x

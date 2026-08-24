@@ -62,6 +62,22 @@ $ErrorActionPreference = 'Stop'
 $run = Join-Path $PSScriptRoot '..\target\release\chaos-run.exe'
 if (-not (Test-Path $run)) { throw "no chaos-run at $run" }
 
+# **A layer count is a small number.** Passing `-Layers 0,8,16,24,32,99` through
+# a nested `powershell -File` collapsed the list into the single integer
+# 816243299 -- the digits concatenated -- and the ladder ran one row, labelled
+# with that number, and printed a plausible prefill and generation figure beside
+# it. Nothing about the output said anything was wrong.
+#
+# 99 already means "all of them" to chaos-run, so anything past a few hundred is
+# a parsing accident rather than a request.
+foreach ($n in $Layers) {
+    if ($n -lt 0 -or $n -gt 999) {
+        throw ("-Layers got $n, which is not a layer count. Passing a list through " +
+               "``powershell -File`` can concatenate it into one integer; pass the " +
+               "values one call at a time, or use the default.")
+    }
+}
+
 # **Never `2>&1` on a native command in Windows PowerShell.** ggml writes its
 # device banner to stderr; redirecting it wraps every line in an ErrorRecord,
 # and with `$ErrorActionPreference = 'Stop'` above that is a terminating error

@@ -51,8 +51,16 @@ android {
     sourceSets["main"].java.srcDirs("src/main/java")
 }
 
-// **No dependencies.** Not androidx, not a networking library, not a JSON
-// library: `HttpURLConnection` and `org.json` are in the framework, and the
-// Rust side of this project has no dependencies either. An APK containing only
-// this app is one that cannot break because something else was upgraded.
-dependencies {}
+// **No dependencies in the APK.** Not androidx, not a networking library, not
+// a JSON library: `HttpURLConnection` and `org.json` are in the framework, and
+// the Rust side of this project has no dependencies either. An APK containing
+// only this app is one that cannot break because something else was upgraded.
+//
+// **JUnit is the one exception and it does not ship.** `ThinkFilter` is a state
+// machine over a stream whose tags arrive in fragments -- the kind of thing
+// that is wrong in a case nobody thought of, and the kind that cannot be
+// checked by looking at a screen. A test-only dependency is a smaller price
+// than an untested one of those in shipped code.
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}

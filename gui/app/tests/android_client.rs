@@ -155,20 +155,23 @@ fn every_referenced_string_is_defined() {
     }
 }
 
-/// The build declares no dependencies, and that is deliberate.
+/// Nothing ships in the APK that is not this app.
 ///
-/// The Rust side of this project has none; the phone half arriving with a
-/// hundred transitive androidx artifacts would be a different kind of project.
-/// It is also what lets the APK build from the SDK and the Kotlin plugin alone.
+/// The Rust side of this project has no dependencies; the phone half arriving
+/// with a hundred transitive androidx artifacts would be a different kind of
+/// project. It is also what lets the APK build from the SDK and the Kotlin
+/// plugin alone, which matters when the SDK's own download host is unreachable
+/// from where this is developed.
+///
+/// **What must not ship is not the same as what must not exist.**
+/// `testImplementation` is compiled into the unit-test classpath and never into
+/// the APK, and `ThinkFilter` — a state machine over a stream whose tags arrive
+/// in fragments — is exactly the thing that should not be shipped untested. So
+/// JUnit is allowed by name, and nothing else is.
 #[test]
 fn the_apk_has_no_dependencies() {
     let build = std::fs::read_to_string(android_dir().join("app/build.gradle.kts"))
         .expect("app/build.gradle.kts");
-    assert!(
-        build.contains("dependencies {}"),
-        "the Android app has grown a dependency — if that is deliberate, this \
-         test is the place to say so"
-    );
     // **A declaration, not the word.** The first version of this test failed
     // on the comment above `dependencies {}` explaining why there are none --
     // a check that a file does not mention a thing is not a check that it does
@@ -177,10 +180,17 @@ fn the_apk_has_no_dependencies() {
         if line.starts_with("//") {
             continue;
         }
+        if line.starts_with("testImplementation(") {
+            assert!(
+                line.contains("junit:junit"),
+                "a test dependency other than JUnit appeared: {line}"
+            );
+            continue;
+        }
         for verb in ["implementation(", "api(", "compileOnly(", "runtimeOnly("] {
             assert!(
                 !line.starts_with(verb),
-                "the Android app declares a dependency: {line}"
+                "the Android app declares a dependency that would ship: {line}"
             );
         }
     }

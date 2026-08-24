@@ -63,10 +63,45 @@ loads rather than four minutes after it.
 `0.0.0.0` is the trap the loopback test exists for: it reads like "no address"
 and means *every* address.
 
-## Why it is built in CI and not here
+## It runs. Four defects, each found by running it
+
+**2026-08-24, on an Android 34 x86_64 emulator**, against a real `chaos-serve`
+on the host with `--host 0.0.0.0 --api-key`:
+
+> **The capital of France is \*\*Paris\*\*.**
+
+The project's own correctness prompt, answered on a phone through this client.
+`chaos-serve` logged `GET /v1/models -> 200` and
+`POST /v1/chat/completions -> 200 (stream)`. `Phone.kt` reported the device
+correctly: *"unknown Android SDK built for x86_64 – 2.4 GB of memory. Could hold
+Llama-3.2-1B locally (1.0 GiB) once Chaos runs on Android."*
+
+Every one of these was invisible until it was on a screen:
+
+| what running it showed | why |
+|---|---|
+| **"Chaos" twice, stacked** | the framework theme draws an ActionBar with the app label, and the layout has its own heading. `Theme.Material.NoActionBar`. |
+| **the key field read "API key (required"** | CONNECT sits beside it, so the hint did not fit. Shortened. |
+| **a bare `<think>` and `</think>` around the reply** | Qwen3.5 is a reasoning model. **The tags arrive split across streamed pieces** — Qwen3 emits `<`, `think`, `>` as three tokens — so filtering each piece as it arrives sees none of them. `ThinkFilter` accumulates and holds back only a tail that could still be forming a tag. |
+| **the address and key were lost** | saved in `onPause`, which **never runs when the process is killed** rather than paused — swiped from recents, or reclaimed. Found by force-stopping and watching the field revert. Now saved on CONNECT as well. |
+
+`ThinkFilter` is the one piece of real logic here and the one that cannot be
+checked by looking, so it has nine unit tests — including that the result does
+not depend on how the stream was chunked, and that an *unterminated* block is
+released rather than swallowed, because a truncated stream showing nothing is
+indistinguishable from a server that never replied. CI runs them.
+
+**JUnit is the only dependency and it does not ship.** `testImplementation`
+never reaches the APK, and an untested state machine over a fragmented stream is
+a worse thing to ship than a test-only dependency. The rule in
+`gui/app/tests/android_client.rs` allows JUnit by name and nothing else.
+
+## Why CI builds the shipped APK, and how it was built here
 
 **`dl.google.com` answers 404 to everything from this network.** Measured
-2026-08-23:
+2026-08-23 and again 2026-08-24 — including through a SOCKS proxy whose exit is
+outside Iran, and against the exact URL `developer.android.com` itself links to,
+so it is not a matter of guessing filenames:
 
 | host | result |
 |---|---|
@@ -85,12 +120,41 @@ the sole distributor of the Android SDK, build-tools, platform jars and
 androidx, so **no Android toolchain can be installed on this machine**.
 
 GitHub's runners are not on that network and ship the SDK already installed, so
-the `android` job in `release.yml` is where the APK is made.
+the `android` job in `release.yml` is where the **shipped** APK is made, from
+Google's own repositories.
 
-**The consequence, stated plainly: nothing about this app has been run.** The
-build is the only check it has had, and the phone is Atur's. If he wants it
-verified before a release, the honest routes are his own VPN exit or a machine
-with access — both his call, not something to route traffic through unasked.
+### The local toolchain, and what it cost in trust
+
+Atur supplied a SOCKS5 proxy and said to use it. It did not help with
+`dl.google.com` — but it reached `developer.android.com`, which gave the real
+filenames, and from there public mirrors carry everything:
+
+| piece | source |
+|---|---|
+| JDK 17 | `corretto.aws` — reachable directly |
+| Gradle 8.7 | `services.gradle.org` — reachable directly |
+| cmdline-tools, platform-tools, build-tools, platform 34, emulator, system image | `mirrors.cloud.tencent.com/AndroidSDK` |
+| the Android Gradle Plugin | `maven.aliyun.com/repository/google` |
+
+**Every SDK component was verified against Google's own SHA-1**, taken from the
+repository manifest, before being unpacked. A checksum from a mirrored manifest
+is not proof against a mirror that tampered with both — it is proof against a
+truncated or corrupted transfer, which this project has been bitten by before.
+
+**The mirrors are not in the repository.** `settings.gradle.kts` names
+`google()` and `mavenCentral()`, which is what CI resolves against; the
+redirection lives in a local init script passed with `-I`. Committing a mirror
+would make every build everywhere depend on a third party for the sake of one
+machine's network.
+
+So: **fine for building and testing an APK here, and not what a release is
+built from.** CI builds the shipped artefact.
+
+A manual unzip leaves no `package.xml`, which is the SDK's own inventory, so
+`avdmanager` reported *"emulator package must be installed!"* about an emulator
+plainly present. Those files are generated from each component's
+`source.properties` rather than hard-coded, so they cannot drift from what was
+actually unpacked.
 
 ## Still to do
 
@@ -110,8 +174,11 @@ with access — both his call, not something to route traffic through unasked.
 ## Definition of done
 
 - `Chaos-vX-android-arm64.apk` attached to the release by CI. **Done** — the job
-  builds it, checks it is a zip containing a manifest, dex and resources, and
-  uploads it; `publish` waits on it.
-- It installs on a real phone, opens, and does what the notes say. **Not yet** —
-  see above.
-- The release notes say which of the two products it is, and what it will not do.
+  runs the Kotlin tests, builds it, checks it is a zip containing a manifest,
+  dex and resources, and uploads it; `publish` waits on it.
+- It installs, opens, and does what the notes say. **Done on an emulator**:
+  installs, launches, connects to a real `chaos-serve` over the network, and
+  streams an answer. **Not yet on real hardware** — that is Atur's phone and
+  nobody else's.
+- The release notes say which of the two products it is, and what it will not
+  do.

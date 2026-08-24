@@ -82,10 +82,28 @@ ladder** (4↔8 0.8895, 8↔20 0.8966, 20↔50 0.9043) while 4↔50 falls to 0.6
 converging sampler would have 20 and 50 agreeing far more closely than 4 and 8.
 **So no step count is "correct".**
 
-**The default was not changed.** The numbers say the pictures differ without
-saying which is better, and that is aesthetic. Four renders at 4/8/20/50 — same
-seed, guidance off — are in `~/.chaos/images/step-comparison/`: **if 4 steps
-looks acceptable, 256×256 gets five times faster.**
+**Then the four renders settled most of it.** One prompt at 4/8/20/50, same
+seed, guidance off, in `~/.chaos/images/step-comparison/`:
+
+| steps | time | 1st–99th percentile | spread | edge energy |
+|---|---|---|---|---|
+| 4 | 0.2x | 123 – 179 | **56** | 8.11 |
+| 8 | 0.4x | 97 – 189 | 92 | 11.11 |
+| 20 | 1.0x | 33 – 184 | 151 | 11.86 |
+| 50 | 2.5x | 21 – 194 | 173 | 12.35 |
+
+**Four steps confines the whole image to a 56-level grey band out of 255** —
+"flat" with a number behind it, and not a matter of taste. Edge energy saturates
+early (8.11 → 11.11 from 4 to 8 steps, then a creep) while the range keeps
+opening. So **4 is ruled out by measurement, 8 is where somebody looking should
+start**, and which of 8/20/50 wins is aesthetic.
+
+**The default was not changed** — contrast rules one option out without ranking
+the rest.
+
+**This node nearly shipped the opposite.** It said "if 4 steps looks acceptable,
+256×256 gets five times faster" — while `chaos-draw` had already printed sd 12.2
+for that render in output that had been read.
 
 **And one run is kept as a lesson rather than deleted.** The same reconstruction
 test at σ=0.95 said more steps were dramatically worse and said nothing of the

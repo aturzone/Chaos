@@ -5,8 +5,9 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-24 · **Version**: **v0.0.18**, published
-2026-08-24 · **Branch**: `main`, verified.
+**Last updated**: 2026-08-25 · **Version**: **v0.0.19**, being cut from `main`
+· previous release **v0.0.18**, published 2026-08-24 and verified from its own
+published files.
 
 **v0.0.18 verified from its own published files**: v0.0.17 installed, updated
 to v0.0.18 through the app's own updater, uninstalled clean, and

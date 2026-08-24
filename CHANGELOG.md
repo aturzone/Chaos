@@ -8,6 +8,79 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.19] — 2026-08-25
+
+### Chaos builds and runs on Android
+
+**"Phase B is blocked" was wrong.** v0.0.18's notes said running models on the
+phone needed the NDK and that `dl.google.com` 404s this network, so CI was the
+only route. The Google host is unreachable — but **the NDK is on the same
+Tencent mirror the SDK came from**, which had never been tested. The block was
+inferred from one host.
+
+```
+$ adb shell /data/local/tmp/chaos-run --version
+chaos-run 0.0.19
+
+$ adb shell /data/local/tmp/chaos-probe --quick
+os         android (x86_64)
+cpu        4 threads
+ram        2.4 GiB total, 1.6 GiB available   [/proc/meminfo]
+```
+
+**It took less than the plan assumed.** Every crate already type-checked for
+`aarch64-linux-android` with no source change — including `core/probe`, the
+crate the backlog named as the obstacle, whose unix branch reads `/proc/meminfo`
+and works on a phone unmodified. That is also what will answer *"a powerful
+phone or a simple phone"*: Chaos can measure the device and pick a model to fit.
+
+All the work was link flags in `core/ggml/build.rs`, each right elsewhere and
+wrong here: the NDK has no `libgomp`, bionic keeps pthreads inside libc, there
+is no `libstdc++` (the NDK ships LLVM's libc++) — and naming nothing is also
+wrong, because rustc passes `-nodefaultlibs`, so `libc++_static` must be named
+**and** its sysroot directory searched.
+
+**Two mistakes inside that fix, both kept in the node.** `Command::new` cannot
+execute a `.cmd` and the NDK's Windows compiler is one, so the lookup silently
+returned nothing and the failure looked like ggml missing `operator new`. Then
+the helper read `CC_aarch64_linux_android` **by name** and returned nothing for
+the emulator's x86_64 ABI, bringing the same failure back on a target just
+proven to work. Both derive from `TARGET` now.
+
+### Known: every Android CLI binary aborts at exit
+
+`FORTIFY: pthread_mutex_destroy called on a destroyed mutex`, SIGABRT, exit 134.
+**The work completes first** — `--list-devices` enumerates the backend and reads
+the device's memory correctly — and the abort is strictly in `exit()`.
+
+Located precisely: `exit → __cxa_finalize → std::mutex::~mutex()`, on
+`ggml_critical_section_mutex`, ggml's one global mutex. Three theories are
+eliminated in the node so nobody retries them — it is not duplicate linkage, not
+a duplicated C++ runtime, and not Rust's runtime, since a ggml-free Rust binary
+exits 0 on the same device.
+
+**Probably harmless for an app, and that is reasoning rather than a
+measurement**: an Android app never calls `exit()` — it loads a `.so` and is
+killed — so `__cxa_finalize` should never run. It must be checked against a real
+JNI library before anyone relies on it.
+
+### The three open roadmap items, answered rather than left implied
+
+- **V4-Flash at 20 tok/s is closed by measurement and cannot be delivered on
+  this machine at any effort.** A token is 1.56 s of expert reads plus 0.84 s of
+  arithmetic that never touches the disk, so with every expert resident this CPU
+  tops out at **1.19 tok/s** — the fixed cost alone is **17x** over a 50 ms
+  budget — and 20 tok/s separately needs **67.7 GB/s** to the experts. Holding
+  all 144 GB in RAM is worth **2.9x, not 48x**. Every idea that might have
+  closed it is on the measured dead-end list.
+- **Devices as resources is half done.** `chaos-worker` speaks the protocol and
+  is measured at 38x in favour of sending the work to the weights; **no CORE
+  routes an expert to it yet**, and the CHAOS page says so rather than implying
+  otherwise.
+- **llama.cpp is parity, not a lead.** Parity on everything that streams,
+  1.20–1.27x behind on the hand-tuned dense path, 1.23x ahead out of the box.
+  **The ranges overlap.**
+
 ## [0.0.18] — 2026-08-24
 
 ### Your phone could never reach the desktop, and nothing was broken
@@ -1814,7 +1887,8 @@ Qwen3-30B-A3B Q4_K_M prefill, Chaos / llama.cpp:
   requires a competitor's exact command line and output before any competitive
   claim is citable.
 
-[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.18...HEAD
+[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.19...HEAD
+[0.0.19]: https://github.com/aturzone/Chaos/releases/tag/v0.0.19
 [0.0.18]: https://github.com/aturzone/Chaos/releases/tag/v0.0.18
 [0.0.17]: https://github.com/aturzone/Chaos/releases/tag/v0.0.17
 [0.0.16]: https://github.com/aturzone/Chaos/releases/tag/v0.0.16

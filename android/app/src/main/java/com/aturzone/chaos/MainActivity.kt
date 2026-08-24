@@ -77,7 +77,17 @@ class MainActivity : Activity() {
         address.setText(prefs.getString("address", "http://192.168.1.10:8080"))
         key.setText(prefs.getString("key", ""))
 
-        phone.text = Phone.describe(this)
+        // **The engine's own reading wins when it is here.** `Phone.describe`
+        // asks Android; `Engine.describeDevice` runs the same `core/probe` the
+        // desktop uses, in this process. When the native library is absent --
+        // every APK CI has published so far -- the Android reading is what
+        // there is, and the app carries on as a client.
+        val engine = Engine.describeDeviceOrNull()
+        phone.text = if (engine != null) {
+            "engine ${Engine.versionOrNull() ?: "?"} on this phone: $engine"
+        } else {
+            Phone.describe(this)
+        }
 
         connect.setOnClickListener { testConnection() }
         send.setOnClickListener { sendMessage() }

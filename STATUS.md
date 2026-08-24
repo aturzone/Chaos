@@ -19,6 +19,46 @@ to v0.0.18 through the app's own updater, uninstalled clean, and
 page works in the installed build -- ALONE and CORE both persist, worst
 blocking call 16.7 ms.
 
+## The JNI bridge: the engine runs inside the app (2026-08-25)
+
+**879 tests.** On an Android 34 emulator, read off the running app's own screen:
+
+> **engine 0.0.19 on this phone: 4 threads, 2.4 GiB total, 1.6 GiB available
+> [/proc/meminfo]**
+
+That line is produced by **Rust running inside the app process**, calling the
+same `core/probe` the desktop uses. `android/jni` is a cdylib; `Engine.kt` loads
+it with `System.loadLibrary` and asks it two questions.
+
+**No `jni` crate.** The project has no dependencies and the APK has none; JNI's
+ABI is a table of function pointers at fixed indices, and exactly one entry —
+`NewStringUTF`, index 167 — is declared, with the padding before it marked as
+load-bearing.
+
+**The library is allowed to be absent.** `UnsatisfiedLinkError` is an `Error`,
+not an `Exception`, so a `catch (e: Exception)` would have let the app die in a
+static initialiser with nothing a user could act on. It is caught, `available`
+is false, and the app falls back to Android's own device description and carries
+on as a client — which is exactly what every APK CI has published so far does,
+because **the `.so` is not committed**: 490 KB per ABI of build output that
+nobody can review and that goes stale the moment the Rust changes.
+`scripts/build-android-jni.ps1` makes it.
+
+**Two traps, both paid for.**
+
+- **Do not use the NDK's `.cmd` wrapper as the linker for a cdylib.** rustc
+  passes `--version-script=<path>` to control exported symbols; cmd.exe mangles
+  it and the link dies with `--version-script=...\list"" was unexpected at this
+  time`, which names neither Rust nor the NDK. The executables built earlier
+  were fine because they never get that flag.
+- **A stale string is a lie the app tells.** The CHAOS note still read *"this
+  phone cannot be a CORE yet — running a model needs Chaos built for Android,
+  which is not done"* while the engine was demonstrably running two lines above
+  it. Corrected, and caught only by reading the screen.
+
+**What is left before a phone can be a CORE**: loading a model file and running
+the token loop. The bridge is done.
+
 ## The three roadmap items that are still open, answered plainly (2026-08-25)
 
 Atur asked for the remaining items *"like 20 token"* not to be forgotten. They
@@ -609,7 +649,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **878 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
+**Current**: **879 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by

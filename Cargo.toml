@@ -35,7 +35,10 @@ members = [
 
     # What a person opens.
     "gui/app",        # the Windows window
-    "gui/setup",      # the installer, which carries every binary
+    "gui/setup",
+
+    # The phone.
+    "android/jni",    # the JNI bridge: what Kotlin can call in the engine      # the installer, which carries every binary
 ]
 
 [workspace.package]

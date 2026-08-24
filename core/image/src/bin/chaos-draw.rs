@@ -84,6 +84,23 @@ fn main() {
                 req.cfg = take(i).parse().unwrap_or(req.cfg);
                 i += 2;
             }
+            // **Not a filter applied afterwards.** It changes which weights run
+            // the reference pass: the conditional denoiser under this text,
+            // instead of the twin under no text at all. Which also means the
+            // twin is not opened and does not need to be on disk.
+            //
+            // **And it does not pull as hard as its name suggests.** At the
+            // default 512x512 the twin sits 7.29% from the conditional
+            // velocity; the strongest negative measured reaches 0.86% and the
+            // one people actually type -- "blurry, low quality, distorted" --
+            // reaches 0.13%, **56x weaker**. Its guided step lands 0.69 points
+            // from the *unguided* one, out of 20. It follows what is written (a
+            // different subject sits 1.8x further than the same one); it barely
+            // pulls. `research/negative-prompt-weakens-guidance-2026-08-24.md`.
+            "--negative" | "--no" => {
+                req.negative = Some(take(i).to_string());
+                i += 2;
+            }
             "--seed" => {
                 req.seed = take(i).parse().unwrap_or(req.seed);
                 i += 2;
@@ -291,6 +308,21 @@ fn main() {
         "sampler      {} steps, cfg {}, seed {}, {} threads",
         req.steps, req.cfg, req.seed, req.threads
     );
+    // Said out loud, because "guidance is on" now means two different things
+    // and they read different files.
+    match req
+        .negative
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    {
+        Some(n) if req.cfg != 1.0 => {
+            println!("away from    \"{n}\" -- the conditional model, not the twin")
+        }
+        Some(_) => println!("away from    nothing: --cfg 1 turns guidance off entirely"),
+        None if req.cfg != 1.0 => println!("away from    the unconditional twin (no text)"),
+        None => {}
+    }
     let passes = req.steps * if req.cfg == 1.0 { 1 } else { 2 };
     println!(
         "work         {passes} denoiser passes, {:.1} GiB of reads",
@@ -420,6 +452,12 @@ fn usage() {
     println!("  --grid N       latent grid; the image is 16x this. 16, 32, 64 (default 32)");
     println!("  --steps N      denoising steps (default 20)");
     println!("  --cfg F        guidance; 1 turns it off and halves the work (default 4)");
+    println!("  --negative P   guide away from THIS text instead of the untexted twin.");
+    println!("                 Measured at 512x512: it follows what you write, and it");
+    println!("                 pulls 8-56x more weakly than the twin. \"blurry, low");
+    println!("                 quality\" lands within 0.7 points of turning guidance OFF.");
+    println!("                 Write it out properly, or leave it alone and keep the");
+    println!("                 twin -- which is then not needed on disk at all.");
     println!("  --seed N       reproducible noise");
     println!("  -t, --threads N");
     println!("  -o, --out FILE where to write the PNG (default chaos-image.png)");

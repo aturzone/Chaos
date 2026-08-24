@@ -217,6 +217,19 @@ seconds per step, and the time left. **STOP** ends it.
 > than the phrase alone. It is the sentences, not the braces.
 > `research/prompt-shape-does-nothing-2026-08-24.md`.
 
+> **A negative prompt turns guidance down more than it steers.** `chaos-draw
+> --negative` replaces guidance's reference — normally a separately trained twin
+> fed no text at all — with the same denoiser under the negative text. Measured
+> at 512×512, the size this page draws by default: it *does* follow what you
+> write, a different subject sitting **1.8x** further from the prompt than the
+> same subject does. But the twin sits **7.29%** from the conditional velocity,
+> the strongest negative measured reaches **0.86%**, and *"blurry, low quality,
+> distorted"* — the one people actually type — reaches **0.13%, 56x weaker**.
+> Its step lands **0.69 points out of 20** from the step with no guidance at
+> all: writing that is close to switching guidance off. Write a negative out
+> properly or leave it alone; the twin is then not needed on disk.
+> `research/negative-prompt-weakens-guidance-2026-08-24.md`.
+
 It needs four files, 16.7 GB together: `ideogram-4`, `ideogram-4-uncond`,
 `qwen3-vl-8b` and `flux2-vae`, all on the AVAILABLE tab. Until they are there
 the page says so rather than failing when DRAW is pressed.

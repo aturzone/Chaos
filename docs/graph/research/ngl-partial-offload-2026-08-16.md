@@ -186,6 +186,8 @@ reference disagrees with itself in.
 1. **Is our kernel spread larger than llama.cpp's?** Needs its logits, not its
    text. Until then "the device path is as accurate as the reference" is
    unproven in either direction.
-2. **A speed number for `-ngl`.** Nothing here is a performance claim. The
-   partial-offload tok/s ladder against resident VRAM is the interesting
-   measurement and it has not been run.
+2. ~~**A speed number for `-ngl`.**~~ **Run, 2026-08-24**:
+   `ngl-ladder-2026-08-24.md`. Qwen3-4B fully resident in VRAM gives **1.77x
+   prefill and 0.46x generation** — the card never wins generation, and the
+   break-even is a prompt **33x** longer than the answer. `--auto` decides on
+   whether the model fits and is 41% slower than the CPU at `-n 200`.

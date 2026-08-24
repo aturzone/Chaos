@@ -8,6 +8,37 @@ right, so fix this file.
 **Last updated**: 2026-08-24 · **Version**: **v0.0.17**, published
 2026-08-24 · **Branch**: `main`, verified.
 
+## After v0.0.17 — the `-ngl` ladder, and `--auto` picks wrong (2026-08-24)
+
+**873 tests.** The measurement `ngl-partial-offload-2026-08-16.md` listed as
+never taken. Qwen3-4B-Q4_K_M, 2.32 GiB, **fits in the RTX 3050's VRAM
+entirely** — the favourable case, not a streaming one. 1080-token prompt, best
+of two, one session:
+
+```
+   ngl  prefill tok/s     gen tok/s    vs ngl 0
+     0         77.52          6.39       1.00x     <- CPU only
+    24        125.75          4.13       0.65x
+    99        137.58          2.92       0.46x     <- all 36 blocks on the card
+```
+
+**Prefill 1.77x. Generation never once faster than the CPU, and 2.2x slower
+fully resident.** The GPU saves 5.63 ms per prompt token and loses 185.97 ms per
+generated token, so **it pays only above a prompt:generation ratio of 33:1** —
+summarising a long document qualifies; a chat turn does not.
+
+**`--auto` decides on whether the model fits**, offloads everything, and is 19%
+faster at `-n 16` and **41% slower at `-n 200`** — with `-n` on its own command
+line. Not fixed: one line derived from one model on one machine is how this
+project has been wrong before, and the per-machine ratio it would need is not
+measured yet.
+
+**Do not quote the generation row as "the GPU is slower."** VRAM bandwidth is
+about 2x this laptop's DDR5, so resident weights should read *faster*. The 2.2x
+is per-token overhead in Chaos's Vulkan path, and nobody has looked at why. That
+is the open question, not the finding. `research/ngl-ladder-2026-08-24.md`,
+`scripts/ngl-ladder.ps1`.
+
 ## v0.0.17 — the app runs, a worker exists, and two claims are retracted (2026-08-24)
 
 **871 Rust tests and 9 Kotlin tests at the tag.** Nine assets, from the

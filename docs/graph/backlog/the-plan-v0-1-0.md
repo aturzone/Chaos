@@ -76,12 +76,19 @@ always broken"*. The pictures were correct, inverted, and identical.
       guidance -- half the time", and the time estimate follows it. Guidance
       runs a second 5.26 GiB denoiser on every step, so it is exactly a factor
       of two, and the estimate assumed it was always on.
-- [ ] **A negative prompt.** *Not done, deliberately.* This pipeline's guidance
-      uses a separately trained unconditional twin fed **no text at all**, not
-      an empty prompt, so a negative prompt means running the *conditional*
-      model on the negative text instead -- a real change to which weights run
-      on every step. Worth doing, and not worth shipping unmeasured: the
-      quality harness that would judge it does not exist yet.
+- [x] **A negative prompt.** Done, measured, and **shipped with its own result
+      in the help text**. `chaos-draw --negative` runs the *conditional* model
+      on the negative text as guidance's reference instead of the untexted twin
+      — so the twin is never opened and the denoiser's memory halves.
+      **It follows what is written and barely pulls**: at the default 512×512 a
+      different subject sits 1.8x further from the prompt than the same subject,
+      but the twin sits 7.29% away against the strongest negative's 0.86% and
+      0.13% for *"blurry, low quality, distorted"* — **56x weaker**, whose
+      guided step lands 0.69 points out of 20 from the unguided one. **The same
+      measurement at 256×256 said the opposite** — another symptom of
+      `small-images-are-the-model`, and a reminder that a conditioning question
+      may not be asked at grid 16.
+      `research/negative-prompt-weakens-guidance-2026-08-24.md`.
 
 ## Part 2 — The model list, properly managed
 

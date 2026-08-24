@@ -46,6 +46,19 @@ pub struct Request {
     pub steps: usize,
     /// Classifier-free guidance. 1.0 disables it and halves the work.
     pub cfg: f32,
+    /// What to steer *away* from, if anything.
+    ///
+    /// **This changes which weights run, not just what they are fed.** Guidance
+    /// normally extrapolates away from a separately trained unconditional twin
+    /// that carries no text at all. A negative prompt replaces that reference
+    /// with **the conditional denoiser conditioned on this text** -- so the twin
+    /// is not opened, the same 5.26 GiB runs both passes, and the step costs the
+    /// same two forwards it already did.
+    ///
+    /// Empty and `None` are not the same request: `Some("")` would ask the
+    /// conditional model for its no-text behaviour, which is exactly what it was
+    /// not trained for, so an empty string is treated as `None` in [`draw`].
+    pub negative: Option<String>,
     pub seed: u64,
     pub threads: usize,
     /// Where to keep the finished latent, if anywhere.
@@ -65,6 +78,7 @@ impl Default for Request {
             grid: 32,
             steps: 20,
             cfg: 4.0,
+            negative: None,
             seed: 42,
             threads: 4,
             keep_latent: None,
@@ -162,6 +176,17 @@ impl Paths {
 
     /// Which of the four are absent, with the command that fetches each.
     pub fn missing(&self) -> Vec<(&'static str, String)> {
+        self.missing_for(true)
+    }
+
+    /// The same, for a request that may not read the twin.
+    ///
+    /// **Two of the three ways to draw never open the unconditional twin** --
+    /// guidance off, and a negative prompt, which conditions the *same* weights
+    /// on the negative text instead. Demanding a 5.26 GiB file that will not be
+    /// read is a download refused for no reason, and the twin is the one part a
+    /// person is most likely not to have.
+    pub fn missing_for(&self, twin: bool) -> Vec<(&'static str, String)> {
         [
             ("chaos-pull qwen3-vl-8b", &self.text_encoder),
             ("chaos-pull ideogram-4", &self.denoiser),
@@ -169,6 +194,7 @@ impl Paths {
             ("chaos-pull flux2-vae", &self.autoencoder),
         ]
         .into_iter()
+        .filter(|(cmd, _)| twin || !cmd.ends_with("-uncond"))
         .filter(|(_, p)| !p.exists())
         .map(|(cmd, p)| (cmd, p.display().to_string()))
         .collect()
@@ -304,7 +330,18 @@ pub fn generate(paths: &Paths, req: &Request, on: &mut dyn FnMut(Stage)) -> Resu
         return Err(Error::TooLarge(m));
     }
 
-    let missing = paths.missing();
+    // Decided before the files are checked, because it decides which files are
+    // needed: `Some("")` is not a negative prompt, it is a request for the
+    // conditional model's no-text behaviour, which is what it was not trained
+    // for.
+    let negative = req
+        .negative
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty());
+    let twin = req.cfg != 1.0 && negative.is_none();
+
+    let missing = paths.missing_for(twin);
     if !missing.is_empty() {
         let mut m = String::from("these files are not here yet:\n");
         for (cmd, p) in &missing {
@@ -316,15 +353,28 @@ pub fn generate(paths: &Paths, req: &Request, on: &mut dyn FnMut(Stage)) -> Resu
     // -- 1. the prompt ------------------------------------------------------
     // In its own scope so 4.68 GiB of text encoder is closed before 5.26 GiB of
     // denoiser opens.
-    let context = {
+    //
+    // **Both prompts are encoded here, in one scope.** A negative prompt needs
+    // its own hidden states, and opening 4.68 GiB of text encoder a second
+    // time to get them would cost the whole load again for a few hundred
+    // tokens of work.
+    let (context, negative_context) = {
         let model = chaos_model::Model::open_split(&paths.text_encoder)
             .map_err(|e| Error::Model(format!("{}: {e}", paths.text_encoder.display())))?;
         let tok = chaos_tokenizer::Tokenizer::from_metadata(model.metadata())
             .map_err(|e| Error::Model(format!("tokenizer: {e:?}")))?;
         let ids = tok.encode(&text::wrap_prompt(&req.prompt));
+        let neg_ids = negative.map(|n| tok.encode(&text::wrap_prompt(n)));
         let enc = text::TextEncoder::open(model, req.threads)?;
-        on(Stage::Text { tokens: ids.len() });
-        enc.encode(&ids, &mut |_, _| {})?
+        on(Stage::Text {
+            tokens: ids.len() + neg_ids.as_ref().map_or(0, Vec::len),
+        });
+        let c = enc.encode(&ids, &mut |_, _| {})?;
+        let n = match &neg_ids {
+            None => None,
+            Some(n) => Some(enc.encode(n, &mut |_, _| {})?),
+        };
+        (c, n)
     };
 
     // -- 2. the noise the image is carved out of ----------------------------
@@ -366,7 +416,11 @@ pub fn generate(paths: &Paths, req: &Request, on: &mut dyn FnMut(Stage)) -> Resu
                 .map_err(|e| Error::Model(format!("{}: {e}", paths.denoiser.display())))?,
             req.threads,
         );
-        let uncond = if req.cfg == 1.0 {
+        // **With a negative prompt the twin is never opened.** The reference
+        // pass becomes the conditional model under the negative text, which is
+        // the same weights already resident -- so this is the one configuration
+        // where guidance costs two forwards but only one model's memory.
+        let uncond = if !twin {
             None
         } else {
             Some(dit::Denoiser::open(
@@ -390,9 +444,24 @@ pub fn generate(paths: &Paths, req: &Request, on: &mut dyn FnMut(Stage)) -> Resu
                 context: &context.hidden,
                 context_len: context.tokens,
             })?;
-            let v = match &uncond {
-                None => v_cond,
-                Some(u) => {
+            let v = match (&uncond, &negative_context) {
+                // Steer away from what the negative text describes. Same
+                // weights, different conditioning -- `guide` does not care
+                // where the reference velocity came from, only that it is the
+                // thing to move away from.
+                (_, Some(neg)) if req.cfg != 1.0 => {
+                    let v_neg = cond.forward(&dit::Inputs {
+                        latent: &x,
+                        grid_w: req.grid,
+                        grid_h: req.grid,
+                        timestep: t,
+                        context: &neg.hidden,
+                        context_len: neg.tokens,
+                    })?;
+                    flow::guide(&v_cond, &v_neg, req.cfg)
+                }
+                (None, _) => v_cond,
+                (Some(u), _) => {
                     // **No text at all**, not an empty prompt: this model was
                     // trained for a sequence of image tokens only.
                     let v_uncond = u.forward(&dit::Inputs {
@@ -651,5 +720,61 @@ mod tests {
         // The uncond twin and the conditional model are different files, and
         // asking for the wrong one is a plausible slip.
         assert_ne!(p.denoiser, p.uncond);
+    }
+
+    /// A file that will not be read is not a file to demand.
+    ///
+    /// The twin is 5.26 GiB and the part a person is most likely not to have.
+    /// Two of the three ways to draw never open it — guidance off, and a
+    /// negative prompt, which conditions the same weights on the negative text
+    /// instead — and both used to be refused for the want of it.
+    #[test]
+    fn the_twin_is_only_required_when_it_will_be_read() {
+        let p = Paths::under(std::path::Path::new("/nowhere-at-all"));
+        let all = p.missing_for(true);
+        let without = p.missing_for(false);
+        assert_eq!(all.len(), 4);
+        assert_eq!(without.len(), 3, "the twin is not asked for");
+        assert!(
+            all.iter().any(|(c, _)| c.contains("ideogram-4-uncond")),
+            "and it IS asked for when it will be read"
+        );
+        assert!(!without.iter().any(|(c, _)| c.contains("ideogram-4-uncond")));
+        // Nothing else moved. **Exact commands, not substrings**: `ideogram-4`
+        // is a prefix of `ideogram-4-uncond`, so a `contains` check cannot tell
+        // apart the two files this test exists to distinguish.
+        for cmd in [
+            "chaos-pull qwen3-vl-8b",
+            "chaos-pull ideogram-4",
+            "chaos-pull flux2-vae",
+        ] {
+            assert!(
+                without.iter().any(|(c, _)| *c == cmd),
+                "{cmd} should still be required"
+            );
+        }
+    }
+
+    /// An empty negative prompt is no negative prompt.
+    ///
+    /// **`Some("")` and `None` must not mean the same thing by accident and
+    /// must mean the same thing on purpose.** Conditioning the model on an
+    /// empty string is not the unconditional case: this pipeline's twin was
+    /// *trained* with no text at all, and the conditional model was never
+    /// trained on emptiness. Feeding it one would produce a reference velocity
+    /// nobody has measured, from a request that looks like "no negative
+    /// prompt" in every user interface that has an empty text box in it.
+    #[test]
+    fn an_empty_negative_prompt_is_not_a_negative_prompt() {
+        let blank = |n: Option<&str>| {
+            n.map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        };
+        assert_eq!(blank(None), None);
+        assert_eq!(blank(Some("")), None, "an empty box is not a request");
+        assert_eq!(blank(Some("   ")), None, "nor is a space bar");
+        assert_eq!(blank(Some("\t\n")), None);
+        assert_eq!(blank(Some("  blurry  ")), Some("blurry".to_string()));
     }
 }

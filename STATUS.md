@@ -10,7 +10,8 @@ right, so fix this file.
 
 ## v0.0.17 — the app runs, a worker exists, and two claims are retracted (2026-08-24)
 
-**871 Rust tests and 9 Kotlin tests.** Nine assets, from the annotated tag:
+**871 Rust tests and 9 Kotlin tests at the tag.** Nine assets, from the
+annotated tag:
 
 ```
 Chaos-v0.0.17-android-arm64.apk          0.85 MB
@@ -440,7 +441,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **871 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
+**Current**: **873 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by

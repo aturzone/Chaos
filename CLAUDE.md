@@ -18,8 +18,9 @@ a task links to.
 ```
 # ggml must be built first; point GGML_LIB_DIR at ggml-base.a, ggml-cpu.a, ggml.a
 export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: $env:GGML_LIB_DIR=...
-# GPU work needs build-vulkan/ggml/src instead. That build has NO Vulkan archive,
-# and the GPU tests SKIP rather than fail without a card -- so a green "6 passed"
+# GPU work needs build-vulkan/ggml/src instead: THE LINE ABOVE has no Vulkan
+# archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
+# The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
 cargo test --release          # 871 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container

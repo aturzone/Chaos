@@ -160,7 +160,10 @@ fn main() {
         .collect();
     println!("before any denoising, the error is {:.4}", rel_err(&x0));
     println!();
-    println!("{:>7} {:>10} {:>12} {:>10}", "steps", "error", "vs 20 steps", "seconds");
+    println!(
+        "{:>7} {:>10} {:>12} {:>10}",
+        "steps", "error", "vs 20 steps", "seconds"
+    );
 
     let mut at_20 = None;
     for &n in &steps {

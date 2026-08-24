@@ -47,8 +47,115 @@ pub struct Settings {
     /// OpenAI-compatible clients insist on sending a key, and because a shared
     /// machine is a real thing.
     pub api_key: Option<String>,
+    /// What this machine is to the other machines. See [`Role`].
+    pub role: Role,
+    /// The CORE this device talks to, as `host:port`, when it is not one.
+    pub core_addr: Option<String>,
+    /// The key that CORE wants.
+    pub core_key: Option<String>,
     /// Keys read but not understood, preserved on write.
     unknown: BTreeMap<String, String>,
+}
+
+/// What a machine is to the others.
+///
+/// **This is the setting the Android app was blocked on.** `chaos-serve`
+/// defaults to `127.0.0.1` and the window never passed `--host`, so the server
+/// it started could only ever answer itself. A phone on the same Wi-Fi got no
+/// route and no error -- Atur: *"when i try connect desktop nothing happen"*.
+/// Nothing was broken; nothing was listening on an address a phone can reach.
+///
+/// Choosing CORE is what opens that route, and it is a choice rather than a
+/// default because `0.0.0.0` means **every** network this machine is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Role {
+    /// Only this machine. The server listens on `127.0.0.1` and there is no
+    /// route in from anywhere else.
+    #[default]
+    Alone,
+    /// Holds the models and answers. Other devices connect to it.
+    Core,
+    /// Lends this machine's memory and cores to a CORE. Runs no token loop of
+    /// its own and keeps no conversation.
+    Helper,
+    /// Uses a CORE elsewhere. Loads nothing here.
+    Client,
+}
+
+/// A key nobody has to invent.
+///
+/// **`chaos-serve` refuses `0.0.0.0` with no key**, and it is right to: every
+/// device on the network could otherwise use the model and nothing would ask
+/// them who they are. But refusing is the wrong thing for a window to do to
+/// somebody who just pressed CORE, so the window makes one instead.
+///
+/// No dependency and no crypto claim: this is unguessable-in-practice, which is
+/// what the server checks for -- equality, not strength. 26 characters of
+/// base32 from SplitMix64, seeded from the clock and the process id so two
+/// machines starting in the same second do not agree.
+pub fn new_key() -> String {
+    let mut x = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15)
+        ^ (std::process::id() as u64).rotate_left(32);
+    const ALPHABET: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
+    let mut out = String::with_capacity(26);
+    for _ in 0..26 {
+        x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = x;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        out.push(ALPHABET[(z % ALPHABET.len() as u64) as usize] as char);
+    }
+    out
+}
+
+impl Role {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Alone => "alone",
+            Role::Core => "core",
+            Role::Helper => "helper",
+            Role::Client => "client",
+        }
+    }
+    pub fn parse(v: &str) -> Option<Self> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "alone" => Role::Alone,
+            "core" => Role::Core,
+            "helper" => Role::Helper,
+            "client" => Role::Client,
+            _ => return None,
+        })
+    }
+    /// What the server should bind for this role.
+    ///
+    /// Only CORE opens a route off this machine. ALONE still serves, because
+    /// the window's own CHAT talks to it -- it just cannot be reached.
+    pub fn host(self) -> &'static str {
+        match self {
+            Role::Core => "0.0.0.0",
+            _ => "127.0.0.1",
+        }
+    }
+    /// Whether this role needs a key before the server will start.
+    ///
+    /// Only CORE, and only because it is the only role that opens a route.
+    pub fn needs_key(self) -> bool {
+        !matches!(self, Role::Alone | Role::Client | Role::Helper)
+    }
+
+    /// The one-line description the CHAOS page shows under each choice.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Role::Alone => "Only this machine. Nothing else can reach it.",
+            Role::Core => "Holds the models and answers. Other devices connect here.",
+            Role::Helper => "Lends this machine's memory and cores to a CORE.",
+            Role::Client => "Uses a CORE elsewhere. Loads nothing here.",
+        }
+    }
 }
 
 impl Default for Settings {
@@ -68,6 +175,9 @@ impl Default for Settings {
             // Hermes' desktop defaults to light, and so does this.
             mode: Mode::Light,
             api_key: None,
+            role: Role::Alone,
+            core_addr: None,
+            core_key: None,
             unknown: BTreeMap::new(),
         }
     }
@@ -109,6 +219,9 @@ impl Settings {
                 "force" => s.force = truthy(v),
                 "mode" => s.mode = Mode::parse(v).unwrap_or(s.mode),
                 "api_key" => s.api_key = (!v.is_empty()).then(|| v.to_string()),
+                "role" => s.role = Role::parse(v).unwrap_or(s.role),
+                "core_addr" => s.core_addr = (!v.is_empty()).then(|| v.to_string()),
+                "core_key" => s.core_key = (!v.is_empty()).then(|| v.to_string()),
                 _ => {
                     s.unknown.insert(k.to_string(), v.to_string());
                 }
@@ -140,6 +253,9 @@ impl Settings {
         out.push_str(&format!("force = {}\n", self.force));
         out.push_str(&format!("mode = {}\n", self.mode.as_str()));
         out.push_str(&opt("api_key", self.api_key.clone()));
+        out.push_str(&format!("role = {}\n", self.role.as_str()));
+        out.push_str(&opt("core_addr", self.core_addr.clone()));
+        out.push_str(&opt("core_key", self.core_key.clone()));
         for (k, v) in &self.unknown {
             out.push_str(&format!("{k} = {v}\n"));
         }
@@ -186,7 +302,17 @@ impl Settings {
     /// One place, so the window and any future headless mode cannot disagree
     /// about what a setting means.
     pub fn serve_args(&self, model: &str) -> Vec<String> {
-        let mut a = vec![model.to_string(), "--port".into(), self.port.to_string()];
+        // **`--host` was never passed, and that is the whole of "the phone
+        // cannot reach the desktop".** `chaos-serve` binds 127.0.0.1 unless
+        // told otherwise, so every server this window has ever started could
+        // answer only this machine. The role decides the address now.
+        let mut a = vec![
+            model.to_string(),
+            "--host".into(),
+            self.role.host().to_string(),
+            "--port".into(),
+            self.port.to_string(),
+        ];
         if let Some(c) = self.cache_gib {
             a.push("--cache".into());
             a.push(format!("{c}"));
@@ -308,7 +434,74 @@ mod tests {
     fn serve_args_carry_only_what_is_set() {
         let s = Settings::default();
         let a = s.serve_args("qwen3");
-        assert_eq!(a, vec!["qwen3", "--port", "8231"]);
+        assert_eq!(a, vec!["qwen3", "--host", "127.0.0.1", "--port", "8231"]);
+    }
+
+    /// The bug Atur reported as *"when i try connect desktop nothing happen"*.
+    ///
+    /// The window never passed `--host`, so `chaos-serve` took its default of
+    /// `127.0.0.1` and the server could answer only this machine. A phone on
+    /// the same Wi-Fi had no route and got no error, because nothing was wrong
+    /// -- nothing was listening anywhere it could reach.
+    #[test]
+    fn only_a_core_opens_a_route_off_this_machine() {
+        for (role, expect) in [
+            (Role::Alone, "127.0.0.1"),
+            (Role::Client, "127.0.0.1"),
+            (Role::Helper, "127.0.0.1"),
+            (Role::Core, "0.0.0.0"),
+        ] {
+            assert_eq!(role.host(), expect, "{role:?}");
+            let s = Settings {
+                role,
+                ..Settings::default()
+            };
+            let a = s.serve_args("qwen3");
+            let i = a.iter().position(|x| x == "--host").expect("--host passed");
+            assert_eq!(a[i + 1], expect, "{role:?} binds {expect}");
+        }
+    }
+
+    /// `chaos-serve` refuses `0.0.0.0` with no key, so CORE must bring one.
+    #[test]
+    fn a_core_needs_a_key_and_the_others_do_not() {
+        assert!(Role::Core.needs_key());
+        for r in [Role::Alone, Role::Client, Role::Helper] {
+            assert!(!r.needs_key(), "{r:?}");
+        }
+    }
+
+    /// A generated key has to be usable and not the same twice.
+    #[test]
+    fn a_generated_key_is_long_and_not_repeated() {
+        let a = new_key();
+        assert_eq!(a.len(), 26);
+        assert!(a.chars().all(|c| c.is_ascii_alphanumeric()));
+        // **Not a randomness test.** Two calls in the same process differ
+        // because the state advances; this catches a generator that returns a
+        // constant, which is the failure that would matter.
+        assert_ne!(a, new_key());
+    }
+
+    /// A role survives the file, and an unknown one does not lose the setting.
+    #[test]
+    fn a_role_round_trips_through_the_file() {
+        for role in [Role::Alone, Role::Core, Role::Helper, Role::Client] {
+            let s = Settings {
+                role,
+                core_addr: Some("192.168.1.20:8231".into()),
+                core_key: Some("abc".into()),
+                ..Settings::default()
+            };
+            let back = Settings::parse(&s.render());
+            assert_eq!(back.role, role);
+            assert_eq!(back.core_addr.as_deref(), Some("192.168.1.20:8231"));
+            assert_eq!(back.core_key.as_deref(), Some("abc"));
+        }
+        // Garbage keeps the previous value rather than resetting the machine's
+        // job to ALONE behind the user's back.
+        let s = Settings::parse("role = wharrgarbl\n");
+        assert_eq!(s.role, Role::Alone);
     }
 
     #[test]

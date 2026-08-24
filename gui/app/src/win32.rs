@@ -450,6 +450,10 @@ extern "system" {
     ) -> i32;
     pub fn Rectangle(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
     pub fn CreatePen(iStyle: i32, cWidth: i32, color: COLORREF) -> HGDIOBJ;
+    /// Filled with the current brush, outlined with the current pen -- the
+    /// same contract as `Rectangle`. Used for the CHAOS page's role circles,
+    /// where the shape is what says the four choices are exclusive.
+    pub fn Ellipse(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
 }
 
 #[link(name = "kernel32")]

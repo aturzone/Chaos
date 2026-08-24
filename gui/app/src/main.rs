@@ -597,6 +597,7 @@ mod windows_app {
             Page::Image => nav::IDM_PAGE_IMAGE,
             Page::Monitor => nav::IDM_PAGE_MONITOR,
             Page::Settings => nav::IDM_PAGE_SETTINGS,
+            Page::Chaos => nav::IDM_PAGE_CHAOS,
         }
     }
 
@@ -882,6 +883,41 @@ mod windows_app {
             nav::ID_IMG_PROMPT,
             hinst,
         );
+        // ---- the CHAOS page ------------------------------------------------
+        //
+        // Atur: *"we need a page name it choas this page show core devices"*.
+        // Four exclusive roles, an address, a key, and a place to say what is
+        // actually connected.
+        for (id, label) in [
+            (nav::ID_ROLE_ALONE, "ALONE"),
+            (nav::ID_ROLE_CORE, "CORE"),
+            (nav::ID_ROLE_HELPER, "HELPER"),
+            (nav::ID_ROLE_CLIENT, "CLIENT"),
+        ] {
+            button(hwnd, label, id, hinst);
+        }
+        for id in [nav::ID_CORE_ADDR, nav::ID_CORE_KEY] {
+            child(
+                hwnd,
+                "EDIT",
+                "",
+                ES_AUTOHSCROLL | WS_BORDER | WS_TABSTOP,
+                id,
+                hinst,
+            );
+        }
+        button(hwnd, "COPY", nav::ID_COPY_ADDR, hinst);
+        button(hwnd, "COPY", nav::ID_COPY_KEY, hinst);
+        button(hwnd, "NEW KEY", nav::ID_NEW_KEY, hinst);
+        child(
+            hwnd,
+            "EDIT",
+            "",
+            ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER,
+            nav::ID_CHAOS_STATUS,
+            hinst,
+        );
+
         // ---- the MODELS list's own controls --------------------------------
         //
         // Atur: *"list of model better management and sort and structured for
@@ -1128,6 +1164,12 @@ mod windows_app {
                 ShowWindow(ctl(id), SW_SHOW);
             }
         }
+        // The address, the key and what is connected are all derived from
+        // settings and from what is loaded, so they are filled on arrival
+        // rather than kept in sync from everywhere that could change them.
+        if p == Page::Chaos {
+            fill_chaos_fields();
+        }
 
         let h = main_hwnd();
         if !h.is_null() {
@@ -1173,6 +1215,9 @@ mod windows_app {
             Page::Image => Some(nav::ID_IMG_PROMPT),
             Page::Settings => Some(nav::FIELDS[0].id),
             Page::Monitor => None,
+            // The address box: a CLIENT arrives here to type where the CORE is,
+            // and a CORE arrives to copy it out.
+            Page::Chaos => Some(nav::ID_CORE_ADDR),
         };
         if let Some(id) = focus {
             unsafe {
@@ -1499,6 +1544,183 @@ mod windows_app {
         }
         let sel = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
         (sel >= 0).then_some(sel as usize)
+    }
+
+    /// Choose what this machine is to the others.
+    ///
+    /// **Changing the role restarts the server, because the role decides the
+    /// address it binds.** Switching to CORE while a loopback server was still
+    /// running would leave this page saying "reachable" about something that is
+    /// not, which is the bug the whole page exists to fix.
+    fn pick_role(id: i32) {
+        let role = match id {
+            nav::ID_ROLE_CORE => settings::Role::Core,
+            nav::ID_ROLE_HELPER => settings::Role::Helper,
+            nav::ID_ROLE_CLIENT => settings::Role::Client,
+            _ => settings::Role::Alone,
+        };
+        let changed = UI.with(|u| {
+            let mut b = u.borrow_mut();
+            let Some(ui) = b.as_mut() else {
+                return false;
+            };
+            if ui.cfg.role == role {
+                return false;
+            }
+            ui.cfg.role = role;
+            // **A CORE with no key cannot start.** `chaos-serve` refuses
+            // `0.0.0.0` without one and is right to -- but refusing is the
+            // wrong thing to do to somebody who has just pressed CORE, so one
+            // is made here rather than demanded.
+            if role.needs_key() && ui.cfg.api_key.as_deref().unwrap_or("").is_empty() {
+                ui.cfg.api_key = Some(settings::new_key());
+            }
+            let _ = ui.cfg.save();
+            true
+        });
+        if !changed {
+            return;
+        }
+        // The address it listens on has changed, so anything already listening
+        // is listening in the wrong place.
+        let loaded = UI.with(|u| u.borrow().as_ref().and_then(|ui| ui.loaded.clone()));
+        if loaded.is_some() {
+            stop_server();
+            set_status("role changed -- press LOAD again to serve on the new address");
+        } else if role.needs_key() {
+            set_status("this machine is a CORE -- load a model and others can use it");
+        } else {
+            set_status(&format!("this machine is {}", role.as_str()));
+        }
+        fill_chaos_fields();
+        repaint();
+    }
+
+    /// Throw the current key away and make another.
+    fn new_core_key() {
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                ui.cfg.api_key = Some(settings::new_key());
+                let _ = ui.cfg.save();
+            }
+        });
+        set_status("new key -- every device has to be told it again");
+        fill_chaos_fields();
+        repaint();
+    }
+
+    /// Put a field's text on the clipboard, so it is typed into a phone once.
+    fn copy_field(hwnd: HWND, id: i32) {
+        let s = control_text(ctl(id));
+        if s.is_empty() {
+            set_status("nothing to copy");
+            return;
+        }
+        unsafe {
+            if OpenClipboard(hwnd) == 0 {
+                set_status("could not open the clipboard");
+                return;
+            }
+            EmptyClipboard();
+            let w = wide(&s);
+            let bytes = w.len() * std::mem::size_of::<u16>();
+            let h = GlobalAlloc(GMEM_MOVEABLE, bytes);
+            if !h.is_null() {
+                let dst = GlobalLock(h) as *mut u16;
+                if !dst.is_null() {
+                    std::ptr::copy_nonoverlapping(w.as_ptr(), dst, w.len());
+                    GlobalUnlock(h);
+                    SetClipboardData(CF_UNICODETEXT, h);
+                }
+            }
+            CloseClipboard();
+        }
+        set_status("copied");
+    }
+
+    /// Put the right things in the address, key and status boxes for the role.
+    fn fill_chaos_fields() {
+        let (role, port, key, core_addr, core_key, loaded) = UI.with(|u| {
+            let b = u.borrow();
+            match b.as_ref() {
+                Some(ui) => (
+                    ui.cfg.role,
+                    ui.cfg.port,
+                    ui.cfg.api_key.clone().unwrap_or_default(),
+                    ui.cfg.core_addr.clone().unwrap_or_default(),
+                    ui.cfg.core_key.clone().unwrap_or_default(),
+                    ui.loaded.clone(),
+                ),
+                None => (
+                    settings::Role::Alone,
+                    0u16,
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    None,
+                ),
+            }
+        });
+
+        let (addr, key_text) = match role {
+            // A CORE shows what to type elsewhere. `0.0.0.0` is what it binds
+            // and is not something anybody can type into a phone.
+            settings::Role::Core => (format!("{}:{port}", lan_address()), key),
+            settings::Role::Alone => (format!("127.0.0.1:{port}"), key),
+            _ => (core_addr, core_key),
+        };
+        unsafe {
+            SetWindowTextW(ctl(nav::ID_CORE_ADDR), wide(&addr).as_ptr());
+            SetWindowTextW(ctl(nav::ID_CORE_KEY), wide(&key_text).as_ptr());
+        }
+
+        let status = match role {
+            settings::Role::Alone => "Nothing outside this machine can reach it. Choose CORE \
+to let a phone or another computer use this model."
+                .to_string(),
+            settings::Role::Core => match &loaded {
+                Some(m) => format!(
+                    "Serving {m}.\r\n\r\nOn the phone: open Chaos, type the address and the \
+key above, press CONNECT. Both devices must be on the same network, and Windows may ask to \
+allow chaos-serve through the firewall the first time -- say yes for private networks."
+                ),
+                None => "No model is loaded yet. Open MODELS, choose one and press LOAD; this \
+page then shows exactly what to type into the phone."
+                    .to_string(),
+            },
+            settings::Role::Client => "CHAT talks to the CORE above instead of to this machine. \
+Nothing is loaded here."
+                .to_string(),
+            // Said plainly rather than implied. The protocol is measured; the
+            // routing is not built, and a page that implied otherwise would be
+            // the kind of claim this project keeps having to retract.
+            settings::Role::Helper => "A HELPER holds part of a model in this machine's memory \
+and answers the CORE with activations -- 8268 bytes out, 49172 back, measured.\r\n\r\nNOT \
+FINISHED: chaos-worker speaks the protocol, but a CORE does not yet route any expert to it, so \
+choosing this reserves the role and does no work. The routing is the next step in \
+backlog/devices-as-resources.md."
+                .to_string(),
+        };
+        unsafe {
+            SetWindowTextW(ctl(nav::ID_CHAOS_STATUS), wide(&status).as_ptr());
+        }
+    }
+
+    /// This machine's address on the network, as somebody else would type it.
+    ///
+    /// **`0.0.0.0` is what a CORE binds and it is not an address.** It means
+    /// every route; a phone needs one of them. Asked of the routing table
+    /// rather than guessed -- connecting a UDP socket sends nothing, it only
+    /// picks the interface that reaches the outside world.
+    fn lan_address() -> String {
+        use std::net::UdpSocket;
+        UdpSocket::bind("0.0.0.0:0")
+            .and_then(|s| {
+                s.connect("8.8.8.8:80")?;
+                s.local_addr()
+            })
+            .map(|a| a.ip().to_string())
+            .unwrap_or_else(|_| "this machine's IP".to_string())
     }
 
     /// Start `chaos-serve` on the selected model, hidden.
@@ -2939,6 +3161,7 @@ Any value a client sends is accepted.                      The server still list
                 Page::Image => paint_image(mem, ui, page),
                 Page::Monitor => paint_monitor(mem, ui, page),
                 Page::Settings => paint_settings(mem, ui, page),
+                Page::Chaos => paint_chaos(mem, ui, page),
             }
         });
 
@@ -3657,6 +3880,72 @@ Any value a client sends is accepted.                      The server still list
         );
     }
 
+    /// The CHAOS page: what this machine is to the others.
+    ///
+    /// The radio buttons are real controls; everything else here is the text
+    /// around them. The two field labels change with the role, because the same
+    /// two boxes mean "what to give somebody else" on a CORE and "where to go"
+    /// on a CLIENT, and two pairs of boxes for one pair of facts would be worse.
+    unsafe fn paint_chaos(hdc: HDC, ui: &Ui, page: RECT) {
+        paint_header(hdc, ui, page, Page::Chaos);
+        let t = &ui.theme;
+        let x = page.left + metric::INSET;
+        let w = page.right - x - metric::INSET;
+        let role = ui.cfg.role;
+
+        label(
+            hdc,
+            x,
+            content_top(page) - 2,
+            w,
+            "THIS MACHINE IS",
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
+
+        // Under each radio button, what choosing it does. Laid out on the same
+        // 44-pixel step the layout uses, so the two cannot drift.
+        let mut y = content_top(page) + 30 + 22;
+        for r in [
+            settings::Role::Alone,
+            settings::Role::Core,
+            settings::Role::Helper,
+            settings::Role::Client,
+        ] {
+            text(
+                hdc,
+                RECT {
+                    left: x + 20,
+                    top: y,
+                    right: x + w,
+                    bottom: y + 20,
+                },
+                r.describe(),
+                ui.fonts.small,
+                t.fg_tertiary,
+                DT_LEFT | DT_END_ELLIPSIS,
+            );
+            y += 44;
+        }
+
+        y += 18;
+        let (addr_label, key_label) = match role {
+            settings::Role::Core => ("THIS CORE'S ADDRESS", "KEY IT ASKS FOR"),
+            settings::Role::Alone => ("ADDRESS (nothing can reach it)", "KEY"),
+            _ => ("THE CORE'S ADDRESS", "ITS KEY"),
+        };
+        label(hdc, x, y - 18, w, addr_label, ui.fonts.small, t.fg_tertiary);
+        label(
+            hdc,
+            x,
+            y + metric::BUTTON - 6,
+            w,
+            key_label,
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
+    }
+
     unsafe fn paint_monitor(hdc: HDC, ui: &Ui, page: RECT) {
         paint_header(hdc, ui, page, Page::Monitor);
         let t = &ui.theme;
@@ -4081,6 +4370,41 @@ Any value a client sends is accepted.                      The server still list
                     m.push((nav::ID_DELETE, dx + bw + 10, by2, bw, metric::BUTTON));
                 }
                 Page::Monitor => {}
+                // **Four exclusive choices, then whatever that choice needs.**
+                // The address and key rows mean different things per role --
+                // a CORE reads them out, a CLIENT types them in -- so they sit
+                // in one place and the labels change rather than the layout.
+                Page::Chaos => {
+                    let mut y = top + 30;
+                    for id in [
+                        nav::ID_ROLE_ALONE,
+                        nav::ID_ROLE_CORE,
+                        nav::ID_ROLE_HELPER,
+                        nav::ID_ROLE_CLIENT,
+                    ] {
+                        m.push((id, x, y, w.min(520), 22));
+                        // Room for the one-line description under each.
+                        y += 44;
+                    }
+                    y += 18;
+                    let field = w.min(360);
+                    let bw = 92;
+                    m.push((nav::ID_CORE_ADDR, x, y, field, metric::BUTTON));
+                    m.push((nav::ID_COPY_ADDR, x + field + 10, y, bw, metric::BUTTON));
+                    y += metric::BUTTON + 12;
+                    m.push((nav::ID_CORE_KEY, x, y, field, metric::BUTTON));
+                    m.push((nav::ID_COPY_KEY, x + field + 10, y, bw, metric::BUTTON));
+                    m.push((
+                        nav::ID_NEW_KEY,
+                        x + field + 10 + bw + 10,
+                        y,
+                        bw,
+                        metric::BUTTON,
+                    ));
+                    y += metric::BUTTON + 20;
+                    let h = (page.bottom - metric::INSET - y).max(60);
+                    m.push((nav::ID_CHAOS_STATUS, x, y, w, h));
+                }
                 Page::Settings => {
                     let (_, _, col) = settings_columns(page);
                     let bw = col.min(300);
@@ -4149,6 +4473,12 @@ Any value a client sends is accepted.                      The server still list
         Tab,
         /// A checkbox and a label.
         Toggle,
+        /// One of a set of exclusive choices: a filled circle and a label.
+        ///
+        /// **A circle rather than a tick**, because the four roles on the CHAOS
+        /// page are one-at-a-time and a row of checkboxes would say they are
+        /// not. Same idiom as `Toggle` otherwise.
+        Radio,
     }
 
     /// **The primary action follows the page**, and on MODELS the tab: loading
@@ -4162,10 +4492,14 @@ Any value a client sends is accepted.                      The server still list
             nav::ID_NAV_CHAT
             | nav::ID_NAV_MODELS
             | nav::ID_NAV_IMAGE
+            | nav::ID_NAV_CHAOS
             | nav::ID_NAV_MONITOR
             | nav::ID_NAV_SETTINGS => Weight::Nav,
             nav::ID_TAB_INSTALLED | nav::ID_TAB_AVAILABLE => Weight::Tab,
             nav::ID_AUTO | nav::ID_FORCE => Weight::Toggle,
+            nav::ID_ROLE_ALONE | nav::ID_ROLE_CORE | nav::ID_ROLE_HELPER | nav::ID_ROLE_CLIENT => {
+                Weight::Radio
+            }
             nav::ID_DELETE => Weight::Destructive,
             nav::ID_CLEAR | nav::ID_RESET | nav::ID_REFRESH => Weight::Quiet,
             nav::ID_SEND if page == Page::Chat => Weight::Primary,
@@ -4200,10 +4534,11 @@ Any value a client sends is accepted.                      The server still list
                     ui.cfg.auto,
                     ui.cfg.force,
                     ui.loaded.clone(),
+                    ui.cfg.role,
                 )
             })
         });
-        let Some((t, page, tab, font, font_bold, auto, force, loaded)) = snapshot else {
+        let Some((t, page, tab, font, font_bold, auto, force, loaded, role)) = snapshot else {
             return;
         };
 
@@ -4305,6 +4640,57 @@ Any value a client sends is accepted.                      The server still list
                     },
                     &text_s,
                     font,
+                    t.fg,
+                    DT_LEFT | DT_SINGLELINE | DT_VCENTER,
+                );
+                if focused {
+                    frame(di.hDC, inset(b, -3), t.stroke_1);
+                }
+            }
+            Weight::Radio => {
+                fill(di.hDC, r, t.bg);
+                let on = match id {
+                    nav::ID_ROLE_ALONE => role == settings::Role::Alone,
+                    nav::ID_ROLE_CORE => role == settings::Role::Core,
+                    nav::ID_ROLE_HELPER => role == settings::Role::Helper,
+                    _ => role == settings::Role::Client,
+                };
+                let b = RECT {
+                    left: r.left,
+                    top: r.top + 3,
+                    right: r.left + 16,
+                    bottom: r.top + 19,
+                };
+                // An ellipse rather than a rectangle: the shape is the whole
+                // signal that these four are exclusive.
+                let pen = CreatePen(0, 1, if on { t.accent } else { t.stroke_1 });
+                let brush = CreateSolidBrush(if on { t.accent } else { t.bg });
+                let op = SelectObject(di.hDC, pen);
+                let ob = SelectObject(di.hDC, brush);
+                Ellipse(di.hDC, b.left, b.top, b.right, b.bottom);
+                if on {
+                    let ip = CreatePen(0, 1, t.on_accent);
+                    let ibr = CreateSolidBrush(t.on_accent);
+                    let ip_old = SelectObject(di.hDC, ip);
+                    let ib_old = SelectObject(di.hDC, ibr);
+                    Ellipse(di.hDC, b.left + 5, b.top + 5, b.right - 5, b.bottom - 5);
+                    SelectObject(di.hDC, ip_old);
+                    SelectObject(di.hDC, ib_old);
+                    DeleteObject(ip);
+                    DeleteObject(ibr);
+                }
+                SelectObject(di.hDC, op);
+                SelectObject(di.hDC, ob);
+                DeleteObject(pen);
+                DeleteObject(brush);
+                text(
+                    di.hDC,
+                    RECT {
+                        left: r.left + 26,
+                        ..r
+                    },
+                    &text_s,
+                    if on { font_bold } else { font },
                     t.fg,
                     DT_LEFT | DT_SINGLELINE | DT_VCENTER,
                 );
@@ -5849,6 +6235,13 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_IMG_OPEN, BN_CLICKED) => open_drawn(),
                     (nav::ID_RESET, BN_CLICKED) => reset_settings(),
                     (nav::ID_AUTO, BN_CLICKED) | (nav::ID_FORCE, BN_CLICKED) => toggle(id),
+                    (nav::ID_ROLE_ALONE, BN_CLICKED)
+                    | (nav::ID_ROLE_CORE, BN_CLICKED)
+                    | (nav::ID_ROLE_HELPER, BN_CLICKED)
+                    | (nav::ID_ROLE_CLIENT, BN_CLICKED) => pick_role(id),
+                    (nav::ID_NEW_KEY, BN_CLICKED) => new_core_key(),
+                    (nav::ID_COPY_ADDR, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_ADDR),
+                    (nav::ID_COPY_KEY, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_KEY),
                     // Selecting a different model redraws its page beside the
                     // list, which is the whole point of a page per model --
                     // **and re-decides which buttons are live**, because what

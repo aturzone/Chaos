@@ -31,12 +31,21 @@ pub enum Page {
     /// Everything the settings file holds -- which is nine fields, of which the
     /// old window showed three.
     Settings,
+    /// The devices. What this machine is to the others, and what is connected.
+    ///
+    /// Atur: *"we need a page name it choas this page show core devices"* --
+    /// one device holds the models and answers, others lend it memory, others
+    /// again just use it. Until this page existed there was no way to say which
+    /// of those this machine was, and the server it started could only ever
+    /// answer itself.
+    Chaos,
 }
 
-pub const PAGES: [Page; 5] = [
+pub const PAGES: [Page; 6] = [
     Page::Chat,
     Page::Models,
     Page::Image,
+    Page::Chaos,
     Page::Monitor,
     Page::Settings,
 ];
@@ -50,6 +59,7 @@ impl Page {
             Page::Image => "IMAGE",
             Page::Monitor => "MONITOR",
             Page::Settings => "SETTINGS",
+            Page::Chaos => "CHAOS",
         }
     }
 
@@ -61,6 +71,7 @@ impl Page {
             Page::Image => "Image",
             Page::Monitor => "Monitor",
             Page::Settings => "Settings",
+            Page::Chaos => "Chaos",
         }
     }
 
@@ -86,6 +97,7 @@ impl Page {
             Page::Image => "Draws with its own four models -- nothing needs to be loaded first.",
             Page::Monitor => "What the machine is doing while a model runs.",
             Page::Settings => "Every setting Chaos keeps. Empty means measured.",
+            Page::Chaos => "What this machine is to the others, and who is connected.",
         }
     }
 
@@ -95,8 +107,9 @@ impl Page {
             Page::Chat => b'1',
             Page::Models => b'2',
             Page::Image => b'3',
-            Page::Monitor => b'4',
-            Page::Settings => b'5',
+            Page::Chaos => b'4',
+            Page::Monitor => b'5',
+            Page::Settings => b'6',
         }
     }
 
@@ -184,6 +197,7 @@ pub const ID_NAV_MODELS: i32 = 402;
 pub const ID_NAV_MONITOR: i32 = 403;
 pub const ID_NAV_SETTINGS: i32 = 404;
 pub const ID_NAV_IMAGE: i32 = 406;
+pub const ID_NAV_CHAOS: i32 = 407;
 pub const ID_STRIP_STOP: i32 = 405;
 
 // Menu commands: 500. A separate range so `WM_COMMAND` can tell a menu pick
@@ -203,6 +217,33 @@ pub const IDM_PAGE_MODELS: i32 = 521;
 pub const IDM_PAGE_IMAGE: i32 = 526;
 pub const IDM_PAGE_MONITOR: i32 = 522;
 pub const IDM_PAGE_SETTINGS: i32 = 523;
+pub const IDM_PAGE_CHAOS: i32 = 527;
+
+// ---- the CHAOS page --------------------------------------------------------
+//
+// Four radio buttons, because the roles are exclusive: a machine is one of
+// these at a time. The rest of the page changes with the choice, which is why
+// every control is listed and hidden rather than created on demand.
+/// This machine is ALONE.
+pub const ID_ROLE_ALONE: i32 = 760;
+/// This machine is the CORE.
+pub const ID_ROLE_CORE: i32 = 761;
+/// This machine is a HELPER for some CORE.
+pub const ID_ROLE_HELPER: i32 = 762;
+/// This machine is a CLIENT of some CORE.
+pub const ID_ROLE_CLIENT: i32 = 763;
+/// The address a CORE shows, or a CLIENT/HELPER types.
+pub const ID_CORE_ADDR: i32 = 764;
+/// The key a CORE shows, or a CLIENT/HELPER types.
+pub const ID_CORE_KEY: i32 = 765;
+/// Put the address on the clipboard, so it can be typed into a phone once.
+pub const ID_COPY_ADDR: i32 = 766;
+/// Put the key on the clipboard.
+pub const ID_COPY_KEY: i32 = 767;
+/// Throw the current key away and make another.
+pub const ID_NEW_KEY: i32 = 768;
+/// What is connected, and what this device is doing about it.
+pub const ID_CHAOS_STATUS: i32 = 769;
 pub const IDM_THEME_LIGHT: i32 = 524;
 pub const IDM_THEME_DARK: i32 = 525;
 pub const IDM_MANUAL: i32 = 530;
@@ -227,6 +268,7 @@ pub fn nav_id(p: Page) -> i32 {
         Page::Models => ID_NAV_MODELS,
         Page::Monitor => ID_NAV_MONITOR,
         Page::Settings => ID_NAV_SETTINGS,
+        Page::Chaos => ID_NAV_CHAOS,
     }
 }
 
@@ -238,6 +280,7 @@ pub fn page_of_menu(id: i32) -> Option<Page> {
         IDM_PAGE_IMAGE => Some(Page::Image),
         IDM_PAGE_MONITOR => Some(Page::Monitor),
         IDM_PAGE_SETTINGS => Some(Page::Settings),
+        IDM_PAGE_CHAOS => Some(Page::Chaos),
         _ => None,
     }
 }
@@ -255,6 +298,18 @@ pub fn page_of_nav(id: i32) -> Option<Page> {
 /// from it is a control that never appears.
 pub fn controls(p: Page) -> &'static [i32] {
     match p {
+        Page::Chaos => &[
+            ID_ROLE_ALONE,
+            ID_ROLE_CORE,
+            ID_ROLE_HELPER,
+            ID_ROLE_CLIENT,
+            ID_CORE_ADDR,
+            ID_CORE_KEY,
+            ID_COPY_ADDR,
+            ID_COPY_KEY,
+            ID_NEW_KEY,
+            ID_CHAOS_STATUS,
+        ],
         Page::Chat => &[ID_OUT, ID_IN, ID_SEND, ID_CLEAR],
         Page::Models => &[
             ID_TAB_INSTALLED,
@@ -302,7 +357,7 @@ pub fn controls(p: Page) -> &'static [i32] {
 }
 
 /// The shell's own controls, visible whichever page is showing.
-pub const SHELL_CONTROLS: [i32; 6] = [
+pub const SHELL_CONTROLS: [i32; 7] = [
     ID_NAV_CHAT,
     ID_NAV_MODELS,
     // **A page is not reachable until its rail button is shell chrome.**
@@ -310,10 +365,36 @@ pub const SHELL_CONTROLS: [i32; 6] = [
     // it is created, positioned, and never shown -- which looked like a gap in
     // the rail where IMAGE should be.
     ID_NAV_IMAGE,
+    ID_NAV_CHAOS,
     ID_NAV_MONITOR,
     ID_NAV_SETTINGS,
     ID_STRIP_STOP,
 ];
+
+#[cfg(test)]
+mod rail_tests {
+    use super::*;
+
+    /// Every page's rail button must be shell chrome, or the page cannot be
+    /// reached.
+    ///
+    /// **This is a comment turned into a check.** `SHELL_CONTROLS` already
+    /// carried a note explaining that IMAGE had been created, positioned and
+    /// never shown because its nav button was missing from the list. The note
+    /// did not stop CHAOS being added the same way -- built, laid out, hidden,
+    /// and invisible in the rail. A sentence is not a mechanism.
+    #[test]
+    fn every_page_has_its_rail_button_in_the_shell() {
+        for p in PAGES {
+            let id = nav_id(p);
+            assert!(
+                SHELL_CONTROLS.contains(&id),
+                "{:?}'s rail button ({id}) is not in SHELL_CONTROLS, so the page                  is built and never shown",
+                p
+            );
+        }
+    }
+}
 
 /// One row of the settings page: the box, its label, and what empty means.
 ///
@@ -446,6 +527,7 @@ mod tests {
                 Page::Image => IDM_PAGE_IMAGE,
                 Page::Monitor => IDM_PAGE_MONITOR,
                 Page::Settings => IDM_PAGE_SETTINGS,
+                Page::Chaos => IDM_PAGE_CHAOS,
             };
             assert_eq!(page_of_menu(menu), Some(p));
             assert!(accels.insert(p.accel()), "{:?} shares an accelerator", p);

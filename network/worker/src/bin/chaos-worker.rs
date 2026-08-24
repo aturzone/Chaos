@@ -185,6 +185,16 @@ fn main() -> ExitCode {
         }
     };
     println!("ready      {bind}");
+    // **Said plainly, because it is the first thing a user needs to know.**
+    // The protocol works and is measured; what does not exist yet is a main
+    // device that speaks it. Shipping a binary that looks finished and quietly
+    // has nobody to talk to is worse than not shipping it.
+    println!();
+    println!("           NOTHING CONNECTS TO THIS YET. `chaos-serve` has no --workers");
+    println!("           flag: the protocol and the arithmetic are proven and measured");
+    println!("           (research/worker-protocol-measured-2026-08-24.md), and wiring");
+    println!("           it into the forward pass waits on a two-machine measurement.");
+    println!();
     println!(
         "           a hidden state is {} bytes; a token's experts on this",
         slice.width * 4
@@ -259,6 +269,10 @@ fn usage() {
     println!("experts once, holds them in memory, and answers 16 KB questions with");
     println!("16 KB answers. The main device keeps routing, sampling and the KV cache,");
     println!("so a worker that dies is a slowdown and not a corruption.");
+    println!();
+    println!("NOTHING CONNECTS TO THIS YET. chaos-serve has no --workers flag; the");
+    println!("protocol and the arithmetic are proven and measured, and wiring it into");
+    println!("the forward pass waits on a measurement across two real machines.");
     println!();
     println!("BEFORE BUILDING ON THIS: four machines get single-digit tok/s on");
     println!("V4-Flash, not 20. Pooling RAM moves along the measured frontier and");

@@ -1,0 +1,16 @@
+[package]
+name = "chaos-android"
+description = "The JNI bridge: what the Kotlin app can call in the engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# **A cdylib, not an rlib.** Android loads a `.so` with `System.loadLibrary`,
+# and only a cdylib produces one with the JNI symbols visible.
+crate-type = ["cdylib"]
+
+[dependencies]
+chaos-probe = { path = "../../core/probe" }

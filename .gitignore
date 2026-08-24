@@ -45,3 +45,10 @@ android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
+
+# **The JNI libraries are build output, not source.** `android/app/src/main/
+# jniLibs/**/libchaos_android.so` is 490 KB per ABI produced by cross-compiling
+# `android/jni`, and committing it would put a binary in the tree that nobody
+# can review and that goes stale the moment the Rust changes. Build it with
+# `scripts/build-android-jni.ps1`; the app runs without it as a client.
+android/app/src/main/jniLibs/

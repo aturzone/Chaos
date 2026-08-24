@@ -67,7 +67,7 @@ gpu        none detected
 **`core/probe` reads a phone correctly with no changes at all.** That is the
 crate the plan expected to be the obstacle.
 
-## Two bugs, and running it is the only way either would have appeared
+## One bug and one false alarm, and running it is the only way either appeared
 
 ### 1. Every binary aborts at exit — SIGABRT, exit code 134
 
@@ -86,21 +86,36 @@ silently, so the same double-destroy has presumably been happening everywhere
 and nothing said so. Not diagnosed further yet: what is known is that it is at
 teardown, it is reproducible, and it would abort on a real phone.
 
-### 2. The models directory resolves to `/.chaos/models`
+### 2. `/.chaos/models` — which is not a bug, and the first note here said it was
 
 ```
 no models found. Put a .gguf file in:
   /.chaos/models
 ```
 
-`$HOME` is not set in an Android shell, so the home-relative path collapses to
-the filesystem root. On a phone the app's own files directory is the right
-answer, and it has to be passed in rather than derived from the environment.
+**First reading: "an Android shell has no `$HOME`, so the path collapsed to the
+root." That is wrong.** If `HOME` were unset, `find::home()` returns `None` and
+that candidate is never pushed at all — the message would have named a different
+directory. It named `/.chaos/models`, which means `HOME` **is** set, to `/`,
+which is what Android's shell does. Chaos derived from it exactly correctly.
+
+So there is nothing to fix in the resolution, and **the mechanism already
+exists**: `CHAOS_MODELS` is read before anything home-relative. The Android app
+passes its own files directory that way; no source change is needed for it.
+
+Worth keeping because it is the shape of a mistake this project makes often: an
+unexpected output explained by the first plausible story rather than by reading
+what the code does with it.
 
 ## What is still not done
 
-Both of those, and then the part that makes it a feature rather than a
-milestone: a JNI entry point the Kotlin side can call, model files on the
+**The abort**, which needs a debugger on the device: two theories are already
+ruled out — the threading translation unit is in exactly one archive
+(`ggml-base`, not `ggml-cpu` or `ggml`), and `libc++_static.a` does not contain
+`libc++abi`, so naming both is correct rather than a duplication. Whatever
+destroys a mutex twice is somewhere else.
+
+Then the part that makes this a feature rather than a milestone: a JNI entry point the Kotlin side can call, model files on the
 device, and a way to choose a model that fits **this** phone — Atur's "a
 powerful phone or a simple phone" — which `chaos-probe` can now answer, because
 it reads the device correctly.

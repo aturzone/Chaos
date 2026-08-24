@@ -1341,6 +1341,12 @@ fn usage() -> ExitCode {
     eprintln!("  -b N                prefill block size");
     eprintln!("  --cache GIB         expert cache budget");
     eprintln!("  --auto              pick device, -ngl and cache from this machine");
+    eprintln!("  --list-devices      what compute devices this build can see");
+    eprintln!("  --device N          which one to run on (llama.cpp: --main-gpu)");
+    eprintln!("  -ngl N              layers on that device; 0 keeps them all on the CPU");
+    eprintln!("  -ot PATTERN=WHERE   place tensors by name, e.g. \"*_exps=CPU\"");
+    eprintln!("  --op-offload        send individual ops to the device as well");
+    eprintln!("                      (measured 19% SLOWER here -- off by default)");
     eprintln!("  --temp T            0 = greedy (default)");
     usage_rest()
 }

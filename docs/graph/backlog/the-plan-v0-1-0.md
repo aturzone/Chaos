@@ -49,11 +49,14 @@ always broken"*. The pictures were correct, inverted, and identical.
       opposite: step count changes the picture substantially (4 against 20 is
       cos 0.7447) and **never converges** — every adjacent pair sits at ~0.90
       wherever you are on the ladder, so no step count is "correct".
-      **The default was not changed**, because the numbers say the pictures
-      differ without saying which is better, and that is aesthetic. Four
-      renders at 4/8/20/50 are in `~/.chaos/images/step-comparison/` for Atur
-      to look at — **if 4 steps is acceptable, 256x256 gets five times
-      faster.** `research/step-count-never-settles-2026-08-24.md`.
+      Then four renders settled most of it: **4 steps confines the whole
+      image to a 56-level grey band out of 255**, so it is ruled out by
+      measurement rather than taste, while edge energy saturates by 8 steps
+      (8.11 → 11.11, then a creep). **8 is where somebody looking should
+      start**, at 0.4x the default's time; which of 8/20/50 wins is aesthetic.
+      **The default was not changed.** The renders are in
+      `~/.chaos/images/step-comparison/`.
+      `research/step-count-never-settles-2026-08-24.md`.
 - [x] **Prompt adherence — measured, and the advice was aimed at the wrong
       thing.** The plan said to offer the JSON shape rather than document it. A
       button that did exactly that was written, measured, and **not shipped**:

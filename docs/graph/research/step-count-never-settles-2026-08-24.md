@@ -110,34 +110,78 @@ that imperfect does not have one endpoint that finer discretisation approaches.
 
 ## What this means for the default, and what it does not
 
-**It is now an aesthetic question, and this project has no instrument for one.**
-The rule here is that an image decoder is checked by round trip and never by
-looking — but that rule exists because round trip *can* check a decoder.
-Nothing can check which of two different-but-equally-valid pictures is better.
+The cosines say the pictures differ without saying which is better, and that
+looks like the end of what measurement can do. **It is not**, and assuming it
+was nearly produced a wrong recommendation.
 
-What can be said in numbers:
+## Four renders, and the pixels settle most of it
 
-| steps | time, relative to the default | same picture as the default? |
-|---|---|---|
-| 4 | **0.2x** | no — cos 0.7447 |
-| 8 | 0.4x | no — cos 0.8966 |
-| 20 | 1.0x | — |
-| 50 | 2.5x | no — cos 0.9043 |
+One prompt at 4/8/20/50 steps, same seed, guidance off, so nothing but the step
+count differs. `~/.chaos/images/step-comparison/`. Measured off the PNGs:
 
-**If 4 steps looks acceptable, 256×256 gets five times faster.** That is worth
-somebody's minute of looking, so four renders of one prompt at 4/8/20/50 steps —
-same seed, guidance off, so nothing but the step count differs — are written to
-`~/.chaos/images/step-comparison/`.
+| steps | time | mean | sd | 1st–99th percentile | spread | edge energy |
+|---|---|---|---|---|---|---|
+| 4 | 0.2x | 146.8 | 10.5 | 123 – 179 | **56** | 8.11 |
+| 8 | 0.4x | 136.6 | 16.8 | 97 – 189 | 92 | 11.11 |
+| 20 | 1.0x | 133.7 | 35.1 | 33 – 184 | 151 | 11.86 |
+| 50 | 2.5x | 121.8 | 43.4 | 21 – 194 | 173 | 12.35 |
+
+*Spread is the 1st-to-99th percentile of luminance out of 255; edge energy is
+the mean absolute difference between horizontally adjacent pixels, which a flat
+smudge scores low on even when its histogram happens to be wide.*
+
+**Four steps confines the entire image to a 56-level grey band.** Everything is
+between 123 and 179. That is "flat" with a number behind it, and it is not a
+matter of taste — the picture has not finished forming.
+
+**Edge energy saturates early; global contrast does not.** 8.11 → 11.11 is the
+jump from 4 to 8 steps; after that it creeps, 11.86 and 12.35. So local detail
+is mostly there by 8 steps while the *range* keeps opening, 92 → 151 → 173.
+
+So the honest reading:
+
+- **4 steps is ruled out by measurement**, not by opinion.
+- **8 steps has most of the edge energy at 0.4x the default's time**, and is
+  where somebody looking should start.
+- **Which of 8, 20 and 50 is best remains aesthetic.** Contrast and edge energy
+  are not beauty; a high-contrast image can be garbage. What they can do is
+  rule out an image that is nearly uniform, and they have.
 
 **The default was not changed.** Not on reconstruction evidence, which is
-outside its range for this question; and not on the cosines above, which say the
-pictures differ without saying which is better.
+outside its range for this question; not on the cosines, which say the pictures
+differ without saying which is better; and not on contrast, which rules one
+option out without ranking the rest.
+
+## The recommendation this nearly shipped
+
+Before those renders existed, this node said *"if 4 steps looks acceptable,
+256×256 gets five times faster"* — on the strength of a flat reconstruction
+error and a 17x time difference.
+
+**`chaos-draw` prints the mean and standard deviation of every picture it
+writes**, and it had printed sd 12.2 for the four-step render in output that had
+already been read. A five-times speed-up was proposed over an image whose own
+summary statistic said it was nearly uniform.
+
+That is the fourth instance today of the same shape — and unlike the other
+three, the contradicting number was not merely available, it was on screen.
 
 ## The standing lesson
 
-This is the same shape as the two other corrections made today — a one-latent
-conditioning claim, and an arena limit standing in for a model limit. Every one
-of them is a measurement that answers a *nearby* question confidently. The check
-that catches it is not more repetitions; it is asking what the number would look
-like if the instrument were pointed at the wrong thing, and noticing that here
-it would look exactly like this.
+Four instances today, and they are one shape:
+
+| | what it answered instead |
+|---|---|
+| the "3x" conditioning claim | one latent, in a quantity that varies nineteen-fold between them |
+| the encoder's 51 GiB abort | an arena limit reported as the model's ceiling |
+| σ=0.95 reconstruction | commitment to a *different* picture, read as integration error |
+| "4 steps might be fine" | a flat reconstruction error, with the contrast number already on screen |
+
+**Every one answers a nearby question confidently.** More repetitions catch none
+of them — the σ=0.95 run would have reproduced perfectly. What catches them is
+asking *what would this number look like if the instrument were pointed at the
+wrong thing*, and noticing that in each case it would look exactly like what was
+observed.
+
+The cheaper habit, which would have caught the last two on its own: **read every
+number the tool already printed before drawing a conclusion from one of them.**

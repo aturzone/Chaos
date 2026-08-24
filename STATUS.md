@@ -5,12 +5,53 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-24 · **Version**: **v0.0.17**, being cut from `main`
-· previous release **v0.0.16**, published 2026-08-24.
+**Last updated**: 2026-08-24 · **Version**: **v0.0.17**, published
+2026-08-24 · **Branch**: `main`, verified.
 
 ## v0.0.17 — the app runs, a worker exists, and two claims are retracted (2026-08-24)
 
-**871 Rust tests and 9 Kotlin tests.** Everything below is on `main`.
+**871 Rust tests and 9 Kotlin tests.** Nine assets, from the annotated tag:
+
+```
+Chaos-v0.0.17-android-arm64.apk          0.85 MB
+Chaos-v0.0.17-linux-arm64.tar.gz         7.22 MB
+Chaos-v0.0.17-linux-x86_64.AppImage      6.11 MB
+Chaos-v0.0.17-linux-x86_64.tar.gz        7.77 MB
+Chaos-v0.0.17-macos-arm64.tar.gz         5.84 MB
+Chaos-v0.0.17-macos-x86_64.tar.gz        6.64 MB
+Chaos-v0.0.17-windows-x86_64-Setup.exe  30.51 MB
+Chaos-v0.0.17-windows-x86_64.zip        21.80 MB
+chaos_0.0.17_amd64.deb                   5.63 MB
+```
+
+### Install -> update -> uninstall, on this machine, from the published files
+
+The plan's last unchecked Part 7 item. `scripts/install-update-uninstall.ps1`
+downloads v0.0.16's real installer, installs it, updates it to v0.0.17 through
+the app's own updater, removes it, and counts `~/.chaos/models` before and
+after:
+
+```
+install v0.0.16      13 binaries, version.txt, Start Menu, registry
+chaos-run --version  starts, 0.0.16
+--update             finds 0.0.17 and downloads it itself
+upgrade in place     0.0.17, registry entry updated with it
+uninstall            bin, registry entry and shortcut all gone
+models               18 files, 120,933,521,300 bytes -- identical
+```
+
+**It found that `--update` could not be scripted at all**: the question is read
+from stdin, and EOF -- what a script gives by accident -- reads as "no", so the
+first run reported *"the update check found the newer release"*, true, while
+nothing had been updated. Even answered, it opened the installer's *window* and
+exited. `--update --yes` now answers and passes `/S`.
+
+**Three failures in that first run were the harness, not the product**, and
+both mistakes are written into the script: `cmd /c "<a command line with quotes
+in it>"` silently does nothing, and `Start-Process -Wait` waits for the whole
+process tree -- so it sat on the very window `--update` is meant to leave open.
+The uninstaller, called directly, removes everything it added and keeps the
+models.
 
 ### The Android app runs, and running it found four defects
 

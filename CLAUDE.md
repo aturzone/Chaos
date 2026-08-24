@@ -126,11 +126,14 @@ item; if one is not done, say which and why.**
 
 ## Next
 
-**v0.0.16 released 2026-08-24**: nine assets — the five desktop builds,
-the Windows installer, the two Linux packages, and an **Android APK**. The tab
-stall is gone (1584 → 10.8 ms), the IMAGE page chooses a model and keeps its
-latent, the model list sorts and searches, four of nine icon sizes were a pixel
-off centre and are not, and `--auto` predicts tok/s within 6%.
+**v0.0.17 released 2026-08-24**: nine assets. The **Android app has been run**
+— on an emulator, against a real `chaos-serve` — and running it found four
+defects a build never would. `chaos-worker` holds experts and answers with
+activations, measured at 38x in favour of sending the work to the weights.
+1024x1024 encodes. Two claims retracted: the JSON prompt shape (0.9x, it is the
+sentences) and "4 steps is five times faster" (a 56-level grey band).
+**Install → update → uninstall verified on this machine from the published
+files, models byte-identical** — `scripts/install-update-uninstall.ps1`.
 `STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue.
 
 **Three instruments, kept because they are how the above was measured**:

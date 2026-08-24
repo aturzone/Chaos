@@ -213,8 +213,14 @@ run would have caught.
 - [x] The crash on the INSTALLED/AVAILABLE tabs: **still not reproduced**, now over 60 rapid switches on the rewritten code -- worst 28.9 ms, process alive and responding. The fault handler writes an address, so the next occurrence is evidence. Original text: **still not
       reproduced** — 20 rounds of real clicks survived. The fault handler now
       writes an address, so the next occurrence is evidence instead of silence.
-- [ ] Install → update → uninstall from a real downloaded setup, on the machine,
-      with the models directory counted before and after.
+- [x] Install → update → uninstall from a real downloaded setup, on the machine,
+      with the models directory counted before and after. **Done**, v0.0.16 ->
+      v0.0.17 from the published files: 13 binaries, an upgrade in place through
+      the app's own updater, a clean removal, and `~/.chaos/models` at
+      **18 files and 120,933,521,300 bytes before and after**.
+      `scripts/install-update-uninstall.ps1`. It found that `--update` could not
+      be scripted at all — EOF on stdin read as "no" while the script reported
+      success — which is now `--update --yes`.
 
 ---
 

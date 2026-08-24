@@ -65,6 +65,35 @@ bit-identical** where both can run) made the measurement possible, and it landed
 at 0.9466. An arena limit standing in for a model limit is the worst kind of
 missing datum, because it looks like a result.
 
+### Step count changes the picture and never settles
+
+The one lever left after the finding above, and it is not a lever.
+
+**Reconstruction** (noise a known latent at σ=0.6, integrate back): error
+**0.3683 at 4 steps against 0.3770 at 50** — flat, slightly backwards, and 50
+costs **17x** the time. Sensible for a rectified flow, which is trained to
+predict the straight line and would be exact in one step if the model were
+perfect.
+
+**Generation** (same starting noise; do two step counts produce the same
+latent?): 4 against the default 20 is **cos 0.7447** — different pictures, not a
+refinement. And **every adjacent pair sits at ~0.90 wherever you are on the
+ladder** (4↔8 0.8895, 8↔20 0.8966, 20↔50 0.9043) while 4↔50 falls to 0.6719. A
+converging sampler would have 20 and 50 agreeing far more closely than 4 and 8.
+**So no step count is "correct".**
+
+**The default was not changed.** The numbers say the pictures differ without
+saying which is better, and that is aesthetic. Four renders at 4/8/20/50 — same
+seed, guidance off — are in `~/.chaos/images/step-comparison/`: **if 4 steps
+looks acceptable, 256×256 gets five times faster.**
+
+**And one run is kept as a lesson rather than deleted.** The same reconstruction
+test at σ=0.95 said more steps were dramatically worse and said nothing of the
+kind — at 5% signal the model generates rather than reconstructs, so the metric
+measured commitment to a *different* picture. Every row scored above 1.0, worse
+than predicting zero, which should have stopped the reading before it started.
+The tool warns above σ=0.8 now.
+
 ### The JSON prompt shape does nothing; it is the sentences
 
 Chaos said in four places that structured JSON prompts condition **3x** more

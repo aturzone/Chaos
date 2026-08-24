@@ -27,6 +27,22 @@
 //! latent it started from. More steps should land closer. How much closer is
 //! the whole question.
 //!
+//! # The metric has a validity range, and it is narrower than it looks
+//!
+//! **`start` must leave real signal to recover.** At `sigma = 0.95` the input
+//! is 5% latent and 95% noise, and the model does not reconstruct *this*
+//! picture — it generates a different one, which is what it is for. The
+//! comparison then measures how firmly it commits to that other picture, and
+//! **more steps score worse** for a reason that has nothing to do with
+//! integration.
+//!
+//! That run was made and misread before the numbers were checked against the
+//! obvious tell: every row was above 1.0, i.e. every result further from the
+//! truth than simply predicting zero. `research/more-steps-buy-nothing-2026-08-24.md`
+//! keeps it, because the mistake is the useful part.
+//!
+//! **0.6 is inside the range. 0.95 is not.**
+//!
 //! ```text
 //! cargo run --release -p chaos-image --example steps-at-small-grids
 //! ```
@@ -80,9 +96,21 @@ fn main() {
             v
         }
     };
-    // Where the integration starts. Not 1.0: at pure noise there is no latent
-    // left to recover and every step count scores the same nothing.
+    // Where the integration starts. **Not near 1.0**: with almost no latent
+    // left to recover the model generates a different picture rather than
+    // reconstructing this one, and the comparison stops measuring integration.
+    // Measured: 0.6 works, 0.95 does not, and 0.95 fails in the direction that
+    // looks like a result. See the note at the top.
     let start: f32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.6);
+    if start > 0.8 {
+        eprintln!(
+            "WARNING: sigma {start} leaves {:.0}% of the latent. Above about 0.8",
+            (1.0 - start) * 100.0
+        );
+        eprintln!("         the model generates rather than reconstructs and this metric");
+        eprintln!("         measures the wrong thing -- see the note at the top of the file.");
+        eprintln!();
+    }
 
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))

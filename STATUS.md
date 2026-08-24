@@ -10,7 +10,7 @@ right, so fix this file.
 
 ## v0.0.16 — the six things Atur asked for, measured (2026-08-24)
 
-**865 tests.** **Nine assets**, read back off the releases API rather than
+**871 tests.** **Nine assets**, read back off the releases API rather than
 predicted from the workflow:
 
 ```
@@ -235,7 +235,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **865 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
+**Current**: **871 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by

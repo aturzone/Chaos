@@ -3265,12 +3265,37 @@ Any value a client sends is accepted.                      The server still list
         let x = page.left + metric::INSET;
         let w = page.right - x - metric::INSET;
         label(hdc, x, page.top + 24, w, p.title(), ui.fonts.display, t.fg);
+
+        // **What this page can do *right now*, where there is an answer.**
+        // Atur: *"the CHAT and IMAGE must be in a 1 windows based on model
+        // witch of them available as a options to use"*. Both pages used to
+        // carry a fixed sentence describing themselves in general, which is
+        // exactly what a person does not need: whether the thing in front of
+        // them will work is the question, and it has a specific answer.
+        let live = match p {
+            Page::Chat => Some(match &ui.loaded {
+                Some(name) => format!("{name} is loaded. Type below, or point an agent at the endpoint."),
+                None => "No model is loaded. Open MODELS, pick a chat model and press LOAD.".into(),
+            }),
+            Page::Image => Some(match ui.lists.get(&nav::ID_IMG_MODEL) {
+                // The chooser's first row is the placeholder when nothing is
+                // installed; its `value` is empty exactly then.
+                Some(l) if l.first().is_some_and(|c| !c.value.is_empty()) => format!(
+                    "{} image model{} installed. Nothing needs to be loaded first.",
+                    l.len(),
+                    if l.len() == 1 { "" } else { "s" }
+                ),
+                _ => "No image model installed. Open MODELS and get ideogram-4, its uncond twin, qwen3-vl-8b and flux2-vae.".into(),
+            }),
+            _ => None,
+        };
+        let line = live.unwrap_or_else(|| p.subtitle().to_string());
         label(
             hdc,
             x,
             page.top + 66,
             w,
-            p.subtitle(),
+            &line,
             ui.fonts.body,
             t.fg_secondary,
         );
@@ -3601,9 +3626,15 @@ Any value a client sends is accepted.                      The server still list
         // are 16.7 GB; finding that out after clicking is the version of this
         // that wastes an evening.
         let note = if models::default_dir().join("ideogram4-Q4_0.gguf").exists() {
-            "Colour and scene follow the prompt; an object's form may not. \
-             Structured, JSON-shaped prompts condition about three times as \
-             strongly as a bare phrase."
+            // **What to write, not what shape to write it in.** This advised
+            // structured JSON, on the strength of a one-latent measurement.
+            // Over eight latents the shape contributes *nothing* -- a phrase
+            // wrapped in an empty frame measures 0.9x against the bare phrase
+            // -- while the descriptions earn 11.3x. See
+            // `research/prompt-shape-does-nothing-2026-08-24.md`.
+            "Describe the picture, do not just name it: lighting, background \
+             and colours move the model 11x as far as a bare phrase. Colour \
+             and scene follow the prompt; an object's form may not."
         } else {
             "The four image models are not downloaded yet -- find ideogram-4, \
              ideogram-4-uncond, qwen3-vl-8b and flux2-vae on the MODELS page. \

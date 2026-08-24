@@ -145,9 +145,16 @@ as can be:
 | seven words | 0.9897 | 1.0% |
 | structured JSON | 0.9667 | **3.3%** |
 
-Three times the effect for the same pair of ideas, written the way the model
-expects. **The conditioning path is not broken; it was being fed something the
-model was never trained on.** `examples/try-conditioning.rs` holds both.
+Three times the effect for the same pair of ideas. **The conditioning path is
+not broken; it was being fed something the model was never trained on.**
+`examples/try-conditioning.rs` holds both.
+
+> **Superseded 2026-08-24, in both directions.** That table is **one latent**,
+> and the effect varies by a factor of nineteen between latents. Over eight:
+> the hand-written prompt is **11.3x**, not 3x — the number above understates
+> it — and **the JSON shape itself contributes nothing**, measuring 0.9x when
+> the descriptive fields are left empty. It is the sentences, not the braces.
+> `research/prompt-shape-does-nothing-2026-08-24.md`.
 
 ## What is still open
 

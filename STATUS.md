@@ -5,9 +5,13 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-25 · **Version**: **v0.0.19**, being cut from `main`
-· previous release **v0.0.18**, published 2026-08-24 and verified from its own
-published files.
+**Last updated**: 2026-08-25 · **Version**: **v0.0.19**, published 2026-08-25
+· **Branch**: `main`, verified.
+
+**v0.0.19 verified from its own published files**: v0.0.18 installed, updated to
+v0.0.19 **unattended** through the app's own updater — the first release where
+`--update --yes` carried an upgrade end to end — uninstalled clean, and
+`~/.chaos/models` identical at 18 files and 120,933,521,300 bytes.
 
 **v0.0.18 verified from its own published files**: v0.0.17 installed, updated
 to v0.0.18 through the app's own updater, uninstalled clean, and

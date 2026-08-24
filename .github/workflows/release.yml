@@ -457,8 +457,14 @@ jobs:
     # as Google's own `downloads`. GitHub's runners are not on that network and
     # ship the SDK already installed, so this is where the APK gets made.
     #
-    # The consequence to be honest about: nothing about this app is verified on
-    # the machine that wrote it. The build is the test, and the phone is Atur's.
+    # **That claim is now half retracted.** The NDK and the SDK are both on
+    # public mirrors that were never tried; the app has since been built AND run
+    # locally on an emulator, and running it found four defects a build never
+    # would (`research/android-engine-runs-2026-08-24.md`). What remains true is
+    # that CI builds the *shipped* artefact, from Google's own repositories,
+    # rather than from a mirror one machine happens to reach.
+    #
+    # Still honest: nobody has run this on a real handset. The phone is Atur's.
     steps:
       - uses: actions/checkout@v4
 
@@ -495,6 +501,52 @@ jobs:
           fi
           grep -E 'versionCode|versionName' android/app/build.gradle.kts
 
+      - name: The engine, cross-compiled into the APK
+        # **Without this the APK has no engine in it.** `android/jni` is a
+        # cdylib that `Engine.kt` loads with `System.loadLibrary`; the built
+        # `.so` is not committed, because it is half a megabyte per ABI of
+        # build output nobody can review. So it is built here, or it does not
+        # ship -- and the app silently falls back to being a client, which is
+        # exactly the failure that is hardest to notice.
+        #
+        # **arm64 only.** That is every phone worth shipping to; x86_64 exists
+        # for the emulator and is built locally when someone is testing.
+        run: |
+          set -e
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
+            echo "::error::no NDK on this runner"; exit 1
+          fi
+          echo "ndk: $NDK"
+          BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+          # ggml for the same ABI. Pointing GGML_LIB_DIR at a host build links
+          # the wrong architecture and fails with a page of mismatches.
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp /tmp/llamacpp
+          cmake -S /tmp/llamacpp -B /tmp/ggml-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+            -DCMAKE_BUILD_TYPE=Release -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+          cmake --build /tmp/ggml-android --target ggml-base ggml-cpu ggml -j"$(nproc)"
+
+          # `build.rs` wants the names without the `lib` prefix.
+          cd /tmp/ggml-android/ggml/src
+          for l in ggml-base ggml-cpu ggml; do cp -f "lib$l.a" "$l.a"; done
+          cd - >/dev/null
+
+          rustup target add aarch64-linux-android
+          export GGML_LIB_DIR=/tmp/ggml-android/ggml/src
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$BIN/aarch64-linux-android28-clang"
+          export CC_aarch64_linux_android="$BIN/aarch64-linux-android28-clang"
+          export AR_aarch64_linux_android="$BIN/llvm-ar"
+          cargo build --release --target aarch64-linux-android -p chaos-android
+
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp target/aarch64-linux-android/release/libchaos_android.so \
+             android/app/src/main/jniLibs/arm64-v8a/
+          ls -l android/app/src/main/jniLibs/arm64-v8a/
+
       - name: The Kotlin unit tests
         working-directory: android
         # `ThinkFilter` is a state machine over a stream whose tags arrive in
@@ -527,6 +579,12 @@ jobs:
           for want in AndroidManifest.xml classes.dex res/; do
             grep -q "$want" /tmp/apk.txt || { echo "::error::no $want in the APK"; exit 1; }
           done
+          # **The engine, checked in the APK rather than where it was copied
+          # from.** A `cp` that worked and a package step that dropped the file
+          # look identical from outside, and the app is built to survive a
+          # missing library silently -- so nothing would report it.
+          grep -q 'lib/arm64-v8a/libchaos_android.so' /tmp/apk.txt \
+            || { echo "::error::the APK has no engine in it"; exit 1; }
           # The launcher icon, at every density, rendered from assets/logo.svg.
           # An APK with no icon is one Android draws a grey robot for.
           grep -qE 'res/.*(ic_launcher|[A-Za-z0-9_]+)\.png' /tmp/apk.txt \

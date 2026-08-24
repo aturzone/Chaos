@@ -49,16 +49,21 @@ ops later with no Rust frame.
 | 384 | 24 | 0.8976 |
 | 512 | 32 | 0.9185 |
 | 640 | 40 | 0.9335 |
-| 768 | 48 | **0.9408** |
+| 768 | 48 | 0.9408 |
+| 1024 | 64 | **0.9466** |
 
-Monotonic. In error terms the direction is **2.4x worse at grid 16 than at grid
-48**, before a single sampler step. **So there is no sampler bug to find** —
+Monotonic. In error terms the direction is **2.65x worse at grid 16 than at grid
+64**, before a single sampler step. **So there is no sampler bug to find** —
 that was the obvious next move and the measurement removes it. The size labels
 say what was measured now.
 
-*(1024 could not be measured: `vae::encode` is unplanned at ~48 KiB per input
-pixel, so it asks for 51 GiB. An `encode_planned` mirroring `decode_planned` —
-81x smaller, bit-identical — would lift it.)*
+**The last row was predicted before it could be measured.** 1024 was out of
+reach — `vae::encode` builds an unplanned graph at ~48 KiB per input pixel and
+asks for 51 GiB — and the node said the curve was saturating and grid 64 should
+land near 0.95. `vae::encode_planned` (**1.51 GiB instead of 48.5, and
+bit-identical** where both can run) made the measurement possible, and it landed
+at 0.9466. An arena limit standing in for a model limit is the worst kind of
+missing datum, because it looks like a result.
 
 ### The JSON prompt shape does nothing; it is the sentences
 

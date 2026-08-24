@@ -33,8 +33,16 @@ encoder is involved and the prompt is not a variable.
 | 512 | 32 | 1024 | 0.9604 | 0.9558 | **0.9185** | 0.1700 |
 | 640 | 40 | 1600 | 0.9671 | 0.9633 | **0.9335** | 0.1527 |
 | 768 | 48 | 2304 | 0.9724 | 0.9680 | **0.9408** | 0.1433 |
+| **1024** | **64** | **4096** | **0.9775** | **0.9725** | **0.9466** | **0.1356** |
 
 Monotonic in every column, and in the reconstruction error as well.
+
+**The last row was added after the fact, and its prediction is the reason to
+trust the rest.** 1024 could not be measured when this node was first written —
+the encoder's unplanned graph asks for 51 GiB — and the note below said the
+curve was saturating and *"grid 64 should land near 0.95"*. `encode_planned`
+then made the measurement possible and it landed at **0.9466**. A curve that
+predicted its own missing point is a curve worth reading.
 
 ## What it says
 
@@ -44,14 +52,14 @@ matters most.** At σ=0.8 the spread across the ladder is 0.933 → 0.972; at
 noise" is most of the answer. Light noise is where the model has to know what
 the picture *is*, and that is exactly where 256 tokens fall down.
 
-Read as error rather than agreement, `1 - cos` at σ=0.25 goes 0.142 → 0.059
-across the measured range: **the direction is 2.4x worse at grid 16 than at
-grid 48**, before a single sampler step has run.
+Read as error rather than agreement, `1 - cos` at σ=0.25 goes 0.1416 → 0.0534
+across the full ladder: **the direction is 2.65x worse at grid 16 than at grid
+64**, before a single sampler step has run.
 
-The increments are shrinking — 0.0392, 0.0209, 0.0150, 0.0073 — so the curve is
-saturating and grid 64 should land near 0.95. That is consistent with 1024
-looking photorealistic and 256 looking flat, and it is not a bug anywhere in
-this codebase.
+The increments shrink all the way — 0.0392, 0.0209, 0.0150, 0.0073, 0.0058 — so
+the curve saturates rather than continuing. That is consistent with 1024 looking
+photorealistic and 256 looking flat, and it is not a bug anywhere in this
+codebase.
 
 ## What follows, and what does not
 
@@ -71,16 +79,26 @@ was trained at a resolution and it is better near it.
 now in `SIZES`: 256 is not "quick, and flat" as a matter of taste — it is
 measurably a worse prediction.
 
-## A limitation worth recording
+## The limitation that was recorded here, and then removed
 
-**1024 could not be measured on this machine**, and the reason is not the
+**1024 could not be measured when this was written**, and the reason was not the
 denoiser. `vae::encode` builds an **unplanned** graph — every tensor allocated,
 none freed — at about 48 KiB per input pixel, so a 1024×1024 encode asks for
-**51 GiB** and ggml aborts with `GGML_ASSERT(ctx->mem_buffer != NULL)`. 768
-works at 29 GiB of virtual arena; 1024 does not.
+**51 GiB** and ggml aborts with `GGML_ASSERT(ctx->mem_buffer != NULL)`.
 
-`vae::decode_planned` already solves exactly this for the other direction —
-`ggml_gallocr` reuses buffers whose lifetimes do not overlap, measured **81x
-smaller and bit-identical**. An `encode_planned` mirroring it would lift this
-limit, and would also be what img2img at large sizes needs. It is not written,
-and this note is the reason to write it.
+**An arena limit standing in for a model limit is the worst kind of missing
+datum, because it looks like a result.** A reader of the first version of this
+table could reasonably have concluded that 768 was as far as the model had been
+checked.
+
+`vae::encode_planned` now mirrors `decode_planned` — `ggml_gallocr` reuses
+buffers whose lifetimes do not overlap:
+
+| image | planned | unplanned | saving | agree? |
+|---|---|---|---|---|
+| 256 | 0.09 GiB | 3.50 GiB | 37x | bit-identical |
+| 512 | 0.38 GiB | 12.50 GiB | 33x | bit-identical |
+| 1024 | **1.51 GiB** | 48.50 GiB | 32x | could not run before |
+
+That is what added the last row above, and it is also what img2img at large
+sizes needs.

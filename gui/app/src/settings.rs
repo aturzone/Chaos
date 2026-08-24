@@ -94,11 +94,30 @@ pub enum Role {
 /// base32 from SplitMix64, seeded from the clock and the process id so two
 /// machines starting in the same second do not agree.
 pub fn new_key() -> String {
+    // **A clock reading is not a unique seed.** The first version of this took
+    // the time and the process id and nothing else, and CI on macOS caught it
+    // returning *the same key twice in a row*: two calls inside one clock tick
+    // saw the same nanoseconds and the same pid, so they produced the same 26
+    // characters. Windows' finer clock hid it completely.
+    //
+    // That is not a cosmetic failure. Pressing NEW KEY twice, or two machines
+    // starting together, could hand out a key somebody else already has.
+    //
+    // So the counter is what guarantees distinctness -- it advances on every
+    // call and cannot repeat within a process -- and the clock, the pid and a
+    // heap address (which ASLR moves between runs) are what make it hard to
+    // guess from outside.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let here = Box::new(0u8);
+    let addr = (&*here as *const u8) as u64;
     let mut x = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0x9E37_79B9_7F4A_7C15)
-        ^ (std::process::id() as u64).rotate_left(32);
+        ^ (std::process::id() as u64).rotate_left(32)
+        ^ addr.rotate_left(17)
+        ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     const ALPHABET: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
     let mut out = String::with_capacity(26);
     for _ in 0..26 {
@@ -477,10 +496,16 @@ mod tests {
         let a = new_key();
         assert_eq!(a.len(), 26);
         assert!(a.chars().all(|c| c.is_ascii_alphanumeric()));
-        // **Not a randomness test.** Two calls in the same process differ
-        // because the state advances; this catches a generator that returns a
-        // constant, which is the failure that would matter.
-        assert_ne!(a, new_key());
+        // **Not a randomness test -- a repetition test, and it earned its
+        // keep.** The first generator seeded from the clock and the pid alone,
+        // and on macOS two calls in the same tick returned identical keys.
+        // Windows' clock was fine-grained enough to hide it, so this failed
+        // only in CI. A hundred in a row, because two was not enough to catch
+        // it either.
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..100 {
+            assert!(seen.insert(new_key()), "new_key() repeated itself");
+        }
     }
 
     /// A role survives the file, and an unknown one does not lose the setting.

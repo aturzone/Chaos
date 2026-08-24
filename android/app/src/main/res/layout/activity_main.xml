@@ -28,6 +28,25 @@
         android:textColor="@color/fg_tertiary"
         android:textSize="12sp" />
 
+    <TextView
+        android:id="@+id/chaos_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="@string/chaos_title"
+        android:textColor="@color/fg"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/chaos_note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/chaos_note"
+        android:textColor="@color/fg_tertiary"
+        android:textSize="12sp" />
+
     <EditText
         android:id="@+id/address"
         android:layout_width="match_parent"

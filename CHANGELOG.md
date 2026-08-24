@@ -8,6 +8,106 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.18] — 2026-08-24
+
+### Your phone could never reach the desktop, and nothing was broken
+
+Atur: *"when i try connect desktop nothing happen"*.
+
+**Nothing was listening anywhere a phone could reach.** `chaos-serve` binds
+`127.0.0.1` unless told otherwise, and the window passed `--port` and **never
+`--host`** — so every server this app has ever started could answer only the
+machine it ran on. No route in, and therefore no error either.
+
+The Android testing in v0.0.17 missed it because `chaos-serve --host 0.0.0.0
+--api-key` was run **by hand**: a configuration the app cannot produce. The
+phone was tested against a server the app never creates.
+
+### A CHAOS page, because the fix is a decision about what this machine is
+
+```
+ALONE    only this machine; 127.0.0.1, no route in
+CORE     holds the models and answers; 0.0.0.0, others connect here
+HELPER   lends its memory and cores to a CORE
+CLIENT   uses a CORE elsewhere, loads nothing here
+```
+
+Choosing CORE opens the route, generates an api key, and shows the address and
+key with COPY beside each — they get typed into a phone once. `chaos-serve`
+refuses `0.0.0.0` with no key and is right to; refusing is the wrong thing to
+do to somebody who has just pressed CORE, so the window makes one.
+
+Measured end to end with the arguments the page produces:
+
+```
+TCP 0.0.0.0:8231 LISTENING
+GET  /v1/models  no key                 -> 401
+GET  /v1/models  with the key           -> the model list
+POST /v1/chat/completions over the LAN  -> a real answer
+```
+
+Every page and every role driven through the real window: **worst blocking call
+20.1 ms.**
+
+**HELPER says out loud that it is not finished.** `chaos-worker` speaks the
+protocol and is measured, but a CORE does not route any expert to it yet, so
+the role is reserved and does no work.
+
+### The phone
+
+A CHAOS section saying what a CLIENT is, why this phone cannot be a CORE yet
+(running a model needs Chaos built for Android, which is not done), and why
+cache, threads and device settings are deliberately absent: **they decide how a
+model runs, so they belong to whichever machine runs it.**
+
+### Fixed
+
+- **`new_key()` could return the same key twice.** It seeded from the clock and
+  the process id and nothing else, so two calls inside one tick produced
+  identical keys. Windows' finer clock hid it; macOS CI failed on the second
+  call. Not cosmetic — pressing NEW KEY twice could hand out a key somebody
+  else already has. An atomic counter now guarantees distinctness; the clock,
+  the pid and an ASLR-moved heap address make it hard to guess. The test asks
+  for a hundred in a row, because two did not catch it either.
+- **The Android address hint said port 8080** for two releases — `chaos-serve`'s
+  own default, but not the port the window uses, so the placeholder gave the
+  wrong number for the one thing it exists to help with. It says 8231.
+- **A page could be built, laid out and never shown.** `SHELL_CONTROLS` carried
+  a comment saying IMAGE had once been added that way; the comment did not stop
+  CHAOS doing exactly the same. There is now a test: every page's rail button
+  must be shell chrome. A sentence is not a mechanism.
+
+### Measured
+
+- **The `-ngl` ladder**, open since 2026-08-16. Qwen3-4B fully resident in a
+  6 GB RTX 3050: prefill **1.77x**, generation **0.46x** — never once faster
+  than the CPU. Qwen3-8B: prefill **2.31x**, generation **0.58x**. The card
+  saves 5.63 ms per prompt token and loses 185.97 ms per generated one, so it
+  pays only above a prompt:generation ratio of **33:1** (4B) or **14:1** (8B).
+  `--auto` decides on whether the model *fits* and is **2.14x slower** than the
+  CPU on an ordinary `-n 200` reply — measured end to end, 117.0 s against
+  54.6 s. Not fixed: the break-even moved by more than 2x between two models on
+  one machine, so a constant would be wrong.
+- **Do not read the generation row as "the GPU is slower".** VRAM bandwidth is
+  about 2x this laptop's DDR5, so resident weights should read *faster*. The
+  2.2x is per-token overhead in this Vulkan path, and nobody has looked at why.
+- **A negative prompt follows what you write and barely pulls.** At 512×512 the
+  untexted twin sits 7.29% from the conditional velocity; *"blurry, low
+  quality, distorted"* sits **0.13% — 56x weaker** — and its guided step lands
+  0.69 points out of 20 from the step with guidance **off**.
+- **`--update --yes`**, because `--update` could not be scripted at all: it read
+  the question from stdin and then opened the installer's *window*.
+- **Five GPU flags** — `--list-devices`, `--device`, `-ngl`, `-ot`,
+  `--op-offload` — all worked and none appeared in `chaos-run --help`.
+
+### Retracted
+
+- **"`--auto` is 41% slower at `-n 200`."** That was extrapolated from
+  per-token rates measured over 32 tokens. Measured end to end it is **2.14x**.
+  A per-token rate measured over 32 tokens is not a constant, and the device
+  path degrades faster than the CPU as the context grows — which also makes the
+  break-even ratios above **lower bounds** rather than estimates.
+
 ## [0.0.17] — 2026-08-24
 
 ### The Android app runs, and running it found four defects
@@ -1714,7 +1814,8 @@ Qwen3-30B-A3B Q4_K_M prefill, Chaos / llama.cpp:
   requires a competitor's exact command line and output before any competitive
   claim is citable.
 
-[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.17...HEAD
+[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.18...HEAD
+[0.0.18]: https://github.com/aturzone/Chaos/releases/tag/v0.0.18
 [0.0.17]: https://github.com/aturzone/Chaos/releases/tag/v0.0.17
 [0.0.16]: https://github.com/aturzone/Chaos/releases/tag/v0.0.16
 [0.0.15]: https://github.com/aturzone/Chaos/releases/tag/v0.0.15

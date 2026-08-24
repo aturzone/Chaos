@@ -8,6 +8,68 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.20] — 2026-08-25
+
+### The engine runs inside the Android app
+
+v0.0.19 proved Chaos runs on Android as a command-line binary in
+`/data/local/tmp`. That is not something an app can use. **This release puts it
+in the app**, and the APK CI publishes now carries it.
+
+Read off the running app's own screen on an emulator:
+
+> **engine 0.0.20 on this phone: 4 threads, 2.4 GiB total, 1.6 GiB available
+> [/proc/meminfo]**
+
+That line is produced by **Rust running in the app process**, calling the same
+`core/probe` the desktop uses. It is also what will decide which model a given
+phone can hold — *"a powerful phone or a simple phone"* — by measuring the
+device rather than matching a hard-coded list of handsets.
+
+**No `jni` dependency.** The project has none and the APK has none. JNI's ABI is
+a table of function pointers at fixed indices; exactly one entry is declared —
+`NewStringUTF`, index 167 — with the padding before it marked load-bearing,
+because a wrong index calls a different function through a pointer and that is
+neither a compile error nor a clean crash.
+
+**The library is allowed to be absent**, and every APK before this one took that
+path. `Engine.available` is false, the device line falls back to Android's own
+reading, and the app carries on as a client. The `.so` is **not committed** —
+half a megabyte per ABI of build output nobody can review — so CI builds it, and
+**greps the finished APK to prove it is in there**: a `cp` that worked and a
+package step that dropped the file look identical from outside, and the app is
+built to survive the difference silently.
+
+### Fixed
+
+- **`UnsatisfiedLinkError` is an `Error`, not an `Exception`.** A
+  `catch (e: Exception)` would have let the app die in a static initialiser with
+  nothing a user could act on.
+- **The NDK's `.cmd` wrapper cannot link a cdylib.** rustc passes
+  `--version-script=<path>` to control exported symbols; cmd.exe mangles it and
+  the link dies with `--version-script=...\list"" was unexpected at this time`,
+  which names neither Rust nor the NDK. The executables in v0.0.19 were fine
+  because they never get that flag.
+- **The app was telling a lie it had outgrown.** The CHAOS note still read
+  *"this phone cannot be a CORE yet — running a model needs Chaos built for
+  Android, which is not done"* while the engine was demonstrably running two
+  lines above it. Caught only by reading the screen.
+
+### Retracted
+
+- **"Nothing about this app is verified on the machine that wrote it"**, which
+  the release workflow had said in a comment since the APK first shipped. The
+  NDK and the SDK are both on public mirrors that were never tried. The app has
+  since been built *and run* locally, and running it found four defects a build
+  never would. What stays true, and is what the comment says now: **CI builds
+  the shipped artefact from Google's own repositories**, and **nobody has run
+  this on a real handset.**
+
+### Still not done
+
+Loading a model file and running the token loop on the phone. **The bridge is
+finished; that part is not**, and no release note should imply otherwise.
+
 ## [0.0.19] — 2026-08-25
 
 ### Chaos builds and runs on Android
@@ -1887,7 +1949,8 @@ Qwen3-30B-A3B Q4_K_M prefill, Chaos / llama.cpp:
   requires a competitor's exact command line and output before any competitive
   claim is citable.
 
-[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.19...HEAD
+[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.20...HEAD
+[0.0.20]: https://github.com/aturzone/Chaos/releases/tag/v0.0.20
 [0.0.19]: https://github.com/aturzone/Chaos/releases/tag/v0.0.19
 [0.0.18]: https://github.com/aturzone/Chaos/releases/tag/v0.0.18
 [0.0.17]: https://github.com/aturzone/Chaos/releases/tag/v0.0.17

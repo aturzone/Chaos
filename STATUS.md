@@ -36,8 +36,11 @@ crossover. What it does establish is that **a constant rule is wrong**: the
 break-even moved by more than 2x between two models on one machine.
 
 **`--auto` decides on whether the model fits**, offloads everything, and is 19%
-faster at `-n 16` and **41% slower at `-n 200`** — with `-n` on its own command
-line. Not fixed, and the second model is the reason: the rule it needs is a
+faster at `-n 16` and — measured end to end, not projected — **2.14x slower at
+`-n 200`**: 117.0 s against 54.6 s, with `-n` on its own command line. The
+projection from the ladder said 41%; **a per-token rate measured over 32 tokens
+is not a constant**, and the device path degrades faster than the CPU as the
+context grows. Not fixed, and the second model is the reason: the rule it needs is a
 function of model size and `-n`, fitted to a measurement `--auto` does not yet
 take, not a constant.
 

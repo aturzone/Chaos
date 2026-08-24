@@ -96,6 +96,11 @@ break-even prompt:generation ratio    Qwen3-4B  33 : 1
                                       Qwen3-8B  14 : 1
 ```
 
+**These are lower bounds on the ratio, not estimates.** They come from rates
+measured over 32 generated tokens, and the measured `-n 200` run below shows the
+device path degrading faster than the CPU as the context grows — so the real
+break-even is further out than either number.
+
 ```
 Qwen3-4B   prompt 1080, generate  16: CPU  16.4s  GPU  13.3s -> GPU by 19%
 Qwen3-4B   prompt 1080, generate 200: CPU  45.2s  GPU  76.3s -> CPU by 41%
@@ -124,9 +129,29 @@ generated  16 tokens in 3.7s (4.34 tok/s)
 ```
 
 It is choosing on **"does it fit"**. At `-n 16` that happens to be right, by
-19%. At `-n 200` — an ordinary reply — **the same decision is 41% slower than
-leaving the GPU alone**, and `--auto` had `-n` on its own command line the whole
-time.
+19%. At `-n 200` — an ordinary reply — the same decision is much worse, and
+**the projection above understated how much**.
+
+### Measured rather than projected, because the projection was wrong
+
+The 41% figure that stood here first was extrapolated from the ladder's
+per-token rates. Run end to end instead, same model, same 1080-token prompt,
+`-n 200`, wall clock including load:
+
+```
+--auto     prefill 1080 in 10.2s (106.04 tok/s)   generated 200 in 101.7s (1.97 tok/s)   total 117.0s
+CPU only   prefill 1080 in 14.6s ( 73.78 tok/s)   generated 200 in  37.1s (5.39 tok/s)   total  54.6s
+```
+
+**2.14x slower, not 41%.**
+
+**Why the projection was optimistic, which is the transferable part.** The
+ladder measured generation over **32** tokens; this is 200. Both rates fall as
+the context grows — 6.39 → 5.39 on the CPU — but the device path falls further,
+2.92 → 1.97, so the ratio worsens from 2.19x to 2.74x. **A per-token rate
+measured over 32 tokens is not a constant**, and multiplying it by 200 quietly
+assumes it is. The ladder is right about the shape and about which side wins; it
+is not a calculator for a longer run.
 
 **Not fixed here, deliberately, and the second model is why.** The break-even
 moved from 33:1 to 14:1 between two models on the *same* card, so a constant is

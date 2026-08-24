@@ -14,6 +14,71 @@ to v0.0.18 through the app's own updater, uninstalled clean, and
 page works in the installed build -- ALONE and CORE both persist, worst
 blocking call 16.7 ms.
 
+## The three roadmap items that are still open, answered plainly (2026-08-25)
+
+Atur asked for the remaining items *"like 20 token"* not to be forgotten. They
+are not. Two of them are open work; **one is closed by measurement and cannot be
+delivered on this machine at any effort.**
+
+### 1. V4-Flash at 20 tok/s — closed, with numbers, from both sides
+
+`v4flash-ram-frontier-2026-08-16.md` is `status: resolved`, and this is why:
+
+```
+a token = 1.56 s of expert reads + 0.84 s that never touches the disk
+20 tok/s = a token in 50 ms
+```
+
+**The 0.84 s is arithmetic, not I/O.** With *infinite* RAM and *zero* disk —
+every expert resident — this engine on this CPU tops out at **1.19 tok/s**. The
+fixed cost alone is **17x** over a 50 ms budget. `-t 2/4/8/16` confirms it is a
+floor rather than a knob left wrong.
+
+Separately, 20 tok/s needs **67.7 GB/s** sustained to the expert weights, which
+is a GPU-memory specification rather than a RAM purchase.
+
+**So the honest position: buying enough RAM to hold all 144 GB is worth 2.9x,
+not 48x.** The measured frontier is 16 GB → 0.42 (measured), 64 GB → 0.55,
+128 GB → 0.93, 160 GB → 1.19. Nothing in the code closes a 17x gap in fixed
+arithmetic, and **every idea that might have has been measured and failed**:
+expert factorisation, contextual sparsity, a pinned hot set, expert-read/compute
+overlap (1.03x), `--op-offload` (19% slower), `mul_mat_id` batching on the
+streaming path, and porting parallel-experts (V4-Flash's routed arithmetic is
+under 5% of a token).
+
+**This item needs a different machine, and `backlog/bigger-machine-prompt.md` is
+written and ready for one.** Reporting anything else as progress would need a
+measurement, and there is none to have here.
+
+### 6. Devices as resources — half done, and the half that is done is the hard half
+
+`chaos-worker` exists, speaks the protocol, and is measured: a request is 8268
+bytes and an answer 49172, which is **38x in favour of sending the work to the
+weights** rather than the weights to the work. `network/worker` has 9 tests.
+
+**What is not built is a CORE that routes an expert to a HELPER** — the token
+loop still runs every expert locally. The CHAOS page reserves the role and says
+so rather than implying otherwise.
+
+Worth restating because it bounds the ambition: four machines get **single-digit
+tok/s** on V4-Flash, not 20. The arithmetic is in
+`backlog/devices-as-resources.md`.
+
+### 7. Genuinely better than llama.cpp — parity, and a claim needs its command line
+
+Measured 2026-08-16 with both engines alternating in one session: **parity on
+everything that streams** — V4-Flash prefill 1640 against 1679 ms/prompt token,
+generation 0.394 against 0.39; Qwen3-30B parity on both phases. Behind
+**1.20–1.27x** on the dense path when both sides are hand-tuned; ahead **1.23x**
+out of the box, because Chaos measures the machine and llama.cpp uses a fixed
+default.
+
+**The ranges overlap, so this is not a lead.** A competitive claim is not
+citable until the competitor's exact command line and output are in a doc, from
+repeats, alternating in one session — and today's `-ngl` ladder is a reminder of
+why: a rate measured over 32 tokens is not a constant, and extrapolating one was
+wrong by 1.5x within this very session.
+
 ## The CHAOS page, and why a phone could never reach the desktop (2026-08-24)
 
 **878 tests.** Atur: *"when i try connect desktop nothing happen"*. Nothing was

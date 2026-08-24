@@ -207,9 +207,15 @@ denoiser's 5.26 GiB, twice when guidance is on, so the box under the controls
 carries the same progress `chaos-draw` prints in a terminal — the step, the
 seconds per step, and the time left. **STOP** ends it.
 
-> **Colour and scene follow the prompt; an object's form may not.** Structured,
-> JSON-shaped prompts condition about three times as strongly as a bare phrase,
-> which is what these models were trained on.
+> **Colour and scene follow the prompt; an object's form may not.**
+>
+> **Describe the picture, do not just name it.** "A single red apple on a white
+> table, soft even studio lighting from above, gentle shadow beneath it, plain
+> white backdrop" moves the denoiser **11.3x** as far as "a red apple", measured
+> over eight latents. The JSON shape everybody repeats is *not* what does it: a
+> bare phrase wrapped in an empty structured frame measures **0.9x** — no better
+> than the phrase alone. It is the sentences, not the braces.
+> `research/prompt-shape-does-nothing-2026-08-24.md`.
 
 It needs four files, 16.7 GB together: `ideogram-4`, `ideogram-4-uncond`,
 `qwen3-vl-8b` and `flux2-vae`, all on the AVAILABLE tab. Until they are there

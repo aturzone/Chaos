@@ -43,6 +43,12 @@ pub mod dit;
 pub mod flow;
 pub mod pipeline;
 pub mod png;
+/// The template Ideogram 4 was conditioned on, for a user to fill in.
+///
+/// **The empty frame does nothing** -- measured at 0.9x against a bare phrase,
+/// over eight latents. What earns the 11.3x is the sentences written into it.
+/// `research/prompt-shape-does-nothing-2026-08-24.md`.
+pub mod prompt;
 pub mod rope3d;
 pub mod safetensors;
 pub mod text;

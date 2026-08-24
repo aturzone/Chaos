@@ -108,6 +108,25 @@ fn main() {
                 list = true;
                 i += 1;
             }
+            // **Printed for a person to fill in, not applied to their prompt.**
+            // The empty frame conditions no better than the phrase it wraps
+            // (0.9x over eight latents); what earns the 11.3x is the sentences
+            // written into it. A flag that silently wrapped a prompt would look
+            // like it helped and would not.
+            "--template" => {
+                let phrase = args.get(i + 1).filter(|v| !v.starts_with('-'));
+                println!(
+                    "{}",
+                    chaos_image::prompt::structure(
+                        phrase.map(String::as_str).unwrap_or("what you want to see")
+                    )
+                );
+                eprintln!();
+                eprintln!("Fill in aesthetics, lighting, background, layout and the palette.");
+                eprintln!("The empty frame is worth nothing -- measured at 0.9x against a bare");
+                eprintln!("phrase over eight latents. The sentences are worth 11.3x.");
+                return;
+            }
             "--keep-latent" => {
                 // A path is optional: the common case is "keep it", and making
                 // somebody invent a filename for that is friction on the one
@@ -409,6 +428,7 @@ fn usage() {
     println!("  --from-latent FILE    decode a kept latent and write the PNG -- nothing else runs");
     println!("  -m, --model N  which image model, by name (default: the first ready one)");
     println!("  --list-models  what is installed, and what each one is missing");
+    println!("  --template [P] print the description frame for you to fill in");
     println!("  --version");
     println!();
     println!("  grid 16 -> 256x256, 256 tokens      quick, and flat");
@@ -421,6 +441,9 @@ fn usage() {
     println!("The autoencoder is verified to 36-41 dB and the text encoder is diffed");
     println!("against a reference. What is still imperfect is OBJECT FORM: colour and");
     println!("scene follow the prompt, a named object may come out the wrong shape.");
-    println!("Structured, JSON-shaped prompts condition about 3x more strongly than a");
-    println!("bare phrase -- that is what these models were trained on.");
+    println!();
+    println!("DESCRIBE THE PICTURE, do not just name it. Lighting, background and a");
+    println!("colour palette move the denoiser 11.3x as far as a bare phrase, measured");
+    println!("over eight latents. The JSON shape is NOT what does it -- a phrase wrapped");
+    println!("in an empty structured frame measures 0.9x, no better than the phrase.");
 }

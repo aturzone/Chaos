@@ -1,0 +1,42 @@
+# A machine that holds expert weights and answers with activations.
+#
+# **The whole design rests on one number**: a hidden state is 16 KB and a
+# token's expert weights are 3.3 GB. So the work goes to the weights, never the
+# weights to the work -- see `docs/graph/backlog/devices-as-resources.md`, where
+# the arithmetic is done before the code, because the obvious version of this
+# idea loses.
+#
+# It is `chaos-run` without a token loop: load an assigned slice of the experts,
+# wait for a hidden state, return one. The main device keeps routing, sampling
+# and the KV cache, so a worker is stateless per token and one that dies is a
+# slowdown rather than a corruption.
+[package]
+name = "chaos-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "A Chaos worker: holds expert weights in RAM, answers with activations."
+
+[dependencies]
+# The arithmetic. A worker computes the same expert FFN the local path does,
+# with the same kernels -- anything else would be a second implementation to
+# keep in step, on the one path where being wrong is silent.
+chaos-ggml = { path = "../../core/ggml" }
+chaos-gguf = { path = "../../core/gguf" }
+chaos-model = { path = "../../core/model" }
+chaos-probe = { path = "../../core/probe" }
+
+[build-dependencies]
+chaos-build = { path = "../../core/build" }
+
+[lib]
+name = "chaos_worker"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chaos-worker"
+path = "src/bin/chaos-worker.rs"

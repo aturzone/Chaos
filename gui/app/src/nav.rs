@@ -78,6 +78,11 @@ impl Page {
             // this does not, because `chaos-draw` opens its own four files and
             // closes them again. Surprising and undocumented is a bug;
             // surprising and stated is a design.
+            //
+            // These two are the fallback now: `paint_header` replaces them
+            // with what the page can do *at this moment* -- which model is
+            // loaded, how many image models are installed -- because whether
+            // the thing in front of you will work is the actual question.
             Page::Image => "Draws with its own four models -- nothing needs to be loaded first.",
             Page::Monitor => "What the machine is doing while a model runs.",
             Page::Settings => "Every setting Chaos keeps. Empty means measured.",

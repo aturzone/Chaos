@@ -13,7 +13,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/badge/version-0.0.6-orange"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-854%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-871%20passing-brightgreen">
 </p>
 
 ---
@@ -106,8 +106,12 @@ and the FLUX.2 autoencoder turns it into pixels.
 > autoencoder round-trips real photographs at **36.09–40.89 dB** (with the check
 > ablated three ways first — each deliberate bug still produced a recognisable
 > image), the text encoder answers `" Paris"` at logit 22.58, and the denoiser
-> scores **0.85 velocity cosine** against a real latent. Structured, JSON-shaped
-> prompts condition about three times as strongly as a bare phrase.
+> scores **0.85 velocity cosine** against a real latent.
+>
+> **Describe the picture, do not just name it.** Lighting, background and a
+> colour palette move the denoiser **11.3x** as far as a bare phrase, over
+> eight latents. The JSON shape is not what does it — a phrase wrapped in an
+> empty structured frame measures **0.9x**, which is nothing.
 
 **`chaos-serve` gives you a window as well as a socket.** Open its address in a
 browser and you get a chat interface; point a coding agent at

@@ -36,14 +36,28 @@ always broken"*. The pictures were correct, inverted, and identical.
       *installed* image models, the way MODELS lists text models, with the four
       roles named (denoiser, unconditional twin, text encoder, autoencoder) so
       a missing one is a sentence rather than a failure at step three.
-- [ ] **Quality below 1024.** 256 and 512 are visibly worse than a linear
-      reading of the size ladder suggests. Measure the velocity cosine at each
-      grid before blaming the sampler — this is the instrument that already
-      found the flip.
-- [ ] **Prompt adherence.** "A photo of a Russian girl in a bikini" produced a
-      woman in a business jacket. Colour and scene follow; object form and
-      clothing do not. Structured JSON-shaped prompts condition ~3x more
-      strongly — the page should offer that shape rather than documenting it.
+- [x] **Quality below 1024 — measured, and it is the model.** The velocity
+      cosine at light noise runs 0.858 / 0.898 / 0.918 / 0.934 / 0.941 across
+      grids 16, 24, 32, 40, 48 — monotonic, and 2.4x worse in error terms at 16
+      than at 48, before a single sampler step. **Do not go looking for a
+      sampler bug**; that was the obvious next move and this removes it. The
+      size labels now say what was measured.
+      `research/small-images-are-the-model-2026-08-24.md`.
+- [ ] **More steps at small grids**, which is the one lever left this side of
+      the model: if each step's direction is 2.4x worse, more of them may
+      partly compensate. Untried. The app defaults to 20 regardless of size.
+- [x] **Prompt adherence — measured, and the advice was aimed at the wrong
+      thing.** The plan said to offer the JSON shape rather than document it. A
+      button that did exactly that was written, measured, and **not shipped**:
+      over eight latents an empty structured frame conditions at **0.9x** against
+      a bare phrase, which is nothing. What earns **11.3x** is the sentences —
+      lighting, background, layout, a palette. The published "3x" claim came
+      from one latent and was wrong in both directions; it is corrected in the
+      README, `APP.md`, `chaos-draw --help` and the source node.
+      `research/prompt-shape-does-nothing-2026-08-24.md`.
+- [ ] **Object form**, which is the part of adherence that remains: a named
+      object may still come out the wrong shape even when colour and scene
+      follow. No instrument for it yet.
 - [x] **`--keep-latent`.** Done, and on by default from the window. A 128x128 draw took 21 s; `--from-latent` re-decoded it in **0.7 s** to a byte-identical PNG. Six hours of correct denoising was thrown away
       because the PNG was written and the latent discarded. A latent is a few MB;
       keeping it means a re-decode is seconds instead of a night.
@@ -80,9 +94,11 @@ installed models load with lag and make problem"*.
       never appeared on INSTALLED either: downloaded, and invisible in both
       lists. AVAILABLE now marks what is on disk. Whether that was his
       complaint is unknown; **ask before assuming it is closed.**
-- [ ] **CHAT and IMAGE follow the model.** His design instinct was right: the
-      app should present what the *selected* model can do, rather than two pages
-      with different rules about whether anything needs loading.
+- [x] **CHAT and IMAGE follow the model.** Both page headers now say what the
+      page can do *at this moment* — which model is loaded, how many image
+      models are installed, and what to do if the answer is none — instead of a
+      fixed sentence describing the page in general. Whether the thing in front
+      of you will work is the question, and it has a specific answer.
 
 ## Part 3 — The logo, everywhere, correctly
 
@@ -144,6 +160,14 @@ CI, installs on a real phone, opens, and does what the notes say it does.
   building it, not after.
 - Order: `chaos-worker` on loopback → expert routing with local fallback →
   **measure and stop** → discovery → tensor-parallel only if the numbers earn it.
+
+**Step one is done and the measurement is in**:
+`research/worker-protocol-measured-2026-08-24.md`. A token's expert-parallel
+traffic is **4.94 MB**, 39.5 ms of 1 GbE plus **36.0 ms of measured protocol
+cost**, replacing **1560 ms** of disk. Activations over a real socket are
+**bit-identical** to the local path. The stop is here: the next number is a LAN
+round trip on two machines, and nothing should be wired into the forward pass
+until somebody has it.
 
 ## Part 6 — R6, self-configuration — **done**
 

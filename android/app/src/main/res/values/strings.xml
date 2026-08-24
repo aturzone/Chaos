@@ -4,9 +4,17 @@
     <string name="connect">CONNECT</string>
     <string name="send">SEND</string>
     <string name="not_connected">not connected</string>
-    <!-- The port chaos-serve prints, and a plausible LAN address, so the first
-         thing a user has to change is one number rather than a whole URL. -->
-    <string name="hint_address">http://192.168.1.10:8080</string>
+    <!-- **8231, which is what the desktop actually serves on.** This said 8080
+         for two releases: chaos-serve's own default, but not the port the
+         window uses, so the placeholder told a user the wrong number for the
+         one thing it exists to help them get right. -->
+    <string name="hint_address">http://192.168.1.10:8231</string>
     <string name="hint_key">API key</string>
     <string name="hint_message">Ask something</string>
+
+    <!-- The CHAOS section. Atur asked for a page that says what each device is
+         to the others; on a phone that is a heading and two sentences, not a
+         separate screen, because a phone screen is one column. -->
+    <string name="chaos_title">CHAOS — THIS PHONE IS A CLIENT</string>
+    <string name="chaos_note">A CLIENT uses a CORE elsewhere and loads nothing itself. On the desktop, open CHAOS and press CORE, then type the address and key it shows here.\n\nThis phone cannot be a CORE yet — running a model needs Chaos built for Android, which is not done. HELPER is not finished on any device: chaos-worker speaks the protocol but no CORE routes work to it.\n\nCache, threads and device settings are missing here on purpose: they decide how a model RUNS, so they belong to whichever machine runs it.</string>
 </resources>

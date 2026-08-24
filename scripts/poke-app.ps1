@@ -43,6 +43,15 @@ public static class Poke {
     // about a window plainly on screen. IntPtr.Zero is the real NULL.
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
     public static extern IntPtr FindWindowW(string cls, IntPtr title);
+
+    // **A modal dialog makes every SendMessageW below block for ever.**
+    // `#32770` is the class Windows gives a MessageBox. While one is up the
+    // app's message loop is inside it, a sent message is never handled, and a
+    // poke looks exactly like a hang. LOAD on a half-downloaded model puts one
+    // up; this script sat on it for ten minutes before anybody asked what the
+    // process was doing. It was `Responding=True` the whole time, and right.
+    [DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowByTitle(string cls, string title);
     [DllImport("user32.dll")]
     public static extern IntPtr GetDlgItem(IntPtr hwnd, int id);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
@@ -185,6 +194,19 @@ if ($Ids.Count -eq 0) {
 
 $worst = 0.0
 for ($r = 1; $r -le $Repeat; $r++) {
+    # Checked before the first send, and again between sends: a click can put a
+    # dialog up, and the next click would then wait on it rather than fail.
+    function Assert-NoModal {
+        $dlg = [Poke]::FindWindowByTitle('#32770', 'Chaos')
+        if ($dlg -ne [IntPtr]::Zero) {
+            Write-Host ''
+            Write-Host '  A DIALOG IS OPEN. Every send would block on it for ever.' -ForegroundColor Yellow
+            Write-Host '  Dismiss it and run again -- the app is not hung, it is asking.' -ForegroundColor Yellow
+            exit 2
+        }
+    }
+
+    Assert-NoModal
     foreach ($id in $Ids) {
         $c = [Poke]::GetDlgItem($hwnd, $id)
         if ($c -eq [IntPtr]::Zero) {
@@ -195,6 +217,7 @@ for ($r = 1; $r -le $Repeat; $r++) {
         $wp = [IntPtr](($BN_CLICKED -shl 16) -bor ($id -band 0xFFFF))
         # Synchronous on purpose: what this measures is the UI thread's stall.
         $t = Measure-Command { [Poke]::SendMessageW($hwnd, $WM_COMMAND, $wp, $c) | Out-Null }
+        Assert-NoModal
         $ms = $t.TotalMilliseconds
         if ($ms -gt $worst) { $worst = $ms }
         $flag = if ($ms -gt 200) { '  <-- STALL' } else { '' }

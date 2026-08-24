@@ -8,6 +8,56 @@ right, so fix this file.
 **Last updated**: 2026-08-24 · **Version**: **v0.0.17**, published
 2026-08-24 · **Branch**: `main`, verified.
 
+## The CHAOS page, and why a phone could never reach the desktop (2026-08-24)
+
+**878 tests.** Atur: *"when i try connect desktop nothing happen"*. Nothing was
+broken. **Nothing was listening anywhere a phone could reach.**
+
+`chaos-serve` binds `127.0.0.1` unless told otherwise, and the window passed
+`--port` and never `--host`. Every server this app has ever started could answer
+only the machine it ran on. The Android testing on 2026-08-24 missed it because
+`chaos-serve --host 0.0.0.0 --api-key` was run **by hand** -- a configuration
+the app cannot produce.
+
+The **CHAOS page** is where that choice now lives, because the choice is what
+this machine *is* to the others:
+
+```
+ALONE    only this machine; 127.0.0.1, no route in
+CORE     holds the models and answers; 0.0.0.0, others connect here
+HELPER   lends its memory and cores to a CORE
+CLIENT   uses a CORE elsewhere, loads nothing here
+```
+
+CORE **generates** an api key rather than demanding one: `chaos-serve` refuses
+`0.0.0.0` without a key and is right to, but refusing is the wrong thing to do
+to somebody who has just pressed CORE. Address and key each have COPY, because
+they are typed into a phone once.
+
+**Measured end to end**, `chaos-serve` with the arguments the page produces:
+
+```
+TCP 0.0.0.0:8231 LISTENING
+GET  /v1/models  no key                 -> 401
+GET  /v1/models  with the key           -> the model list
+POST /v1/chat/completions over the LAN  -> a real answer
+```
+
+Every page and every role driven through the real window:
+**worst blocking call 20.1 ms.**
+
+**HELPER says out loud that it is not finished.** `chaos-worker` speaks the
+protocol and is measured, but a CORE does not route any expert to it yet, so
+the role is reserved and does no work.
+
+**Two instruments learned something.** `SHELL_CONTROLS` already carried a
+comment saying IMAGE had once been built, laid out and never shown because its
+rail button was missing from that list -- and CHAOS was added exactly the same
+way. There is now a test: every page's rail button must be shell chrome. And
+`poke-app.ps1` sat on a modal dialog for ten minutes looking like a hang; the
+app was `Responding=True` and correct the whole time, refusing to load a
+half-downloaded model. It now detects `#32770` and says so instead.
+
 ## After v0.0.17 — the `-ngl` ladder, and `--auto` picks wrong (2026-08-24)
 
 **873 tests.** The measurement `ngl-partial-offload-2026-08-16.md` listed as
@@ -483,7 +533,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **873 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
+**Current**: **878 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by

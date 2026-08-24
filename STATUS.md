@@ -5,8 +5,8 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-24 · **Version**: **v0.0.17**, published
-2026-08-24 · **Branch**: `main`, verified.
+**Last updated**: 2026-08-24 · **Version**: **v0.0.18**, being cut from `main`
+· previous release **v0.0.17**, published 2026-08-24.
 
 ## The CHAOS page, and why a phone could never reach the desktop (2026-08-24)
 

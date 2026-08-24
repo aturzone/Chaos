@@ -5,8 +5,14 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-24 · **Version**: **v0.0.18**, being cut from `main`
-· previous release **v0.0.17**, published 2026-08-24.
+**Last updated**: 2026-08-24 · **Version**: **v0.0.18**, published
+2026-08-24 · **Branch**: `main`, verified.
+
+**v0.0.18 verified from its own published files**: v0.0.17 installed, updated
+to v0.0.18 through the app's own updater, uninstalled clean, and
+`~/.chaos/models` identical at 18 files and 120,933,521,300 bytes. The CHAOS
+page works in the installed build -- ALONE and CORE both persist, worst
+blocking call 16.7 ms.
 
 ## The CHAOS page, and why a phone could never reach the desktop (2026-08-24)
 

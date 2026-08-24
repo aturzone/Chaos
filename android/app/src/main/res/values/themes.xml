@@ -5,7 +5,7 @@
   already requires.
 -->
 <resources>
-    <style name="ChaosTheme" parent="@android:style/Theme.Material">
+    <style name="ChaosTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:colorBackground">@color/bg</item>
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:textColorPrimary">@color/fg</item>

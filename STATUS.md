@@ -12,6 +12,43 @@ right, so fix this file.
 
 **871 tests.** On `ticket/r74-worker-and-measurements`, not yet released.
 
+### The Android app runs, and running it found four defects
+
+**2026-08-24, on an Android 34 emulator**, against a real `chaos-serve` on the
+host with `--host 0.0.0.0 --api-key`:
+
+> **The capital of France is \*\*Paris\*\*.**
+
+The project's own correctness prompt, answered on a phone through this client.
+`chaos-serve` logged `GET /v1/models -> 200` and `POST /v1/chat/completions ->
+200 (stream)`.
+
+**Every one of these was invisible until it was on a screen**:
+
+| what running it showed | cause |
+|---|---|
+| "Chaos" twice, stacked | the theme's ActionBar plus the layout's own heading |
+| the key field read "API key (required" | CONNECT sits beside it; the hint did not fit |
+| a bare `<think>`/`</think>` around the reply | **the tags arrive split across streamed pieces** — Qwen3 emits `<`, `think`, `>` as three tokens — so per-piece filtering sees none of them |
+| the address and key were lost | saved in `onPause`, which **never runs when the process is killed** rather than paused |
+
+`ThinkFilter` fixes the third and has nine unit tests, including that the result
+does not depend on how the stream was chunked and that an *unterminated* block
+is released rather than swallowed. CI runs them.
+
+**How the toolchain was got.** `dl.google.com` still 404s everything, including
+through Atur's proxy and against the exact URL `developer.android.com` links to.
+But the proxy reached that page, which gave the real filenames, and public
+mirrors carry the rest: Tencent for the SDK components, Aliyun for Google's
+Maven, `corretto.aws` and `services.gradle.org` directly. **Every SDK component
+was verified against Google's own SHA-1** from the repository manifest.
+
+**The mirrors are not in the repository** — `settings.gradle.kts` still names
+`google()` and `mavenCentral()`, and the redirection is a local init script.
+**CI builds the shipped APK, from Google's own repositories.**
+
+Still not run on real hardware. That is Atur's phone.
+
 ### `chaos-worker` — target 6's first step, measured and stopped
 
 A machine that holds expert weights in RAM and answers with activations.

@@ -7,6 +7,6 @@
     <!-- The port chaos-serve prints, and a plausible LAN address, so the first
          thing a user has to change is one number rather than a whole URL. -->
     <string name="hint_address">http://192.168.1.10:8080</string>
-    <string name="hint_key">API key (required off loopback)</string>
+    <string name="hint_key">API key</string>
     <string name="hint_message">Ask something</string>
 </resources>

@@ -86,8 +86,22 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        // Saved on the way out rather than on every keystroke: it is two
-        // strings, and nobody should have to press a save button for them.
+        remember()
+    }
+
+    /**
+     * Keep the address and key.
+     *
+     * **Not only in `onPause`.** That was the first version, and it loses them
+     * whenever the process is *killed* rather than paused — swiped away from
+     * recents, or reclaimed by the system, both of which skip `onPause`
+     * entirely. Found by force-stopping the app on an emulator and watching the
+     * server address revert to the placeholder.
+     *
+     * So it is saved on CONNECT as well, which is the moment the values are
+     * known to be the ones the user meant.
+     */
+    private fun remember() {
         getSharedPreferences("chaos", Context.MODE_PRIVATE).edit()
             .putString("address", address.text.toString().trim())
             .putString("key", key.text.toString().trim())
@@ -106,6 +120,8 @@ class MainActivity : Activity() {
      */
     private fun testConnection() {
         val c = client()
+        // Saved here, not only on the way out: see `remember`.
+        remember()
         setStatus("connecting...")
         connect.isEnabled = false
         Thread {
@@ -146,20 +162,39 @@ class MainActivity : Activity() {
         val c = client()
         val messages = history.toList()
         val reply = StringBuilder()
+        // **A reasoning model's scratch work is not the answer.** Run against
+        // Qwen3.5 this page showed a bare `<think>` and `</think>` around an
+        // empty line before the reply. The tags arrive split across pieces, so
+        // they cannot be filtered one piece at a time -- see `ThinkFilter`.
+        val think = ThinkFilter()
         Thread {
             val result = runCatching {
                 c.chat(messages) { piece ->
                     reply.append(piece)
+                    val visible = think.accept(piece)
+                    val busy = think.thinking
                     // **Posted, not written directly.** `onToken` runs on this
                     // thread, and touching a view from it is the crash that
                     // does not reproduce on a fast phone.
-                    ui.post { append(piece) }
+                    ui.post {
+                        if (visible.isNotEmpty()) append(visible)
+                        if (busy) setStatus("thinking...")
+                    }
                 }
             }
             ui.post {
                 busy = false
                 send.isEnabled = true
+                // Anything the filter was still holding back -- a trailing `<`,
+                // or an unterminated block, which is released rather than eaten
+                // so a truncated stream does not look like an empty answer.
+                val rest = think.flush()
+                if (rest.isNotEmpty()) append(rest)
                 result.onSuccess {
+                    // **The scratch work is kept in the history**, though it is
+                    // not shown: it is what the model said, and dropping it
+                    // would make the next turn's context differ from what the
+                    // server has.
                     history += ChaosClient.Message("assistant", reply.toString())
                     setStatus("ready")
                 }.onFailure { e ->

@@ -23,8 +23,8 @@ android {
 
         // Kept in step with the Rust workspace by CI, which passes the release
         // tag in. The value here is what a local `gradlew assemble` produces.
-        versionCode = 18
-        versionName = "0.0.18"
+        versionCode = 19
+        versionName = "0.0.19"
     }
 
     buildTypes {

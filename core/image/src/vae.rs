@@ -665,6 +665,65 @@ pub fn decode_planned(
     Ok((out.to_vec_f32(), galloc.buffer_bytes()))
 }
 
+/// Bytes a **planned** encode needs for a `w * h` input.
+///
+/// The encoder's first block works at full input resolution, so the unplanned
+/// graph costs about the same per pixel as the decoder's did — measured at
+/// roughly 48 KiB per input pixel, which is **51 GiB at 1024x1024** and aborts
+/// the process. Planned, it is the same order as the decode.
+pub fn encode_planned_bytes(w: usize, h: usize) -> usize {
+    (64 << 20) + w * h * 3400
+}
+
+/// Encode an image to its latent mean with the graph **planned**.
+///
+/// # Why this exists
+///
+/// The mirror of [`decode_planned`], and for the same reason. A `Context`'s
+/// arena allocates every tensor in a graph and frees none of them, so an
+/// unplanned encode asks for about **48 KiB per input pixel**: 12.9 GiB at
+/// 512x512, 29 GiB at 768x768 and **51 GiB at 1024x1024**, where ggml aborts
+/// with `GGML_ASSERT(ctx->mem_buffer != NULL)` and takes the process with it.
+///
+/// That ceiling is what stopped `examples/velocity-by-grid` measuring the
+/// denoiser at 1024 — an arena limit standing in for a model limit, which is
+/// the worst kind of missing datum because it looks like a result.
+///
+/// `ggml_gallocr` hands the same buffer to tensors whose lifetimes do not
+/// overlap. On the decoder that was measured at **81x smaller and
+/// bit-identical**; `tests/vae_roundtrip.rs` is what says the same of this.
+///
+/// **The input is written after `alloc`, never before**, because it has no
+/// storage until then. That ordering is the part that bites, and it is why this
+/// takes the pixels rather than a tensor.
+///
+/// Returns the `[w/8, h/8, 32, 1]` latent mean and the bytes the plan needed.
+pub fn encode_planned(
+    st: &SafeTensors,
+    file: &[u8],
+    rgb: &[f32],
+    w: i64,
+    h: i64,
+    threads: usize,
+) -> Result<(Vec<f32>, usize), Error> {
+    // The weights need real storage; the graph must not have any of its own.
+    let wctx = Context::new(768 << 20)?;
+    let ctx = Context::new_no_alloc(256 << 20)?;
+    let v = Vae::split(st, file, &ctx, &wctx);
+    let img = ctx.new_f32_4d(w, h, 3, 1)?;
+    let moments = v.encode(&img)?;
+    let mean = v.latent_mean(&moments)?;
+
+    let galloc = chaos_ggml::GraphAllocator::for_cpu()?;
+    galloc.reserve(&ctx, &[&mean])?;
+    galloc.alloc(&ctx, &[&mean])?;
+
+    // After `alloc`. See above.
+    img.set_f32(rgb)?;
+    ctx.compute(&mean, threads)?;
+    Ok((mean.to_vec_f32(), galloc.buffer_bytes()))
+}
+
 /// The latent normalisation the file carries beside the autoencoder.
 ///
 /// FLUX.2 keeps a BatchNorm's running statistics — `bn.running_mean` and

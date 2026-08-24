@@ -43,9 +43,17 @@ always broken"*. The pictures were correct, inverted, and identical.
       sampler bug**; that was the obvious next move and this removes it. The
       size labels now say what was measured.
       `research/small-images-are-the-model-2026-08-24.md`.
-- [ ] **More steps at small grids**, which is the one lever left this side of
-      the model: if each step's direction is 2.4x worse, more of them may
-      partly compensate. Untried. The app defaults to 20 regardless of size.
+- [x] **More steps at small grids — measured, and it is not a lever.** Two
+      instruments. Reconstruction error is **flat** across 4 to 50 steps
+      (0.3683 to 0.3770) while 50 costs **17x** the time. Generation is the
+      opposite: step count changes the picture substantially (4 against 20 is
+      cos 0.7447) and **never converges** — every adjacent pair sits at ~0.90
+      wherever you are on the ladder, so no step count is "correct".
+      **The default was not changed**, because the numbers say the pictures
+      differ without saying which is better, and that is aesthetic. Four
+      renders at 4/8/20/50 are in `~/.chaos/images/step-comparison/` for Atur
+      to look at — **if 4 steps is acceptable, 256x256 gets five times
+      faster.** `research/step-count-never-settles-2026-08-24.md`.
 - [x] **Prompt adherence — measured, and the advice was aimed at the wrong
       thing.** The plan said to offer the JSON shape rather than document it. A
       button that did exactly that was written, measured, and **not shipped**:

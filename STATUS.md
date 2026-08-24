@@ -6,7 +6,82 @@ closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
 **Last updated**: 2026-08-24 · **Version**: **v0.0.16**, published
-2026-08-24 · **Branch**: `main` · **Open PRs**: none.
+2026-08-24 · **Branch**: `ticket/r74-worker-and-measurements` ahead of `main`.
+
+## After v0.0.16 — a worker, and two measurements that changed the advice (2026-08-24)
+
+**871 tests.** On `ticket/r74-worker-and-measurements`, not yet released.
+
+### `chaos-worker` — target 6's first step, measured and stopped
+
+A machine that holds expert weights in RAM and answers with activations.
+`chaos-run` without a token loop. The plan's own order was protocol, then a
+worker that computes, then **measure and stop**; this is all three.
+
+```
+request             8268 bytes      scaled to a V4-Flash token:
+answer             49172 bytes        on the wire     4.94 MB
+round trip         0.838 ms           transmission    39.5 ms  (1 GbE, arithmetic)
+                                      protocol cost   36.0 ms  (measured)
+                                      replaces      1560.0 ms  of local disk
+```
+
+**≈76 ms to replace 1560 ms.** The design holds. Activations over a real TCP
+socket are **bit-identical** to the local path.
+
+Three things it does not say: loopback is not a network (a real LAN adds a
+round trip 43 times per token); "if the experts are resident" is the whole
+condition; and the ceiling has not moved — 0.84 s of every token never touches
+disk, so full residency across machines still lands near 1.19 tok/s. **Four
+machines get single-digit tok/s, not 20**, and `--help` says so, along with
+**"NOTHING CONNECTS TO THIS YET"**.
+
+The differential test found a real bug on the way: `WeightSet::bind` collapses
+every dimension past the first, so a stack bound `[n_embd, n_ff, n_held]`
+arrives `[n_embd, n_ff * n_held]` and **ggml aborted the whole test binary** two
+ops later with no Rust frame.
+
+### Small images are worse because the denoiser is
+
+| size | grid | cos σ=0.25 |
+|---|---|---|
+| 256 | 16 | **0.8584** |
+| 384 | 24 | 0.8976 |
+| 512 | 32 | 0.9185 |
+| 640 | 40 | 0.9335 |
+| 768 | 48 | **0.9408** |
+
+Monotonic. In error terms the direction is **2.4x worse at grid 16 than at grid
+48**, before a single sampler step. **So there is no sampler bug to find** —
+that was the obvious next move and the measurement removes it. The size labels
+say what was measured now.
+
+*(1024 could not be measured: `vae::encode` is unplanned at ~48 KiB per input
+pixel, so it asks for 51 GiB. An `encode_planned` mirroring `decode_planned` —
+81x smaller, bit-identical — would lift it.)*
+
+### The JSON prompt shape does nothing; it is the sentences
+
+Chaos said in four places that structured JSON prompts condition **3x** more
+strongly. That was **one latent**, and the effect varies by a factor of nineteen
+between latents. Over eight:
+
+| prompt style | mean effect | vs bare |
+|---|---|---|
+| bare phrase | 0.39% | 1.0x |
+| **wrapped in an empty structured frame** | 0.36% | **0.9x** |
+| written out by hand | 4.40% | **11.3x** |
+
+Wrong in both directions: the real effect is **11.3x**, and **the shape itself
+contributes nothing**. A button that wrapped a prompt was written, measured, and
+**not shipped** — it would have looked like it helped and would not. The README,
+`APP.md`, `chaos-draw --help` and the app's own note now say *describe the
+picture, do not just name it*.
+
+That is the third one-sample measurement in this project to say something
+confident and wrong.
+
+---
 
 ## v0.0.16 — the six things Atur asked for, measured (2026-08-24)
 

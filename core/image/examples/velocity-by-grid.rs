@@ -40,17 +40,16 @@
 //! **This is slow and says so before it starts**: a forward pass costs roughly
 //! 0.057 s per image token, so 768x768 is about two minutes for one sigma.
 //!
-//! # 1024 cannot be measured on this machine, and not because of the denoiser
+//! # 1024 used to be out of reach, and it was the arena rather than the model
 //!
 //! `vae::encode` builds an **unplanned** graph — every tensor allocated, none
-//! freed — at about 48 KiB per input pixel. A 1024x1024 encode therefore asks
-//! for **51 GiB** and ggml aborts with `GGML_ASSERT(ctx->mem_buffer != NULL)`.
-//! 768 works, at 29 GiB of virtual arena; 1024 does not.
+//! freed — at about 48 KiB per input pixel, so a 1024x1024 encode asks for
+//! **51 GiB** and ggml aborts with `GGML_ASSERT(ctx->mem_buffer != NULL)`. This
+//! sweep stopped at 768 for that reason, and an arena limit standing in for a
+//! model limit is the worst kind of missing datum: it looks like a result.
 //!
-//! `vae::decode_planned` already solves exactly this for the other direction —
-//! `ggml_gallocr` reuses buffers whose lifetimes do not overlap, measured 81x
-//! smaller and bit-identical. An `encode_planned` mirroring it would lift this,
-//! and is also what img2img at large sizes needs. It is not written.
+//! `vae::encode_planned` fixes it, mirroring `decode_planned`: **1.51 GiB at
+//! 1024 instead of 48.5, and bit-identical** at every size where both can run.
 
 use chaos_image::pipeline::Noise;
 use chaos_image::{dit, flow, safetensors::SafeTensors, vae};
@@ -101,9 +100,7 @@ fn main() {
     let sizes: Vec<usize> = {
         let v: Vec<usize> = args.iter().filter_map(|s| s.parse().ok()).collect();
         if v.is_empty() {
-            // Not 1024: the *encoder* cannot build a graph that large here.
-            // See the note at the top -- it is an arena limit, not a model one.
-            vec![256, 384, 512, 640, 768]
+            vec![256, 384, 512, 640, 768, 1024]
         } else {
             v
         }
@@ -134,12 +131,7 @@ fn main() {
         total / 60.0,
         sizes.len() * sigmas.len()
     );
-    if sizes.iter().any(|&n| n > 768) {
-        println!();
-        println!("NOTE: the encoder's arena is ~48 KiB per input pixel and unplanned, so");
-        println!("      anything past 768 aborts the process before the denoiser runs.");
-        println!("      That is an arena limit, not a limit of the model being measured.");
-    }
+
     println!();
 
     let ae_path = dir.join("flux2-vae.safetensors");
@@ -175,19 +167,22 @@ fn main() {
         let rgb = test_image(n);
         let (lw, lh) = (n / vae::SCALE, n / vae::SCALE);
 
-        let latent = {
-            let arena = (512 << 20) + n * n * 48 * 1024;
-            let ctx = chaos_ggml::Context::new(arena).expect("encoder arena");
-            let v = vae::Vae::new(&st, &file, &ctx);
-            let img = ctx
-                .new_f32_4d(n as i64, n as i64, 3, 1)
-                .expect("image tensor");
-            img.set_f32(&vae::from_rgb8(&rgb, n, n)).expect("set image");
-            let moments = v.encode(&img).expect("encode");
-            let mean = v.latent_mean(&moments).expect("mean");
-            ctx.compute(&mean, threads).expect("compute");
-            mean.to_vec_f32()
-        };
+        // **Planned, which is what makes 1024 reachable at all.** The
+        // unplanned encoder costs ~48 KiB per input pixel -- 51 GiB at 1024,
+        // where ggml aborts -- and that arena limit used to stand in for a
+        // model limit here, which is the worst kind of missing datum because
+        // it looks like a result. `encode_planned` is 1.51 GiB at 1024 and
+        // bit-identical where both can run (`try-planned-encode`).
+        let latent = vae::encode_planned(
+            &st,
+            &file,
+            &vae::from_rgb8(&rgb, n, n),
+            n as i64,
+            n as i64,
+            threads,
+        )
+        .expect("planned encode")
+        .0;
 
         let c = dit::Config::default();
         let mut packed =

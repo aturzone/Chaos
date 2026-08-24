@@ -163,10 +163,23 @@ actually unpacked.
       every release a different identity — Android would then refuse to upgrade
       in place. It is a real APK signed with a key everybody has. A keystore in
       the repository secrets replaces that whenever Atur wants one.
-- [ ] **Phase B — small models locally.** NDK, ggml for
-      `aarch64-linux-android`, and the Rust core cross-compiled. `core/probe` is
-      the only crate with a platform assumption that has to change. Blocked on
-      the same 404 above.
+- [ ] **Phase B — small models locally.** **Not blocked, and smaller than it
+      looked.** The "blocked on the 404" claim was wrong: `dl.google.com` is
+      unreachable, but the NDK is on the same Tencent mirror the SDK came from
+      (r26d, 665,022,840 bytes, sha1 `c7ea35ff...`, both matching Google's
+      manifest as mirrored). The conclusion had been drawn from the Google host
+      alone without testing the mirror already in use for everything else.
+
+      **Every Rust crate type-checks for `aarch64-linux-android` with no source
+      change** — `chaos-probe`, `chaos-gguf`, `chaos-tokenizer`, `chaos-model`,
+      `chaos-arch`, `chaos-ggml`, `chaos-grammar`, `chaos-jinja`, `chaos-plan`,
+      `chaos-io`. `core/probe` was expected to need work and does not: its unix
+      branch reads `/proc/meminfo`, which Android has. **`cargo check` does not
+      link**, so what is proven is that the source compiles, not that it links.
+
+      What is left is therefore a build problem and a bridge, not a port:
+      ggml built for `aarch64-linux-android`, a link against it, a JNI entry
+      point the Kotlin side can call, and model management on the device.
 - [ ] **Phase C — the phone as a distributed worker.** Rejected for now, reason
       in `devices-as-resources.md`: Wi-Fi latency and battery make a phone a poor
       member of a layer loop. Revisit only with measurements.

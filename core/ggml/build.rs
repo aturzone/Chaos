@@ -177,6 +177,36 @@ fn main() {
         });
     match (target_os.as_str(), target_env.as_str()) {
         ("macos", _) | ("ios", _) => println!("cargo:rustc-link-lib=dylib=c++"),
+        // **Android has no libstdc++** -- the NDK ships LLVM's libc++ -- and
+        // it has to be named. Leaving it to the clang driver does not work:
+        // rustc passes `-nodefaultlibs`, so nothing is linked implicitly and
+        // the failure is a page of `undefined symbol: operator new(unsigned
+        // long)`, `__cxa_guard_acquire`, `std::__ndk1::mutex::lock()`.
+        //
+        // Static, so a JNI library is one file with nothing to ship beside it.
+        // `c++_shared` would mean packaging `libc++_shared.so` into the APK as
+        // well and keeping the two in step.
+        ("android", _) => {
+            // The archives live in the NDK's sysroot, which rustc does not
+            // search: naming the library alone gives `could not find native
+            // static library c++_static, perhaps an -L flag is missing?`.
+            //
+            // Asked of the compiler rather than hard-coded, the same way the
+            // GNU runtime directory is found above -- an NDK path baked in here
+            // would be one machine's, and wrong on CI.
+            if let Some(dir) = android_cxx_dir() {
+                println!("cargo:rustc-link-search=native={dir}");
+                println!("cargo:rustc-link-lib=static=c++_static");
+                println!("cargo:rustc-link-lib=static=c++abi");
+            } else {
+                // Better a clear message now than a page of undefined C++
+                // symbols from the linker.
+                println!(
+                    "cargo:warning=android: could not locate libc++_static.a; \
+                     set CC_aarch64_linux_android to the NDK's clang"
+                );
+            }
+        }
         (_, "msvc") => {} // MSVC links its runtime automatically
         _ if windows_gnu => println!("cargo:rustc-link-lib=static=stdc++"),
         _ => println!("cargo:rustc-link-lib=dylib=stdc++"),
@@ -207,7 +237,11 @@ fn main() {
         Ok("0") | Ok("false") => false,
         // Apple: no OpenMP unless libomp was installed and ggml found it.
         // MSVC: links its own runtime.
-        _ => !matches!(target_os.as_str(), "macos" | "ios") && target_env != "msvc",
+        // **Android: the NDK has no libgomp at all.** Its OpenMP is libomp and
+        // ggml's cmake turns OpenMP off for this target, so asking for `gomp`
+        // fails with `unable to find library -lgomp` -- the same shape as the
+        // macOS failure a few lines up, from a different missing runtime.
+        _ => !matches!(target_os.as_str(), "macos" | "ios" | "android") && target_env != "msvc",
     };
     if openmp {
         // Static on Windows-GNU for the same reason as libstdc++ above: a
@@ -228,11 +262,62 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=advapi32");
     } else {
         println!("cargo:rustc-link-lib=dylib=m");
-        println!("cargo:rustc-link-lib=dylib=pthread");
+        // **Android's pthreads live inside libc.** Bionic has no separate
+        // `libpthread`, so naming it fails the link outright rather than being
+        // ignored: `ld.lld: error: unable to find library -lpthread`.
+        if target_os != "android" {
+            println!("cargo:rustc-link-lib=dylib=pthread");
+        }
     }
 
     println!("cargo:rustc-cfg=have_ggml");
     println!("cargo:rustc-check-cfg=cfg(have_ggml)");
+}
+
+/// Where the NDK keeps `libc++_static.a`, asked of the NDK's own clang.
+///
+/// **Android needs its C++ runtime named explicitly.** rustc passes
+/// `-nodefaultlibs`, so the clang driver links nothing implicitly and the
+/// failure is a page of `undefined symbol: operator new(unsigned long)`,
+/// `__cxa_guard_acquire`, `std::__ndk1::mutex::lock()` — which reads like a
+/// ggml problem and is not.
+fn android_cxx_dir() -> Option<String> {
+    // **Derived from TARGET, not hard-coded.** The first version read
+    // `CC_aarch64_linux_android` by name and silently returned None for
+    // x86_64-linux-android -- the emulator's ABI -- so the C++ runtime was
+    // never linked there and the failure was the same page of undefined
+    // symbols, on a target that had just been proven to work.
+    let target = std::env::var("TARGET").ok()?;
+    let under = target.replace('-', "_");
+    let cc = std::env::var(format!("CC_{under}"))
+        .or_else(|_| std::env::var(format!("CC_{target}")))
+        .or_else(|_| std::env::var("CC"))
+        .ok()?;
+    // **The NDK's compiler on Windows is a `.cmd` wrapper**, and
+    // `Command::new` cannot execute one -- CreateProcess only runs real
+    // executables, so the call fails, the helper returns None, and the C++
+    // runtime is silently never linked. The failure then looks like ggml
+    // missing `operator new`. Route batch wrappers through cmd.exe.
+    let lower = cc.to_ascii_lowercase();
+    let out = if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+        std::process::Command::new("cmd")
+            .args(["/c", &cc, "-print-file-name=libc++_static.a"])
+            .output()
+            .ok()?
+    } else {
+        std::process::Command::new(&cc)
+            .arg("-print-file-name=libc++_static.a")
+            .output()
+            .ok()?
+    };
+    let path = String::from_utf8(out.stdout).ok()?;
+    let path = std::path::Path::new(path.trim());
+    // A bare filename back means clang could not find it.
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty())?;
+    if !path.exists() {
+        return None;
+    }
+    Some(parent.display().to_string())
 }
 
 /// Where the GNU toolchain keeps `libstdc++.a` and `libgomp.a`.

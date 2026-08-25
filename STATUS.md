@@ -5,9 +5,15 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-25 · **Version**: **v0.0.20**, being cut from `main`
-· previous release **v0.0.19**, published 2026-08-25 and verified from its own
-published files.
+**Last updated**: 2026-08-25 · **Version**: **v0.0.20**, published 2026-08-25
+· **Branch**: `main`, verified.
+
+**v0.0.20 verified from its own published files.** The APK was downloaded from
+the release and **`lib/arm64-v8a/libchaos_android.so` is inside it at 479,664
+bytes** — checked in the published artefact rather than inferred from its size.
+On the desktop: v0.0.19 installed, updated to v0.0.20 unattended through the
+app's own updater, uninstalled clean, and `~/.chaos/models` identical at 18
+files and 120,933,521,300 bytes.
 
 **v0.0.19 verified from its own published files**: v0.0.18 installed, updated to
 v0.0.19 **unattended** through the app's own updater — the first release where

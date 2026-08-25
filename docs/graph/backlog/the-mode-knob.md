@@ -88,6 +88,17 @@ geometry, the radii, the colour stops — and each app renders it with its own
 2-D API. A rotating control wants to be drawn, not blitted, anyway: pre-rendered
 frames are either coarse or enormous.
 
+### 1b. The centre is the logo, embedded
+
+Atur: *"instead of that circle in the middle, put the Chaos logo."* The centre
+boss is now `assets/logo.svg` itself — all 43 paths, scaled and clipped to a
+circle, **embedded rather than redrawn**. The mark is his; it is never
+approximated, regenerated or replaced, and `tools/make-mode-dial.py` reads the
+real file every time it builds.
+
+The logo is a black mark on white, so it needs no recolouring to sit on a white
+boss: it reads as a moulded cap, which is what a stove knob's centre badge is.
+
 ### 2. Nobody has seen it
 
 There is **no SVG renderer on this machine that supports gradients** — no
@@ -102,6 +113,25 @@ requirement, is unverified. **Atur opens `assets/knob.svg` in a browser and
 says.** That is a five-second check for him and an impossible one here, and
 shipping artwork neither of us has looked at is how a "high detail and quality"
 requirement quietly becomes a grey circle.
+
+## The plate
+
+`assets/mode-dial.svg` is the whole control as the launch screen shows it: a
+dark plate, four detents, labels, and the knob turned to CORE. **The knob is
+inlined into it, not referenced** — a browser will not load a local file through
+`<image href>`, so a referenced knob shows as an empty box, which would have
+wrecked exactly the review this file exists for.
+
+**12 o'clock is CORE and the detents are 90 degrees apart, so the pointer's
+angle *is* the mode** and nothing has to be looked up:
+
+```
+              CORE
+               |
+    ALONE  ---(*)---  CLIENT
+               |
+             HELPER
+```
 
 ## What has to be built, per platform
 

@@ -21,7 +21,7 @@ Legend: **[x]** done and verified · **[~]** partly done, the gap is named ·
 | A7 | Turning + pressing selects a mode and enters the shell | **[x]** drag, arrows, ENTER — verified on the live window |
 | A8 | Mode changeable again without restart | **[x]** ESC returns to the knob, 10 ms |
 | A9 | Shell shows only that mode's controls | **[x]** HELPER hides CHAT/MODELS/IMAGE, checked on screen |
-| A10 | Same on Android (`Canvas`) | **[ ]** |
+| A10 | Same on Android (`Canvas`) | **[x]** the dial is the launcher; turn, enter, remembered |
 | A11 | The launch flow driven on the live window | **[x]** splash 8/1/1 ms, knob 59-70 ms, ESC 10 ms |
 
 **A4 is the gate.** There is no gradient-capable SVG renderer on this machine —
@@ -39,7 +39,7 @@ composited display. **Open `assets/mode-dial.svg` in a browser.**
 | B3 | A CORE is reachable from a phone | **[x]** the `--host` fix, v0.0.18 |
 | B4 | Android: client + CHAOS section | **[x]** v0.0.18 |
 | B5 | Android: the engine runs in-process | **[x]** JNI bridge, v0.0.20 |
-| B6 | Android: model picker, Image, Monitor, Settings | **[ ]** all already served by the API |
+| B6 | Android: model picker, Image, Monitor, Settings | **[~]** mode gating done (HELPER has no chat); the extra pages are not |
 | B7 | Android Phase B: model files on device + token loop | **[ ]** |
 | B8 | **HELPER actually does work** — a CORE routes experts to it | **[ ]** protocol done, routing not |
 | B9 | macOS: a window | **[!]** none exists; CLI + CORE is the route today |

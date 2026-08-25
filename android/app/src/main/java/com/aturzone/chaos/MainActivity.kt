@@ -2,6 +2,7 @@ package com.aturzone.chaos
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -63,6 +64,22 @@ class MainActivity : Activity() {
         super.onCreate(saved)
         setContentView(R.layout.activity_main)
 
+        // **The mode decides what this screen offers.** Same split as the
+        // desktop's `nav::pages_for`: a HELPER answers with activations and
+        // has no token loop, so a chat box would be a control that cannot
+        // work. Atur: "all the items related to that mode are displayed".
+        val mode = intent.getStringExtra(ModeActivity.EXTRA_MODE)
+            ?: getSharedPreferences(ModeActivity.PREFS, MODE_PRIVATE)
+                .getString(ModeActivity.KEY_MODE, "CLIENT")
+            ?: "CLIENT"
+
+        // The way back, which Atur asked for: "an option to change the mode to
+        // exit this mode and enter other modes."
+        findViewById<Button>(R.id.change_mode).setOnClickListener {
+            startActivity(Intent(this, ModeActivity::class.java))
+            finish()
+        }
+
         address = findViewById(R.id.address)
         key = findViewById(R.id.key)
         status = findViewById(R.id.status)
@@ -83,6 +100,12 @@ class MainActivity : Activity() {
         // every APK CI has published so far -- the Android reading is what
         // there is, and the app carries on as a client.
         val engine = Engine.describeDeviceOrNull()
+        if (!ModeActivity.canChat(mode)) {
+            for (id in intArrayOf(R.id.scroll, R.id.input, R.id.send)) {
+                findViewById<View>(id).visibility = View.GONE
+            }
+        }
+
         phone.text = if (engine != null) {
             "engine ${Engine.versionOrNull() ?: "?"} on this phone: $engine"
         } else {

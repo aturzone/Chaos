@@ -160,6 +160,22 @@ def main():
         fout.write_bytes(png_bytes(fgrid))
         wrote += 1
 
+        # **The knob's centre badge.** The mode knob on Android draws its body
+        # with Canvas, but the mark in the middle is Atur's and is never
+        # redrawn -- so it is rendered from the same SVG, at each density,
+        # exactly like the launcher icons above. Full bleed: the knob's own
+        # collar is the border, so an inset here would only make it small.
+        bpx = max(48, px * 2)
+        bcov = ink(bpx, 0.02)
+        bgrid = [
+            [MARK + (int(round(bcov[y][x] * 255)),) for x in range(bpx)]
+            for y in range(bpx)
+        ]
+        bout = RES / f"drawable-{bucket}" / "knob_badge.png"
+        bout.parent.mkdir(parents=True, exist_ok=True)
+        bout.write_bytes(png_bytes(bgrid))
+        wrote += 1
+
     print(f"wrote {wrote} PNGs under {RES}", file=sys.stderr)
     for bucket, px in DENSITIES.items():
         print(f"  mipmap-{bucket:<8} {px:>3}px launcher, {ADAPTIVE[bucket]:>3}px foreground", file=sys.stderr)

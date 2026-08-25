@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The mode knob: a gas-stove control, white, for choosing what this machine is.
+
+  Authored as SVG rather than drawn in each app's own graphics API, because
+  there are four apps and one of them is raw Win32 GDI. The existing pipeline
+  (tools/rasterise-logo.py) already turns SVG into PNGs at whatever size a
+  platform wants, so this reuses it: render once per angle, blit the frame.
+
+  Drawn centred in a square viewBox with the pointer at 12 o'clock, so a
+  rotation is a rotation about the middle of the image and nothing has to be
+  re-registered per frame.
+
+  Structure, outside in:
+    shadow      a soft ellipse under the body, offset down
+    skirt       the knurled grip ring — 48 ridges, the part a hand turns
+    bezel       the chamfer between skirt and face, where the light breaks
+    face        the flat top, lit from the upper left
+    pointer     the indicator, recessed and shadowed so it reads as moulded
+    gloss       one specular arc, upper left, well short of the rim
+-->
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg"
+     width="512" height="512" viewBox="0 0 512 512">
+
+  <defs>
+    <!-- The body. Light from the upper left, so the gradient centre sits
+         up-left of true centre and the falloff carries to a warm grey, not
+         to black: white plastic in a lit room never goes black. -->
+    <radialGradient id="body" cx="38%" cy="32%" r="72%">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="42%"  stop-color="#f7f7f5"/>
+      <stop offset="72%"  stop-color="#e6e6e2"/>
+      <stop offset="90%"  stop-color="#d2d2cd"/>
+      <stop offset="100%" stop-color="#bdbdb8"/>
+    </radialGradient>
+
+    <!-- The skirt is darker and its light comes from lower right as bounce,
+         which is what separates the grip ring from the face. -->
+    <radialGradient id="skirt" cx="45%" cy="40%" r="70%">
+      <stop offset="0%"   stop-color="#e8e8e4"/>
+      <stop offset="60%"  stop-color="#d6d6d1"/>
+      <stop offset="88%"  stop-color="#b4b4ae"/>
+      <stop offset="100%" stop-color="#9a9a95"/>
+    </radialGradient>
+
+    <!-- The chamfer: a bright line where the top face turns over into the
+         skirt. This single ring is most of what makes it read as 3-D. -->
+    <linearGradient id="bezel" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="35%"  stop-color="#fafaf8"/>
+      <stop offset="65%"  stop-color="#cfcfc9"/>
+      <stop offset="100%" stop-color="#a8a8a2"/>
+    </linearGradient>
+
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="60%"  stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="shadow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#000000" stop-opacity="0.34"/>
+      <stop offset="62%"  stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- One ridge of the knurl, repeated by rotation below. Rounded, because
+         a real moulded grip has no sharp edges and a sharp one aliases badly
+         at the sizes an app actually draws this. -->
+    <linearGradient id="ridge" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="45%"  stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="55%"  stop-color="#000000" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.30"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Cast shadow, offset down and slightly right to match the key light. -->
+  <ellipse cx="256" cy="286" rx="212" ry="206" fill="url(#shadow)"/>
+
+  <!-- The skirt: the grip ring. -->
+  <circle cx="256" cy="256" r="204" fill="url(#skirt)"/>
+
+  <!-- 48 ridges around the skirt. Each is a thin rounded bar standing from
+       r=168 to r=200, rotated into place; together they read as knurling
+       without any one of them being visible as a shape. -->
+  <g>
+    <g id="knurl">
+      <rect x="252.4" y="52" width="7.2" height="32" rx="3.6" fill="url(#ridge)"/>
+    </g>
+    <use href="#knurl" transform="rotate(7.5 256 256)"/>
+    <use href="#knurl" transform="rotate(15 256 256)"/>
+    <use href="#knurl" transform="rotate(22.5 256 256)"/>
+    <use href="#knurl" transform="rotate(30 256 256)"/>
+    <use href="#knurl" transform="rotate(37.5 256 256)"/>
+    <use href="#knurl" transform="rotate(45 256 256)"/>
+    <use href="#knurl" transform="rotate(52.5 256 256)"/>
+    <use href="#knurl" transform="rotate(60 256 256)"/>
+    <use href="#knurl" transform="rotate(67.5 256 256)"/>
+    <use href="#knurl" transform="rotate(75 256 256)"/>
+    <use href="#knurl" transform="rotate(82.5 256 256)"/>
+    <use href="#knurl" transform="rotate(90 256 256)"/>
+    <use href="#knurl" transform="rotate(97.5 256 256)"/>
+    <use href="#knurl" transform="rotate(105 256 256)"/>
+    <use href="#knurl" transform="rotate(112.5 256 256)"/>
+    <use href="#knurl" transform="rotate(120 256 256)"/>
+    <use href="#knurl" transform="rotate(127.5 256 256)"/>
+    <use href="#knurl" transform="rotate(135 256 256)"/>
+    <use href="#knurl" transform="rotate(142.5 256 256)"/>
+    <use href="#knurl" transform="rotate(150 256 256)"/>
+    <use href="#knurl" transform="rotate(157.5 256 256)"/>
+    <use href="#knurl" transform="rotate(165 256 256)"/>
+    <use href="#knurl" transform="rotate(172.5 256 256)"/>
+    <use href="#knurl" transform="rotate(180 256 256)"/>
+    <use href="#knurl" transform="rotate(187.5 256 256)"/>
+    <use href="#knurl" transform="rotate(195 256 256)"/>
+    <use href="#knurl" transform="rotate(202.5 256 256)"/>
+    <use href="#knurl" transform="rotate(210 256 256)"/>
+    <use href="#knurl" transform="rotate(217.5 256 256)"/>
+    <use href="#knurl" transform="rotate(225 256 256)"/>
+    <use href="#knurl" transform="rotate(232.5 256 256)"/>
+    <use href="#knurl" transform="rotate(240 256 256)"/>
+    <use href="#knurl" transform="rotate(247.5 256 256)"/>
+    <use href="#knurl" transform="rotate(255 256 256)"/>
+    <use href="#knurl" transform="rotate(262.5 256 256)"/>
+    <use href="#knurl" transform="rotate(270 256 256)"/>
+    <use href="#knurl" transform="rotate(277.5 256 256)"/>
+    <use href="#knurl" transform="rotate(285 256 256)"/>
+    <use href="#knurl" transform="rotate(292.5 256 256)"/>
+    <use href="#knurl" transform="rotate(300 256 256)"/>
+    <use href="#knurl" transform="rotate(307.5 256 256)"/>
+    <use href="#knurl" transform="rotate(315 256 256)"/>
+    <use href="#knurl" transform="rotate(322.5 256 256)"/>
+    <use href="#knurl" transform="rotate(330 256 256)"/>
+    <use href="#knurl" transform="rotate(337.5 256 256)"/>
+    <use href="#knurl" transform="rotate(345 256 256)"/>
+    <use href="#knurl" transform="rotate(352.5 256 256)"/>
+  </g>
+
+  <!-- The chamfer ring, then the face sitting inside it. -->
+  <circle cx="256" cy="256" r="170" fill="url(#bezel)"/>
+  <circle cx="256" cy="256" r="158" fill="url(#body)"/>
+
+  <!-- A faint scribed circle on the face, as moulded plastic has. -->
+  <circle cx="256" cy="256" r="132" fill="none" stroke="#00000012" stroke-width="2"/>
+
+  <!--
+    The pointer, at 12 o'clock. Drawn as a recess rather than a printed line:
+    a dark channel with a light lower-right lip, which is what a moulded
+    indicator looks like under a key light from the upper left.
+  -->
+  <g>
+    <rect x="249" y="106" width="14" height="86" rx="7" fill="#00000022"/>
+    <rect x="250.5" y="104" width="11" height="84" rx="5.5" fill="#5c5c58"/>
+    <rect x="250.5" y="104" width="4" height="84" rx="2" fill="#3f3f3c"/>
+    <rect x="258" y="106" width="3" height="80" rx="1.5" fill="#ffffff" opacity="0.5"/>
+  </g>
+
+  <!-- The centre boss: where a real knob meets its spindle. -->
+  <circle cx="256" cy="256" r="34" fill="url(#bezel)"/>
+  <circle cx="256" cy="256" r="27" fill="url(#body)"/>
+  <circle cx="256" cy="256" r="27" fill="none" stroke="#00000018" stroke-width="1.5"/>
+
+  <!-- One specular arc, upper left, stopping short of the rim so it reads as
+       a highlight on a curved surface and not as a painted stripe. -->
+  <path d="M 256 104
+           A 152 152 0 0 0 104 256
+           A 152 152 0 0 1 256 104 Z"
+        fill="none"/>
+  <path d="M 150 150
+           A 150 150 0 0 1 256 106
+           L 256 128
+           A 128 128 0 0 0 166 166 Z"
+        fill="url(#gloss)"/>
+
+  <!-- The outermost edge, darkened, so the knob sits on the plate rather than
+       floating over it. -->
+  <circle cx="256" cy="256" r="204" fill="none" stroke="#0000001f" stroke-width="3"/>
+</svg>

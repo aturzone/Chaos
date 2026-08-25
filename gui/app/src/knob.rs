@@ -397,6 +397,42 @@ mod tests {
     }
 
     #[test]
+    fn the_mark_is_actually_in_the_middle() {
+        // **This was never checked, and Atur asked "where is logo in center".**
+        // The knob was measured for speed and driven for input; nobody looked
+        // at its pixels. A badge that renders blank looks exactly like a badge
+        // that renders white.
+        let n = 220;
+        let logo_px = ((n as f64) * 0.42) as usize;
+        let logo = crate::art::logo_scaled(logo_px);
+        assert!(
+            logo.iter().any(|&a| a > 200),
+            "the source coverage is empty, so nothing could be drawn"
+        );
+        let px = render(n, -90.0, 0x00FFFFFF, &logo, logo_px);
+        let at = |x: usize, y: usize| {
+            let i = ((n - 1 - y) * n + x) * 4;
+            i32::from(px[i + 2])
+        };
+        // Count dark pixels inside the badge. The mark is black on white, so
+        // a rendered badge has plenty and an empty one has none.
+        let c = n / 2;
+        let rad = (n as f64 * 0.427 * 0.90 / 2.0) as usize;
+        let mut ink = 0;
+        for y in (c - rad)..(c + rad) {
+            for x in (c - rad)..(c + rad) {
+                if at(x, y) < 100 {
+                    ink += 1;
+                }
+            }
+        }
+        assert!(
+            ink > 200,
+            "the badge is blank: only {ink} dark pixels inside it"
+        );
+    }
+
+    #[test]
     fn turning_the_knob_does_not_turn_the_light() {
         // The upper-left highlight is a fact about the room, not the control.
         // Render at two angles and check the lit side stays lit.

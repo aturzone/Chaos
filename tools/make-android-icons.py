@@ -165,10 +165,15 @@ def main():
         # redrawn -- so it is rendered from the same SVG, at each density,
         # exactly like the launcher icons above. Full bleed: the knob's own
         # collar is the border, so an inset here would only make it small.
+        # **Dark ink, not MARK.** MARK is white because the launcher tile is
+        # blue; the knob's face is white, so a white badge on it is invisible.
+        # It was, and a screenshot of the running app showed the centre as
+        # (255,255,255) with 0 dark pixels in it.
+        BADGE_INK = (17, 17, 17)
         bpx = max(48, px * 2)
         bcov = ink(bpx, 0.02)
         bgrid = [
-            [MARK + (int(round(bcov[y][x] * 255)),) for x in range(bpx)]
+            [BADGE_INK + (int(round(bcov[y][x] * 255)),) for x in range(bpx)]
             for y in range(bpx)
         ]
         bout = RES / f"drawable-{bucket}" / "knob_badge.png"

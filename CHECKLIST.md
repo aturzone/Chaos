@@ -30,6 +30,28 @@ composited display. **Open `assets/mode-dial.svg` in a browser.**
 
 ---
 
+## A-bis. What Atur reported on 2026-08-26, and what it cost
+
+| | report | state |
+|---|---|---|
+| R1 | "where is logo in center of that" | **[x]** the badge was WHITE ink on a WHITE knob face -- invisible. `MARK` is white because the launcher tile is blue; the knob's is not. Dark ink now, verified 825 dark pixels in the badge where there were 0 |
+| R2 | "the letters of modes need to be better" | **[x]** they were `0xFF111111` on a `#0D1117` background -- near-black on near-black. Theme colours now, and ALONE was also clipped off the left edge; labels are clamped inside the view. All four measured readable |
+| R3 | "circle of choose mode need sound" | **[x]** a system click and a clock-tick haptic as each detent is crossed, not on every pixel of a drag |
+| R4 | **"android can not do any one of works in windows"** | **[!]** **He is right, and this is the real one.** See below |
+
+**R4 is not a bug, it is a missing half.** The Android dial offers four modes
+and only CLIENT does anything: a CORE there cannot serve, a HELPER cannot lend,
+ALONE cannot run a model. **Gating the UI by a mode that does nothing is worse
+than not offering the mode** -- it promises four things and delivers one. What
+it needs is B7: the model files on the device and the token loop, through the
+JNI bridge that already exists. Until then the dial on Android should say so.
+
+**How all three of R1-R3 were missed.** The knob was tested for *speed* (8 ms a
+frame), for *input* (arrows, ENTER, ESC, taps) and for *structure* (which
+labels exist in the view hierarchy). **Nobody looked at the pixels.** A
+screenshot decoded and sampled would have caught every one in a minute, and
+that is now how it is checked.
+
 ## B. Full options on every platform
 
 | | item | state |

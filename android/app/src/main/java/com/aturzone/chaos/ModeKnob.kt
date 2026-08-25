@@ -5,10 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RadialGradient
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.drawable.BitmapDrawable
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -63,13 +61,23 @@ class ModeKnob @JvmOverloads constructor(
     /** Called when the dial settles on a mode. */
     var onPick: ((String) -> Unit)? = null
 
+    private val fgColour = resources.getColor(R.color.fg, null)
+    private val dimColour = resources.getColor(R.color.fg_tertiary, null)
+
+    /// The detent the dial was last on, so a click sounds when it changes
+    /// rather than on every pixel of a drag.
+    private var lastDetent: String? = null
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
     }
-    private val badge = (
-        resources.getDrawable(R.drawable.knob_badge, null) as? BitmapDrawable
-        )?.bitmap
+    // **Not `as? BitmapDrawable`.** That cast fails silently, leaving this
+    // null, and a badge that never draws looks exactly like a badge drawn
+    // white on white. A screenshot of the running app said the centre was
+    // (255,255,255) with no mark in it. Drawn as a Drawable, which works
+    // whatever kind the resource resolves to.
+    private val badge = resources.getDrawable(R.drawable.knob_badge, null)
 
     /** The mode the pointer is nearest, which is what a lift snaps to. */
     fun mode(): String = detents.minByOrNull { kotlin.math.abs(angle - it.first) }!!.second
@@ -130,13 +138,12 @@ class ModeKnob @JvmOverloads constructor(
         paint.color = Color.WHITE
         canvas.drawCircle(cx, cy, r * 0.427f, paint)
         badge?.let {
-            val d = r * 0.427f * 2f
-            canvas.drawBitmap(
-                it,
-                Rect(0, 0, it.width, it.height),
-                RectF(cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2),
-                paint,
+            val d = (r * 0.427f * 1.86f).toInt()
+            it.setBounds(
+                (cx - d / 2f).toInt(), (cy - d / 2f).toInt(),
+                (cx + d / 2f).toInt(), (cy + d / 2f).toInt(),
             )
+            it.draw(canvas)
         }
 
         // The outer edge, so the knob sits on the page rather than floating.
@@ -189,14 +196,24 @@ class ModeKnob @JvmOverloads constructor(
 
     private fun drawLabels(canvas: Canvas, cx: Float, cy: Float, r: Float) {
         val here = mode()
-        text.textSize = r * 0.135f
+        val baseText = r * 0.150f
+        text.textSize = baseText
         for ((deg, name) in detents) {
             val a = (deg - 90f) * Math.PI.toFloat() / 180f
-            val lx = cx + r * 1.30f * cos(a)
-            val ly = cy + r * 1.30f * sin(a) + text.textSize / 3f
+            // **Clamped inside the view.** ALONE sits at the left stop, and at
+            // a label radius of 1.30r its centre landed 9px from the view's
+            // edge -- so it was drawn and clipped, and a screenshot showed 0
+            // lit pixels where the other three showed ~140.
+            val halfWord = text.measureText(name) / 2f + 3f
+            val lx = (cx + r * 1.22f * cos(a)).coerceIn(halfWord, width - halfWord)
+            val ly = cy + r * 1.22f * sin(a) + text.textSize / 3f
             val on = name == here
-            text.color = if (on) 0xFF111111.toInt() else 0xFF8A8A8A.toInt()
+            // **Theme colours, not hard-coded black.** These were 0xFF111111
+            // on a #0D1117 background, which is near-black on near-black: the
+            // chosen mode's name was the one you could not read.
+            text.color = if (on) fgColour else dimColour
             text.isFakeBoldText = on
+            text.textSize = if (on) baseText * 1.12f else baseText
             canvas.drawText(name, lx, ly, text)
         }
     }
@@ -227,12 +244,27 @@ class ModeKnob @JvmOverloads constructor(
         return true
     }
 
+    /// A stove knob clicks as it passes each position, and that click is how
+    /// you know it moved without looking at it. `FX_KEY_CLICK` is the system's
+    /// own, so it follows whatever the user has set and ships no asset.
+    private fun detentFeedback() {
+        val now = mode()
+        if (now == lastDetent) return
+        lastDetent = now
+        playSoundEffect(android.view.SoundEffectConstants.CLICK)
+        performHapticFeedback(
+            android.view.HapticFeedbackConstants.CLOCK_TICK,
+            android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING,
+        )
+    }
+
     private fun aim(dx: Float, dy: Float) {
         // Screen y grows downward; twelve o'clock is zero.
         val deg = Math.toDegrees(atan2(dx.toDouble(), -dy.toDouble())).toFloat()
         // The stops are real: a stove knob does not go round the back, and
         // letting it would put ALONE next to CORE.
         angle = deg.coerceIn(-90f, 90f)
+        detentFeedback()
         invalidate()
     }
 }

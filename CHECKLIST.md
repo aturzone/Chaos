@@ -13,9 +13,9 @@ Legend: **[x]** done and verified · **[~]** partly done, the gap is named ·
 | | item | state |
 |---|---|---|
 | A1 | `assets/knob.svg` drawn, Chaos logo at its centre | **[x]** 70 KB, logo embedded not redrawn |
-| A2 | `assets/mode-dial.svg` — the plate, four detents, labels | **[x]** 72 KB, knob inlined so it renders standalone |
+| A2 | `assets/mode-dial.svg` — four detents across a 180° top sweep | **[x]** no dark plate, transparent, knob inlined |
 | A3 | `tools/make-mode-dial.py` regenerates both | **[x]** |
-| A4 | **Atur has looked at them and they are right** | **[ ]** ← *blocking A5+; nobody here can see them* |
+| A4 | **Atur has looked at them and they are right** | **[~]** first render approved; re-check after the 180° change |
 | A5 | Logo animation on launch, from `logo.svg` | **[ ]** |
 | A6 | Knob drawn natively on Windows (GDI+) | **[ ]** |
 | A7 | Turning + pressing selects a mode and enters the shell | **[ ]** |

@@ -122,16 +122,29 @@ inlined into it, not referenced** — a browser will not load a local file throu
 `<image href>`, so a referenced knob shows as an empty box, which would have
 wrecked exactly the review this file exists for.
 
-**12 o'clock is CORE and the detents are 90 degrees apart, so the pointer's
-angle *is* the mode** and nothing has to be looked up:
+**A 180 degree sweep across the top, not a full circle.** Atur, after seeing
+the first render: *"I want the 4 options on the top side of the circle, not
+360 — it must be 270 or 180."* He is right, and for a reason worth writing
+down: **a stove knob travels an arc and stops.** A control that can spin
+forever has no ends, so there is no "first" position and no "last", and the
+detents stop meaning anything. With a sweep there are two ends and an order.
 
 ```
-              CORE
-               |
-    ALONE  ---(*)---  CLIENT
-               |
-             HELPER
+        ALONE   CLIENT   HELPER   CORE
+            \      |        |      /
+             \     |        |     /
+              `----( knob )----'
 ```
+
+Four detents at -90, -30, +30 and +90 from twelve o'clock, 60 degrees apart.
+**Left to right is a ramp of involvement**, the way a stove goes from OFF to
+HIGH: ALONE, where nothing reaches this machine, through to CORE, where it
+serves everyone. ALONE is also the default a fresh install starts on, so the
+knob begins at the left stop.
+
+**And no dark plate.** Atur: *"just white circle is ok, we do not need that
+black colour."* The background is transparent, so each app paints its own theme
+behind it and the knob's own shadow does the separating.
 
 ## What has to be built, per platform
 

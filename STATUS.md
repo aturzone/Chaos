@@ -26,6 +26,84 @@ to v0.0.18 through the app's own updater, uninstalled clean, and
 page works in the installed build -- ALONE and CORE both persist, worst
 blocking call 16.7 ms.
 
+## The machine was measured, and the 20 tok/s target became 5 (2026-08-25)
+
+**The wall had never been measured.** "20 tok/s on V4-Flash is out of reach" had
+always been argued from a *fixed cost per token* — which is a measurement of
+Chaos, not of the hardware. `chaos-membench` settles it:
+
+```
+ threads         GiB/s
+       1          17.9
+       4          29.3
+      16          30.8     <- peak
+      20          29.3
+```
+
+**30.8 GiB/s.** The DDR5-4800 datasheet says 76.8 GB/s; silicon gives 43% of it,
+so quoting the spec would have overstated every bandwidth budget by 2.3x.
+
+**The law**, across nine models spanning 23x in size — `resident GiB × tok/s` is
+constant at ~19 GiB/s:
+
+```
+tok/s ≈ 19 / resident GiB
+```
+
+Generation therefore runs at **65% of this machine's peak**, which is respectable
+for a dequantising matmul and is not where a 40x gap hides.
+
+### What that settles, and what it opens
+
+A V4-Flash token reads **3.22 GiB** of experts (43 blocks × 6 routed × 12.8 MiB,
+matching the 3288 MB measured independently in `v4flash-has-no-slack`).
+
+```
+20 tok/s  ->  64.4 GiB/s needed      30.8 available   2.1x short
+ 5 tok/s  ->  16.1 GiB/s needed      30.8 available   fits
+```
+
+**20 tok/s needs a memory bus twice as wide as this laptop's** — not a code
+change. Corroborated from outside: `kimi-k3-in-c`'s 128 GB workstation, model
+entirely in RAM and the disk gone, still takes **5.6 s/token**. Removing the disk
+does not rescue a memory-bound problem.
+
+**Atur set the target to 5 tok/s**, which fits. `backlog/the-big-bang-5-tok-s.md`
+is the plan, with each rung's arithmetic:
+
+| rung | change | tok/s |
+|---|---|---|
+| 0 | today | **0.43** |
+| 1 | I/O queue depth → full NVMe | 0.96 |
+| 2 | + 2-bit experts | 2.21 |
+| 3 | + top-3 routing, 29% resident | **5.21** |
+
+**Rung 1 is free** — experts are read at 1.40 GiB/s from a drive that does 3.09
+sequential, 45% of it, because 12.8 MiB reads issued one at a time cannot fill an
+NVMe's queue. **This is not the read/compute overlap measured at 1.03x**; that
+overlapped one read with compute, this is several reads with each other.
+
+**Rungs 2 and 3 change what the model computes** and are gated behind a quality
+harness that does not exist yet. A wrong forward pass here produces fluent
+nonsense, never a crash.
+
+### Two levers closed by measurement, so nobody re-proposes them
+
+- **Speculative decoding / batching.** Expert reuse between tokens is **~13%**
+  (Chaos's own cache). Batching 8 tokens reads ~42 experts instead of 48 — 12%,
+  not the 5x the idea needs.
+- **Token-id prefetch.** V4-Flash really does select experts by a table lookup on
+  the token id (`llama.cpp/src/models/deepseek4.cpp:1147`) — but only for
+  `hash_layer_count = 3` of 43 blocks. 7% of the model.
+
+### Where Chaos actually stands against the competition
+
+`kimi-k3-in-c` has 6.8k stars for a 2.78T model at **26.5 s/token** on an 8 GB
+laptop — 0.038 tok/s, in seconds per token, from their own README table. Chaos on
+this laptop runs **V4-Flash (144 GB) at 2.4 s/token**, 11x faster per token on a
+model 11x smaller, **and 20–31 tok/s on models up to ~1 GiB**, which they cannot
+do at all. **Neither claim was on the README.** It is now.
+
 ## The JNI bridge: the engine runs inside the app (2026-08-25)
 
 **879 tests.** On an Android 34 emulator, read off the running app's own screen:

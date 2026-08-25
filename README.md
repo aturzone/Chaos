@@ -10,7 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/badge/version-0.0.6-orange"></a>
+  <em>On one 15.7 GiB laptop, CPU only: <strong>31 tok/s</strong> on Qwen2-0.5B,
+  <strong>20 tok/s</strong> on Falcon3-1B,<br>and a <strong>144 GB</strong>
+  model generating at 0.43 tok/s in 15.7 GiB of RAM.</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="tests" src="https://img.shields.io/badge/tests-879%20passing-brightgreen">
@@ -207,7 +213,7 @@ Samplers          80%  [################....]  16 of 20
 Architectures      9%  [#...................]  13 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
 Browser UI        33%  [######..............]  2 of 6 things a chat UI needs
-V4-Flash speed     2%  [....................]  0.394 of 20 tok/s
+V4-Flash speed     8%  [#...................]  0.43 of 5 tok/s
 ```
 
 Where those numbers come from, in the same order: 17 flags are declined with a
@@ -223,12 +229,39 @@ The first four are enforced by tests rather than counted by hand
 (`refused_flags_decline`, `jinja_agrees_with_families`), which is why they have
 stopped drifting.
 
-The last bar is the honest one. **`V4-Flash speed` will not move, and we
-measured how far it cannot move.** A token is 1.56 s of expert reading plus
-**0.84 s that never touches the disk** — so with the entire 144 GB model resident
-in RAM, this CPU tops out at **1.19 tok/s**. 20 tok/s is a 50 ms token: the fixed
-cost alone is 17x over budget, and it separately needs 67.7 GB/s of bandwidth to
-the expert weights. That is a GPU-memory specification, not a code change.
+The last bar is the honest one, and **its target changed on 2026-08-25 because
+the machine was finally measured instead of argued about.**
+
+`chaos-membench` reads **30.8 GiB/s** from this laptop's RAM at its best — 43% of
+the 76.8 GB/s DDR5-4800 claims on paper. A V4-Flash token reads **3.22 GiB** of
+experts (43 blocks x 6 routed x 12.8 MiB). So:
+
+```
+20 tok/s  ->  64.4 GiB/s needed      30.8 available   2.1x short
+ 5 tok/s  ->  16.1 GiB/s needed      30.8 available   fits
+```
+
+**20 tok/s was never a code problem** — it needs a memory bus twice this wide,
+and that is why `kimi-k3-in-c`'s 128 GB workstation, model entirely in RAM and
+the disk switched off, still takes 5.6 s/token. **5 tok/s fits inside this
+machine's bandwidth**, so that is the target now, and
+[the plan to reach it](docs/graph/backlog/the-big-bang-5-tok-s.md) is written
+with every rung's arithmetic and every closed lever listed.
+
+The lead it opened: experts are read at **1.40 GiB/s** from an NVMe that does
+**3.09 GiB/s** sequential. That is 45% of the drive, and unlike the RAM number it
+is not near peak — 12.8 MiB reads issued one at a time cannot fill an NVMe's
+queue.
+
+**And the law that falls out of it**, across nine models spanning 23x in size:
+
+```
+tok/s  ≈  19 / resident GiB
+```
+
+which is how the headline numbers at the top of this file are predicted as well
+as measured — and how you can predict your own machine, with
+`chaos-membench` for the constant.
 
 So here is the thing nobody had published — **tok/s against resident RAM for a
 144 GB model**, which Chaos can sweep because it owns residency where an `mmap`

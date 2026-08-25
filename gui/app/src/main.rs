@@ -220,6 +220,17 @@ mod windows_app {
     /// the shape of the bug that made every click fatal.
     struct Ui {
         theme: Theme,
+        /// **False until a mode is chosen.** The window opens on the knob, not
+        /// on six pages of controls it has no reason to think anyone wants.
+        /// Atur: *"the first mode is selected and the additional options are
+        /// not all messy."*
+        launched: bool,
+        /// Where the knob is pointing, in degrees from twelve o'clock. Kept
+        /// separately from `cfg.role` so a drag can be between detents and
+        /// still animate; the role is what it snaps to.
+        knob_angle: f64,
+        /// True while the pointer is held down on the knob.
+        knob_held: bool,
         page: Page,
         tab: Tab,
         fonts: Fonts,
@@ -1043,6 +1054,10 @@ mod windows_app {
                 offers: catalog::offers(),
                 free_bytes: free_memory_bytes(),
                 total_bytes: total_memory_bytes(),
+                // A fresh install starts on ALONE, which is the left stop.
+                launched: false,
+                knob_angle: chaos_app::knob::angle_of(cfg.role),
+                knob_held: false,
                 server: None,
                 port,
                 loaded: None,
@@ -3151,6 +3166,14 @@ Any value a client sends is accepted.                      The server still list
             let b = u.borrow();
             let Some(ui) = b.as_ref() else { return };
             fill(mem, r, ui.theme.bg);
+
+            // **The knob owns the whole window until a mode is chosen.** No
+            // rail, no strip: there is exactly one question on screen.
+            if !ui.launched {
+                paint_launch(mem, ui, r);
+                return;
+            }
+
             paint_rail(mem, ui, r);
             paint_strip(mem, ui, r);
 
@@ -3170,6 +3193,294 @@ Any value a client sends is accepted.                      The server still list
         DeleteObject(bmp);
         DeleteDC(mem);
         EndPaint(hwnd, &ps);
+    }
+
+    fn launched() -> bool {
+        UI.with(|u| u.borrow().as_ref().is_some_and(|ui| ui.launched))
+    }
+
+    fn held() -> bool {
+        UI.with(|u| u.borrow().as_ref().is_some_and(|ui| ui.knob_held))
+    }
+
+    /// Where the knob is on screen, so a click can be tested against it.
+    ///
+    /// **Derived from the same numbers `paint_launch` uses.** Two copies of a
+    /// layout drift, and the symptom is a control that looks right and cannot
+    /// be clicked.
+    unsafe fn knob_rect(hwnd: HWND) -> (i32, i32, i32) {
+        let mut r = RECT::default();
+        GetClientRect(hwnd, &mut r);
+        let w = r.right.max(1);
+        let h = r.bottom.max(1);
+        let d = (((w.min(h) as f64) * 0.50) as i32).clamp(160, 440);
+        (w / 2, h / 2 + d / 12, d)
+    }
+
+    /// Turn the dial with the pointer.
+    ///
+    /// A click anywhere in the top half aims the pointer there; a drag keeps
+    /// aiming it. **Released, it snaps to the nearest detent** -- a control
+    /// that can rest between positions is one that can be left meaning nothing.
+    unsafe fn knob_input(hwnd: HWND, msg: u32, x: i32, y: i32) {
+        let (cx, cy, d) = knob_rect(hwnd);
+        match msg {
+            WM_LBUTTONDOWN => {
+                // Generous: the labels are part of the control, so anything
+                // inside the label ring counts rather than only the body.
+                let dx = f64::from(x - cx);
+                let dy = f64::from(y - cy);
+                if (dx * dx + dy * dy).sqrt() > f64::from(d) * 0.85 {
+                    return;
+                }
+                SetCapture(hwnd);
+                UI.with(|u| {
+                    if let Some(ui) = u.borrow_mut().as_mut() {
+                        ui.knob_held = true;
+                    }
+                });
+                aim(hwnd, x, y);
+            }
+            WM_MOUSEMOVE => aim(hwnd, x, y),
+            _ => {
+                ReleaseCapture();
+                let role = UI.with(|u| {
+                    let mut b = u.borrow_mut();
+                    let ui = b.as_mut()?;
+                    ui.knob_held = false;
+                    let role = chaos_app::knob::role_at(ui.knob_angle);
+                    ui.knob_angle = chaos_app::knob::angle_of(role);
+                    Some(role)
+                });
+                if role.is_some() {
+                    InvalidateRect(hwnd, std::ptr::null(), 0);
+                }
+            }
+        }
+    }
+
+    /// Point the dial at a screen position, clamped to its two stops.
+    unsafe fn aim(hwnd: HWND, x: i32, y: i32) {
+        let (cx, cy, _) = knob_rect(hwnd);
+        let dx = f64::from(x - cx);
+        let dy = f64::from(y - cy);
+        // Screen y grows downward; twelve o'clock is zero.
+        let ang = dx.atan2(-dy).to_degrees();
+        // **The stops are real.** A stove knob does not go round the back, and
+        // letting it would put ALONE next to CORE.
+        let ang = ang.clamp(-90.0, 90.0);
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                ui.knob_angle = ang;
+            }
+        });
+        InvalidateRect(hwnd, std::ptr::null(), 0);
+    }
+
+    /// Move one detent, for the arrow keys.
+    unsafe fn nudge_knob(hwnd: HWND, step: i32) {
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                let here = chaos_app::knob::role_at(ui.knob_angle);
+                let at = chaos_app::knob::DETENTS
+                    .iter()
+                    .position(|(a, _)| chaos_app::knob::role_at(*a) == here)
+                    .unwrap_or(0) as i32;
+                let n = chaos_app::knob::DETENTS.len() as i32;
+                let to = (at + step).clamp(0, n - 1) as usize;
+                ui.knob_angle = chaos_app::knob::DETENTS[to].0;
+            }
+        });
+        InvalidateRect(hwnd, std::ptr::null(), 0);
+    }
+
+    /// Enter the shell in the chosen mode.
+    unsafe fn launch(hwnd: HWND) {
+        let role = UI.with(|u| {
+            let mut b = u.borrow_mut();
+            let ui = b.as_mut()?;
+            let role = chaos_app::knob::role_at(ui.knob_angle);
+            ui.knob_angle = chaos_app::knob::angle_of(role);
+            Some(role)
+        });
+        let Some(role) = role else { return };
+        // Reuse the CHAOS page's own setter, so choosing CORE here generates a
+        // key and restarts the server exactly as choosing it there does. Two
+        // routes into one decision is how one of them ends up half-right.
+        pick_role(match role {
+            settings::Role::Core => nav::ID_ROLE_CORE,
+            settings::Role::Helper => nav::ID_ROLE_HELPER,
+            settings::Role::Client => nav::ID_ROLE_CLIENT,
+            settings::Role::Alone => nav::ID_ROLE_ALONE,
+        });
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                ui.launched = true;
+                // Land on a page this mode actually has. A HELPER has no chat,
+                // and starting it on one would be a blank screen.
+                let pages = nav::pages_for(role);
+                if !pages.contains(&ui.page) {
+                    ui.page = pages[0];
+                }
+            }
+        });
+        let page = UI.with(|u| u.borrow().as_ref().map(|ui| ui.page));
+        if let Some(page) = page {
+            show_page(page);
+        }
+        // **The rail's contents just changed.** `show_page` only toggles
+        // visibility; the entries have to be positioned again or a mode with
+        // four pages leaves two rail buttons where the other two used to be.
+        layout(hwnd);
+        InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+
+    /// Put the knob back up, without restarting.
+    ///
+    /// Atur: *"There should also be an option to change the mode to exit this
+    /// mode and enter other modes."*
+    unsafe fn back_to_knob(hwnd: HWND) {
+        UI.with(|u| {
+            if let Some(ui) = u.borrow_mut().as_mut() {
+                ui.launched = false;
+                ui.knob_angle = chaos_app::knob::angle_of(ui.cfg.role);
+            }
+        });
+        // **Every child window must go, or they float over the knob.** These
+        // are real HWNDs, not painted controls: hiding the page is not enough.
+        for id in nav::SHELL_CONTROLS {
+            ShowWindow(ctl(id), SW_HIDE);
+        }
+        for p in nav::PAGES {
+            for &id in nav::controls(p) {
+                ShowWindow(ctl(id), SW_HIDE);
+            }
+        }
+        InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+
+    /// The launch screen: the knob, its four detents, and nothing else.
+    ///
+    /// **One question, asked once.** Which mode this machine is in decides what
+    /// every other page means, and until it is answered the rest of the window
+    /// is noise. `nav::pages_for` is what makes that true rather than decorative.
+    unsafe fn paint_launch(hdc: HDC, ui: &Ui, client: RECT) {
+        let t = &ui.theme;
+        let w = client.right.max(1);
+        let h = client.bottom.max(1);
+
+        // Sized from the smaller side so it never crops, with room above for
+        // the labels and below for what the mode means.
+        let d = (((w.min(h) as f64) * 0.50) as i32).clamp(160, 440);
+        let cx = w / 2;
+        let cy = h / 2 + d / 12;
+
+        let centred = |y: i32, s: &str, font: HFONT, colour: Rgb| {
+            text(
+                hdc,
+                RECT {
+                    left: 0,
+                    top: y,
+                    right: w,
+                    bottom: y + 44,
+                },
+                s,
+                font,
+                colour,
+                DT_CENTER | DT_SINGLELINE,
+            );
+        };
+
+        let top = (cy - d / 2 - 104).max(20);
+        centred(top, "WHAT IS THIS MACHINE?", ui.fonts.heading, t.fg);
+        centred(
+            top + 38,
+            "Turn the dial. Everything else follows from this.",
+            ui.fonts.body,
+            t.fg_secondary,
+        );
+
+        // The detent labels around the top arc, so the pointer aims at one.
+        let r_lab = d as f64 * 0.66;
+        for (ang, name) in chaos_app::knob::DETENTS {
+            let a = (ang - 90.0).to_radians();
+            let lx = cx as f64 + r_lab * a.cos();
+            let ly = cy as f64 + r_lab * a.sin();
+            let on = chaos_app::knob::role_at(ui.knob_angle) == chaos_app::knob::role_at(ang);
+            text(
+                hdc,
+                RECT {
+                    left: lx as i32 - 90,
+                    top: ly as i32 - 12,
+                    right: lx as i32 + 90,
+                    bottom: ly as i32 + 20,
+                },
+                name,
+                if on {
+                    ui.fonts.body_bold
+                } else {
+                    ui.fonts.body
+                },
+                if on { t.fg } else { t.fg_tertiary },
+                DT_CENTER | DT_SINGLELINE,
+            );
+        }
+
+        // The knob, scan-converted and blitted once.
+        let px = d.max(8) as usize;
+        let logo_px = ((px as f64) * 0.42).max(8.0) as usize;
+        let logo = art::logo_scaled(logo_px);
+        let bits = chaos_app::knob::render(px, ui.knob_angle, t.bg, &logo, logo_px);
+        let bmi = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: px as i32,
+            biHeight: px as i32,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        };
+        StretchDIBits(
+            hdc,
+            cx - d / 2,
+            cy - d / 2,
+            d,
+            d,
+            0,
+            0,
+            px as i32,
+            px as i32,
+            bits.as_ptr() as *const std::ffi::c_void,
+            &bmi,
+            DIB_RGB_COLORS,
+            SRCCOPY,
+        );
+
+        // What the chosen mode means, so the choice is made with its
+        // consequence visible rather than from one word.
+        let role = chaos_app::knob::role_at(ui.knob_angle);
+        centred(
+            cy + d / 2 + 18,
+            chaos_app::knob::title(role),
+            ui.fonts.heading,
+            t.fg,
+        );
+        centred(
+            cy + d / 2 + 54,
+            role.describe(),
+            ui.fonts.body,
+            t.fg_secondary,
+        );
+        centred(
+            (h - 44).max(cy + d / 2 + 92),
+            "click a name, or drag the dial, then press ENTER",
+            ui.fonts.small,
+            t.fg_tertiary,
+        );
     }
 
     /// The navigation rail: the mark, the destinations, and nothing else.
@@ -4235,7 +4546,13 @@ Any value a client sends is accepted.                      The server still list
             };
             let mut m = Vec::new();
 
-            for (i, p) in nav::PAGES.iter().enumerate() {
+            // **Only the pages this mode can reach, and contiguously.**
+            // Laying every page out and hiding some leaves holes in the rail;
+            // laying out only the reachable ones keeps them together. The
+            // unreachable ones are moved off-screen rather than left where a
+            // stale click could still find them.
+            let reachable = nav::pages_for(ui.cfg.role);
+            for (i, p) in reachable.iter().enumerate() {
                 let q = nav_rect(i);
                 m.push((
                     nav::nav_id(*p),
@@ -4244,6 +4561,11 @@ Any value a client sends is accepted.                      The server still list
                     q.right - q.left,
                     q.bottom - q.top,
                 ));
+            }
+            for p in nav::PAGES {
+                if !reachable.contains(&p) {
+                    m.push((nav::nav_id(p), -4000, -4000, 1, 1));
+                }
             }
             m.push((
                 nav::ID_STRIP_STOP,
@@ -5969,6 +6291,39 @@ Any value a client sends is accepted.                      The server still list
             // Answered here so Windows never paints a ground we are about to
             // paint over: that flash of the wrong colour is the whole of it.
             WM_ERASEBKGND => 1,
+            // **Only while the knob is up.** Once a mode is chosen these are
+            // the shell's messages and it handles them as it always did.
+            WM_LBUTTONDOWN | WM_MOUSEMOVE | WM_LBUTTONUP
+                if !launched() && msg != WM_MOUSEMOVE || (!launched() && held()) =>
+            {
+                let x = (lp & 0xFFFF) as i16 as i32;
+                let y = ((lp >> 16) & 0xFFFF) as i16 as i32;
+                knob_input(hwnd, msg, x, y);
+                0
+            }
+
+            // **The way back.** Atur: "There should also be an option to
+            // change the mode to exit this mode and enter other modes."
+            WM_KEYDOWN if launched() && wp as u16 == VK_ESCAPE => {
+                back_to_knob(hwnd);
+                0
+            }
+
+            WM_KEYDOWN if !launched() => {
+                let vk = wp as u16;
+                let step = match vk {
+                    VK_LEFT => -1,
+                    VK_RIGHT => 1,
+                    VK_RETURN => {
+                        launch(hwnd);
+                        return 0;
+                    }
+                    _ => return 0,
+                };
+                nudge_knob(hwnd, step);
+                0
+            }
+
             WM_PAINT => {
                 paint(hwnd);
                 0

@@ -190,6 +190,7 @@ pub const NIF_TIP: u32 = 0x0004;
 pub const NIF_INFO: u32 = 0x0010;
 pub const NIIF_INFO: u32 = 0x0001;
 
+pub const WM_LBUTTONDOWN: u32 = 0x0201;
 pub const WM_LBUTTONUP: u32 = 0x0202;
 pub const WM_LBUTTONDBLCLK: u32 = 0x0203;
 pub const WM_RBUTTONUP: u32 = 0x0205;
@@ -386,6 +387,10 @@ extern "system" {
         bRepaint: BOOL,
     ) -> BOOL;
     pub fn InvalidateRect(hWnd: HWND, lpRect: *const RECT, bErase: BOOL) -> BOOL;
+    /// **Needed for a drag.** Without capture, moving the pointer off the knob
+    /// stops delivering `WM_MOUSEMOVE` and the dial sticks mid-turn.
+    pub fn SetCapture(hWnd: HWND) -> HWND;
+    pub fn ReleaseCapture() -> BOOL;
     pub fn DestroyWindow(hWnd: HWND) -> BOOL;
     pub fn SetWindowTextW(hWnd: HWND, lpString: *const u16) -> BOOL;
     pub fn EnableWindow(hWnd: HWND, bEnable: BOOL) -> BOOL;
@@ -689,6 +694,8 @@ pub type HACCEL = *mut c_void;
 
 pub const VK_ESCAPE: u16 = 0x1B;
 pub const VK_RETURN: u16 = 0x0D;
+pub const VK_LEFT: u16 = 0x25;
+pub const VK_RIGHT: u16 = 0x27;
 pub const VK_F5: u16 = 0x74;
 
 // The notification area, which lives in the shell rather than in user32.

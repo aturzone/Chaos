@@ -15,12 +15,12 @@ Legend: **[x]** done and verified · **[~]** partly done, the gap is named ·
 | A1 | `assets/knob.svg` drawn, Chaos logo at its centre | **[x]** 70 KB, logo embedded not redrawn |
 | A2 | `assets/mode-dial.svg` — four detents across a 180° top sweep | **[x]** no dark plate, transparent, knob inlined |
 | A3 | `tools/make-mode-dial.py` regenerates both | **[x]** |
-| A4 | **Atur has looked at them and they are right** | **[~]** first render approved; re-check after the 180° change |
-| A5 | Logo animation on launch, from `logo.svg` | **[ ]** |
-| A6 | Knob drawn natively on Windows (GDI+) | **[ ]** |
-| A7 | Turning + pressing selects a mode and enters the shell | **[ ]** |
-| A8 | Mode changeable again without restart | **[ ]** |
-| A9 | Shell shows only that mode's controls | **[ ]** |
+| A4 | **Atur has looked at them and they are right** | **[x]** approved 2026-08-26 |
+| A5 | Logo animation on launch, from `logo.svg` | **[ ]** the knob is up; the animation before it is not |
+| A6 | Knob drawn natively on Windows | **[x]** `knob.rs`, scan-converted per pixel, 6 tests |
+| A7 | Turning + pressing selects a mode and enters the shell | **[x]** drag, arrows, ENTER — verified on the live window |
+| A8 | Mode changeable again without restart | **[x]** ESC returns to the knob, 10 ms |
+| A9 | Shell shows only that mode's controls | **[x]** HELPER hides CHAT/MODELS/IMAGE, checked on screen |
 | A10 | Same on Android (`Canvas`) | **[ ]** |
 | A11 | `poke-app.ps1` drives all four detents, no call over ~50 ms | **[ ]** |
 

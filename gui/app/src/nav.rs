@@ -41,6 +41,48 @@ pub enum Page {
     Chaos,
 }
 
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+    use crate::settings::Role;
+
+    #[test]
+    fn every_mode_can_reach_the_page_that_changes_its_mode() {
+        // Atur: "There should also be an option to change the mode to exit
+        // this mode and enter other modes." If a mode could not reach CHAOS
+        // the only way out would be reinstalling.
+        for role in [Role::Alone, Role::Core, Role::Client, Role::Helper] {
+            assert!(
+                pages_for(role).contains(&Page::Chaos),
+                "{role:?} cannot get back to the mode page"
+            );
+        }
+    }
+
+    #[test]
+    fn a_mode_only_offers_what_it_can_do() {
+        use Role::*;
+        // A HELPER answers with activations. It has no token loop, so a chat
+        // box would be a control that cannot work.
+        assert!(!pages_for(Helper).contains(&Page::Chat));
+        assert!(!pages_for(Helper).contains(&Page::Image));
+        // A CLIENT loads nothing here, so there is nothing to manage.
+        assert!(!pages_for(Client).contains(&Page::Models));
+        // The two that run models locally get everything.
+        assert_eq!(pages_for(Alone).len(), PAGES.len());
+        assert_eq!(pages_for(Core).len(), PAGES.len());
+    }
+
+    #[test]
+    fn no_mode_offers_a_page_that_does_not_exist() {
+        for role in [Role::Alone, Role::Core, Role::Client, Role::Helper] {
+            for p in pages_for(role) {
+                assert!(PAGES.contains(p), "{p:?} is not a real page");
+            }
+        }
+    }
+}
+
 pub const PAGES: [Page; 6] = [
     Page::Chat,
     Page::Models,
@@ -49,6 +91,35 @@ pub const PAGES: [Page; 6] = [
     Page::Monitor,
     Page::Settings,
 ];
+
+/// Which pages a mode can reach.
+///
+/// **This is the whole point of the knob.** Atur: *"the additional options are
+/// not all messy"* -- a window that opens on six pages has not asked what the
+/// person came to do. Once the mode is chosen, most of them are answered.
+///
+/// A CLIENT loads nothing here, so cache, threads and device settings do not
+/// apply to it: those decide how a model *runs*, and belong to whichever
+/// machine runs it. A HELPER lends memory and cores and holds no conversation,
+/// so it has no chat and no image page.
+pub fn pages_for(role: crate::settings::Role) -> &'static [Page] {
+    use crate::settings::Role;
+    match role {
+        // Everything, because everything happens here.
+        Role::Alone | Role::Core => &[
+            Page::Chat,
+            Page::Models,
+            Page::Image,
+            Page::Chaos,
+            Page::Monitor,
+            Page::Settings,
+        ],
+        // Talks to a CORE. No models of its own to manage.
+        Role::Client => &[Page::Chat, Page::Image, Page::Chaos, Page::Monitor],
+        // Answers with activations. It has no token loop and no transcript.
+        Role::Helper => &[Page::Chaos, Page::Monitor, Page::Settings],
+    }
+}
 
 impl Page {
     /// The label in the navigation rail.

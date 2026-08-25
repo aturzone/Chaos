@@ -59,8 +59,19 @@ pub fn logo_coverage(n: usize) -> Vec<u8> {
     // report was "low quality logo on top", twice. 64 levels is smooth at that
     // size; the cost is four times a rasterisation that happens once and is
     // then cached by `logo_scaled`.
-    const SS: usize = 8;
-    let w = n * SS;
+    //
+    // **But 8 is for small sizes, and it is quadratic in the wrong place.**
+    // The grid is `n * SS` on a side, so the work is `(n * SS)^2`: at 170px
+    // with SS 8 that is a 1360-square grid and **one rasterisation measured
+    // 1510 ms**, which froze the splash screen for a second and a half before
+    // it drew anything. A ray is one pixel wide at 44px and about four at 170,
+    // so the density that rescues the small sizes is wasted on the large ones.
+    //
+    // The threshold is where a ray is comfortably more than a pixel across.
+    let ss = if n <= 96 { 8 } else { 3 };
+    let w = n * ss;
+    #[allow(non_snake_case)]
+    let SS = ss;
     let mut grid = vec![0u8; w * w];
 
     for poly in POLYS {

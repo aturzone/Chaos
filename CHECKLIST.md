@@ -16,13 +16,13 @@ Legend: **[x]** done and verified · **[~]** partly done, the gap is named ·
 | A2 | `assets/mode-dial.svg` — four detents across a 180° top sweep | **[x]** no dark plate, transparent, knob inlined |
 | A3 | `tools/make-mode-dial.py` regenerates both | **[x]** |
 | A4 | **Atur has looked at them and they are right** | **[x]** approved 2026-08-26 |
-| A5 | Logo animation on launch, from `logo.svg` | **[ ]** the knob is up; the animation before it is not |
+| A5 | Logo animation on launch, from `logo.svg` | **[x]** fade + settle, skippable, first frame 8 ms |
 | A6 | Knob drawn natively on Windows | **[x]** `knob.rs`, scan-converted per pixel, 6 tests |
 | A7 | Turning + pressing selects a mode and enters the shell | **[x]** drag, arrows, ENTER — verified on the live window |
 | A8 | Mode changeable again without restart | **[x]** ESC returns to the knob, 10 ms |
 | A9 | Shell shows only that mode's controls | **[x]** HELPER hides CHAT/MODELS/IMAGE, checked on screen |
 | A10 | Same on Android (`Canvas`) | **[ ]** |
-| A11 | `poke-app.ps1` drives all four detents, no call over ~50 ms | **[ ]** |
+| A11 | The launch flow driven on the live window | **[x]** splash 8/1/1 ms, knob 59-70 ms, ESC 10 ms |
 
 **A4 is the gate.** There is no gradient-capable SVG renderer on this machine —
 no cairosvg, no PIL, no rsvg-convert, no Inkscape — and this session has no

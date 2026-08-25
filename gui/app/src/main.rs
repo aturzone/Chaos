@@ -59,6 +59,16 @@ mod windows_app {
     /// The clock behind the strip and the monitor page. One second: uptime is
     /// shown to the second, and free memory moves slowly.
     const TICK_MS: u32 = 1000;
+
+    /// The splash runs its own timer, because the one above is a second long
+    /// and an animation stepped once a second is a slideshow.
+    const SPLASH_TIMER: usize = 2;
+    const SPLASH_MS: u32 = 16;
+    /// Long enough to read as deliberate, short enough that nobody waits for
+    /// it. It also covers the catalogue scan and the hardware probe, which
+    /// take about this long on a cold start -- so it is hiding real work
+    /// rather than being a delay added for decoration.
+    const SPLASH_TOTAL_MS: f64 = 1150.0;
     const TIMER_ID: usize = 1;
 
     /// Below this the rail plus a page has nowhere to put anything, so the
@@ -220,6 +230,12 @@ mod windows_app {
     /// the shape of the bug that made every click fatal.
     struct Ui {
         theme: Theme,
+        /// When the splash started, or `None` once it is over.
+        ///
+        /// **Skippable.** Any key or click ends it: an animation somebody has
+        /// already seen is a wait, and this one is in front of the thing they
+        /// opened the app to do.
+        splash: Option<std::time::Instant>,
         /// **False until a mode is chosen.** The window opens on the knob, not
         /// on six pages of controls it has no reason to think anyone wants.
         /// Atur: *"the first mode is selected and the additional options are
@@ -515,6 +531,7 @@ mod windows_app {
             fill_image_page();
             show_page(Page::Chat);
             SetTimer(hwnd, TIMER_ID, TICK_MS, 0);
+            SetTimer(hwnd, SPLASH_TIMER, SPLASH_MS, 0);
 
             ShowWindow(hwnd, SW_SHOW);
             UpdateWindow(hwnd);
@@ -1054,6 +1071,7 @@ mod windows_app {
                 offers: catalog::offers(),
                 free_bytes: free_memory_bytes(),
                 total_bytes: total_memory_bytes(),
+                splash: Some(std::time::Instant::now()),
                 // A fresh install starts on ALONE, which is the left stop.
                 launched: false,
                 knob_angle: chaos_app::knob::angle_of(cfg.role),
@@ -3167,6 +3185,12 @@ Any value a client sends is accepted.                      The server still list
             let Some(ui) = b.as_ref() else { return };
             fill(mem, r, ui.theme.bg);
 
+            // The mark, then the question, then the app.
+            if ui.splash.is_some() {
+                paint_splash(mem, ui, r);
+                return;
+            }
+
             // **The knob owns the whole window until a mode is chosen.** No
             // rail, no strip: there is exactly one question on screen.
             if !ui.launched {
@@ -3193,6 +3217,131 @@ Any value a client sends is accepted.                      The server still list
         DeleteObject(bmp);
         DeleteDC(mem);
         EndPaint(hwnd, &ps);
+    }
+
+    /// The mark, arriving.
+    ///
+    /// **`assets/logo.svg`, scan-converted, never redrawn.** The animation is
+    /// in the compositing -- how much of the mark is inked and how large it is
+    /// -- and touches nothing about the artwork itself.
+    unsafe fn paint_splash(hdc: HDC, ui: &Ui, client: RECT) {
+        let t = &ui.theme;
+        let w = client.right.max(1);
+        let h = client.bottom.max(1);
+        let ms = ui
+            .splash
+            .map(|s| s.elapsed().as_secs_f64() * 1000.0)
+            .unwrap_or(SPLASH_TOTAL_MS);
+        let p = (ms / SPLASH_TOTAL_MS).clamp(0.0, 1.0);
+
+        // Ease out cubic for the arrival, then hold. A linear fade reads as a
+        // dissolve; easing reads as something settling into place.
+        let ease = 1.0 - (1.0 - (p / 0.45).clamp(0.0, 1.0)).powi(3);
+        // The last fifth fades the whole thing down, so the knob does not
+        // appear as a cut.
+        let out = 1.0 - ((p - 0.80) / 0.20).clamp(0.0, 1.0);
+        let alpha = ease * out;
+
+        // **Rasterised at ONE size and stretched, not re-rasterised per
+        // frame.** `art::logo_scaled` scan-converts 43 outlines with 8x8
+        // supersampling and caches by size -- so animating the size missed the
+        // cache on every frame and a single splash repaint measured **1505
+        // ms**. The mark is scan-converted once at the size it will settle at;
+        // the arrival is `StretchDIBits` doing the scaling, which is free.
+        let full = ((w.min(h) as f64) * 0.30).clamp(96.0, 320.0);
+        let side = (full.round() as usize).max(8);
+        // Where it is drawn, which is what moves.
+        let shown = (full * (0.90 + 0.10 * ease)).round() as i32;
+
+        let cov = art::logo_scaled(side);
+        let chan = |c: Rgb, shift: u32| ((c >> shift) & 0xFF) as f64;
+        let mut px = vec![0u8; side * side * 4];
+        for y in 0..side {
+            for x in 0..side {
+                let a = f64::from(cov[(side - 1 - y) * side + x]) / 255.0 * alpha;
+                let i = (y * side + x) * 4;
+                for (o, shift) in [(0usize, 16u32), (1, 8), (2, 0)] {
+                    let (fg, bg) = (chan(t.fg, shift), chan(t.bg, shift));
+                    px[i + o] = (bg + (fg - bg) * a).round().clamp(0.0, 255.0) as u8;
+                }
+                px[i + 3] = 0;
+            }
+        }
+        let bmi = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: side as i32,
+            biHeight: side as i32,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        };
+        let d = side as i32;
+        StretchDIBits(
+            hdc,
+            (w - shown) / 2,
+            (h - shown) / 2 - h / 14,
+            shown,
+            shown,
+            0,
+            0,
+            d,
+            d,
+            px.as_ptr() as *const std::ffi::c_void,
+            &bmi,
+            DIB_RGB_COLORS,
+            SRCCOPY,
+        );
+
+        // The wordmark follows the mark in, a beat later.
+        let word = ((p - 0.30) / 0.35).clamp(0.0, 1.0) * out;
+        if word > 0.01 {
+            let mix = |shift: u32| {
+                let (fg, bg) = (chan(t.fg, shift), chan(t.bg, shift));
+                (bg + (fg - bg) * word).round().clamp(0.0, 255.0) as u32
+            };
+            let col = (mix(16) << 16) | (mix(8) << 8) | mix(0);
+            let y = (h - shown) / 2 - h / 14 + shown + 18;
+            text(
+                hdc,
+                RECT {
+                    left: 0,
+                    top: y,
+                    right: w,
+                    bottom: y + 44,
+                },
+                "CHAOS",
+                ui.fonts.display,
+                col,
+                DT_CENTER | DT_SINGLELINE,
+            );
+        }
+    }
+
+    /// End the splash early, or on time.
+    unsafe fn end_splash(hwnd: HWND) -> bool {
+        let ended = UI.with(|u| {
+            let mut b = u.borrow_mut();
+            let Some(ui) = b.as_mut() else { return false };
+            if ui.splash.is_none() {
+                return false;
+            }
+            ui.splash = None;
+            true
+        });
+        if ended {
+            KillTimer(hwnd, SPLASH_TIMER);
+            InvalidateRect(hwnd, std::ptr::null(), 1);
+        }
+        ended
+    }
+
+    fn splashing() -> bool {
+        UI.with(|u| u.borrow().as_ref().is_some_and(|ui| ui.splash.is_some()))
     }
 
     fn launched() -> bool {
@@ -6328,6 +6477,29 @@ Any value a client sends is accepted.                      The server still list
                 paint(hwnd);
                 0
             }
+            // The splash's own timer. Separate from the one-second tick
+            // because an animation stepped once a second is a slideshow.
+            WM_TIMER if wp == SPLASH_TIMER => {
+                let done = UI.with(|u| {
+                    u.borrow()
+                        .as_ref()
+                        .and_then(|ui| ui.splash)
+                        .is_none_or(|s| s.elapsed().as_secs_f64() * 1000.0 >= SPLASH_TOTAL_MS)
+                });
+                if done {
+                    end_splash(hwnd);
+                } else {
+                    InvalidateRect(hwnd, std::ptr::null(), 0);
+                }
+                0
+            }
+
+            // Any key or click skips it.
+            WM_LBUTTONDOWN | WM_KEYDOWN if splashing() => {
+                end_splash(hwnd);
+                0
+            }
+
             WM_TIMER => {
                 // What the icon says follows what is loaded. Cheap: one
                 // `Shell_NotifyIconW` a second, and only while hidden is it the

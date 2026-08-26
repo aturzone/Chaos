@@ -1,20 +1,50 @@
 # Burning Grimoire — an interactive QR mark
 
-`grimoire.html` is one self-contained page. A black leather book carrying the
-Chaos mark burns with blue fire inside a lit ritual circle; tapping it swings the
-camera overhead, opens the cover, blazes the circle and writes a QR code onto the
-leaf inside. Tapping again shuts it.
+`grimoire.html` is one self-contained page. A book carrying the Chaos mark burns
+with blue fire inside a lit rune circle; tapping it swings the camera overhead,
+opens the cover, blazes the circle and writes a QR code across the open spread.
+Tapping again shuts it.
+
+There is no ground. The host application composites the rite over its own
+background, so all that is drawn is the book, the candles, the circle and what
+they throw.
 
 No libraries. The 3-D renderer, the flame, the bloom and the QR encoder are all
 in the file, because the page is published as an artifact and that sandbox blocks
 every external host except Google Fonts.
 
-## The two things worth changing
+## Where the code points
 
-Both are constants at the top of the script:
+Resolved while the page runs, in this order:
 
-- `TARGET_URL` — where the code points. Anything up to 74 bytes fits.
-- `C` — the whole palette. The piece is one hue ramp; retint it here.
+1. `window.CHAOS_ENDPOINT` — a string or a function. **This is the integration
+   point.** The host sets it and fires `window.dispatchEvent(new Event(
+   "chaos:endpoint"))`, or calls `window.__grimoire.setEndpoint(url)`.
+2. `?endpoint=` or `#endpoint=` in the address.
+3. `location.origin`, when the page is served by the node itself and that origin
+   is not loopback. **This is the good case**: served by Chaos on
+   `http://192.168.1.42:8099`, that origin *is* the route another machine uses,
+   and it changes when the network does.
+4. `TARGET_URL`, the fallback constant.
+
+The page re-resolves on `online`, `offline`, `navigator.connection`'s `change`,
+tab visibility, a `chaos:endpoint` event, and a four-second poll — and re-cuts
+the code whenever the answer moves.
+
+**A browser cannot read the Wi-Fi SSID.** There is no API for it, and none for
+the LAN address either: host ICE candidates come back as mDNS `.local` names now,
+and a STUN server is an external host the artifact sandbox will not reach. The
+network cannot be sniffed from inside a page; it has to be handed in, or inferred
+from where the page was served. Options 1 and 3 are those two answers.
+
+## Themes
+
+Both are built. Light is the application's default: black leather on white, with
+a deep saturated circle. Dark inverts the book to white vellum on near-black.
+They are not a recolour of each other — on black, blue fire is ADDED to the
+ground and blooms; on white there is nothing left to add to, so the same fire is
+laid over the ground instead and the bloom is nearly off. That is what
+`PALETTES[*].blend` selects.
 
 **The blue is a choice, not the brand.** This repository's accent is orange
 (`#ff7a33` / `#d1500f`, in `crates/chaos-arch/src/ui.rs`) and `assets/logo.svg`
@@ -43,8 +73,7 @@ here is checked two ways, and the second one found a real bug:
 python decode_qr.py grid.txt          # independent decoder, from the read side
 ```
 
-`decode_qr.py` (kept with the session scratch, reproduce it from this note if
-needed) locates the format word, unmasks, de-interleaves and computes the
+`decode_qr.py` sits next to this file. It locates the format word, unmasks, de-interleaves and computes the
 Reed-Solomon **syndromes**. For a correct codeword every syndrome is zero — a
 property no misunderstanding shared with the encoder can fake.
 
@@ -56,9 +85,19 @@ q = qrcode.QRCode(version=4, error_correction=ERROR_CORRECT_Q, box_size=1, borde
 q.add_data("https://github.com/aturzone/Chaos"); q.make(fit=False)
 ```
 
-Current state: **identical to `python-qrcode`, auto-chosen mask included**, and
-all 52 syndromes zero. `segno` differs, but only in its padding codewords, which
-no decoder reads.
+Current state for the default target: **identical to `python-qrcode`, auto-chosen
+mask included**, and all 52 syndromes zero.
+
+Two implementations differ from this one without either being wrong, and both
+differences are worth knowing before chasing them:
+
+- `segno` pads differently — an extra `0x00` before the `EC 11` run. No decoder
+  reads padding.
+- `python-qrcode` **splits a URL into mixed-mode segments** (byte `http`, then
+  alphanumeric for `://192.168.1.42:8099`, which is entirely in the alphanumeric
+  charset). This encoder uses one byte segment throughout: less compact, equally
+  valid. `decode_qr.py` reads only the first segment, so decoding *their* grid
+  reports four bytes, `http`. That is the decoder's limit, not their bug.
 
 To dump the page's own grid: `window.__grimoire.qr()`.
 
@@ -87,6 +126,21 @@ To dump the page's own grid: `window.__grimoire.qr()`.
 - **Face windings fail silently.** A box wound inside-out culls the face you
   wanted and keeps the one behind it; the cover, logo and all, was culled every
   frame. Cull against the world-space normal, not the screen winding.
+- **Rotating a finished spread image cannot fit a rolled camera.** Turning the
+  artwork turns its gutter edge with it, and the two leaves then join along the
+  wrong edges — each showing a quarter-turned copy of the wrong half. The design
+  is composed into a canvas whose long axis is always the across-gutter one, and
+  the two orientations differ only in which canvas axis that is.
+- **Abutting coplanar quads leave a hairline**, and that hairline ran straight
+  through the middle of the code. The leaves overlap by `GUTTER_LAP` instead.
+- **A rim light on a face seen edge-on draws a bright line.** The two text
+  blocks' inner faces meet at the gutter; giving them a sheen drew a highlight
+  across the QR. They reach the spine now and take `rim = 0`.
+- **A degenerate quad's normal is a division by zero, and a NaN colour does not
+  throw** — `fillStyle` simply keeps its previous value and paints something
+  arbitrary. The spine is skipped below a hair of angle.
+- **Additive rings bead.** 144 segments with round caps means every joint is two
+  caps stacked; one path and one stroke instead.
 - **`fonts.ready` can resolve having loaded nothing.** Faces are declared lazily
   and nothing in the DOM is set in Cinzel — it exists only inside canvas calls,
   which do not count. Load each face by name before baking a texture, because a

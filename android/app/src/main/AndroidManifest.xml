@@ -5,7 +5,15 @@
          talks to one server on the local network and does nothing else. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+        **The engine is executed, not loaded.** `libchaos_serve.so` in
+        jniLibs is the Chaos server built for Android; the app runs it as a
+        child process exactly as the desktop window does. A file can only be
+        executed if it is really on disk, so it must be extracted from the APK
+        rather than mapped out of it.
+    -->
     <application
+        android:extractNativeLibs="true"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"

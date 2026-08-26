@@ -43,6 +43,14 @@ pub struct JniNativeInterface {
     _v1: [*mut c_void; 163],
     /// Index 167: `NewStringUTF(JNIEnv*, const char*) -> jstring`
     new_string_utf: unsafe extern "system" fn(*mut JniEnv, *const c_char) -> *mut c_void,
+    /// Index 168: `GetStringUTFLength`, which is not needed but occupies the
+    /// slot -- the padding between entries is what keeps the offsets right.
+    _get_string_utf_length: *mut c_void,
+    /// Index 169: `GetStringUTFChars(JNIEnv*, jstring, jboolean*) -> const char*`
+    get_string_utf_chars:
+        unsafe extern "system" fn(*mut JniEnv, *mut c_void, *mut u8) -> *const c_char,
+    /// Index 170: `ReleaseStringUTFChars(JNIEnv*, jstring, const char*)`
+    release_string_utf_chars: unsafe extern "system" fn(*mut JniEnv, *mut c_void, *const c_char),
 }
 
 #[repr(C)]
@@ -64,6 +72,24 @@ unsafe fn to_java(env: *mut JniEnv, s: &str) -> *mut c_void {
         return ((*(*env).functions).new_string_utf)(env, empty.as_ptr());
     };
     ((*(*env).functions).new_string_utf)(env, c.as_ptr())
+}
+
+/// Read a Java string.
+///
+/// **The characters must be released.** `GetStringUTFChars` may hand back a
+/// copy, and not releasing it leaks for the life of the process -- which on a
+/// phone is until the app is killed.
+unsafe fn from_java(env: *mut JniEnv, s: *mut c_void) -> String {
+    if s.is_null() {
+        return String::new();
+    }
+    let p = ((*(*env).functions).get_string_utf_chars)(env, s, std::ptr::null_mut());
+    if p.is_null() {
+        return String::new();
+    }
+    let out = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+    ((*(*env).functions).release_string_utf_chars)(env, s, p);
+    out
 }
 
 /// `com.aturzone.chaos.Engine.version()`
@@ -109,6 +135,96 @@ pub unsafe extern "system" fn Java_com_aturzone_chaos_Engine_describeDevice(
         m.ram_source
     );
     to_java(env, &text)
+}
+
+/// `com.aturzone.chaos.Engine.startServer(modelPath, host, port, key)`
+///
+/// **This is what makes ALONE and CORE mean something on a phone.** Until it
+/// existed the dial offered four modes and one of them worked: a CORE could
+/// not serve, a HELPER could not lend, ALONE could not run a model. Atur, and
+/// he was right: *"android can not do any one of works in windows"*.
+///
+/// It runs `chaos_serve::serve` on its own thread, which is the same server
+/// the desktop starts as a child process — the same token loop, the same
+/// OpenAI-compatible endpoints — so the app's existing client talks to it with
+/// no second protocol and no second token loop to keep in step.
+///
+/// **This blocks for the life of the app.** Call it from a thread the JVM
+/// made: `serve` never returns, and the app is killed rather than shut down,
+/// which is also why the ggml exit abort recorded in `android-engine-runs`
+/// cannot fire here.
+///
+/// Returns the reason it stopped, or an empty string.
+///
+/// # Safety
+/// Called only by the JVM.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_aturzone_chaos_Engine_startServer(
+    env: *mut JniEnv,
+    _class: *mut c_void,
+    model: *mut c_void,
+    host: *mut c_void,
+    port: i32,
+    key: *mut c_void,
+) -> *mut c_void {
+    let model = from_java(env, model);
+    let host = from_java(env, host);
+    let key = from_java(env, key);
+    if model.is_empty() {
+        return to_java(env, "no model chosen");
+    }
+    let key = (!key.is_empty()).then_some(key);
+    // **Run it here, on the caller's thread.** Spawning from inside the
+    // library crashed in `pthread_create` -> `__init_tcb` with
+    // SIGSEGV/SEGV_ACCERR before the closure ran, and a bigger stack did not
+    // help. Kotlin has threads of its own and the JVM makes them properly, so
+    // the caller supplies one and this blocks on it for the life of the app.
+    let why = match std::panic::catch_unwind(move || {
+        chaos_serve::serve(&model, &host, port as u16, 0.0, key, None, false, true)
+    }) {
+        Ok(Ok(())) => String::new(),
+        Ok(Err(e)) => format!("{e}"),
+        Err(_) => "the engine stopped unexpectedly".to_string(),
+    };
+    to_java(env, &why)
+}
+
+/// `com.aturzone.chaos.Engine.listModels(dir)`
+///
+/// What is on this phone, one name per line, so the app can offer a choice
+/// rather than a text box. Uses the same catalogue the desktop does.
+///
+/// # Safety
+/// Called only by the JVM.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_aturzone_chaos_Engine_listModels(
+    env: *mut JniEnv,
+    _class: *mut c_void,
+    dir: *mut c_void,
+) -> *mut c_void {
+    let dir = from_java(env, dir);
+    if dir.is_empty() {
+        return to_java(env, "");
+    }
+    // `CHAOS_MODELS` is read before anything home-relative, which is how the
+    // app hands the engine its own files directory -- an Android shell has
+    // `HOME=/`, so nothing home-relative would be right here.
+    std::env::set_var("CHAOS_MODELS", &dir);
+    let mut names: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("gguf"))
+            {
+                if let Some(n) = p.file_name().and_then(|n| n.to_str()) {
+                    names.push(n.to_string());
+                }
+            }
+        }
+    }
+    names.sort();
+    to_java(env, &names.join("\n"))
 }
 
 #[cfg(test)]

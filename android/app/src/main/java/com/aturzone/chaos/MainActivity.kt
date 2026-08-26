@@ -100,6 +100,26 @@ class MainActivity : Activity() {
         // every APK CI has published so far -- the Android reading is what
         // there is, and the app carries on as a client.
         val engine = Engine.describeDeviceOrNull()
+        // The note must agree with the dial. It used to read "THIS PHONE IS A
+        // CLIENT" in every mode, including the ones where the phone was
+        // running a model itself.
+        findViewById<TextView>(R.id.chaos_note).setText(
+            when (mode) {
+                "CORE" -> R.string.in_core
+                "HELPER" -> R.string.in_helper
+                "ALONE" -> R.string.in_alone
+                else -> R.string.in_client
+            },
+        )
+
+        // **A mode that runs models locally starts the engine here.** ALONE
+        // serves itself on loopback; CORE serves the network so other devices
+        // can reach this phone. Both are the real server -- the same token
+        // loop the desktop runs -- so the client below needs no special case.
+        if (ModeActivity.canHoldModels(mode)) {
+            startLocalEngine(mode)
+        }
+
         if (!ModeActivity.canChat(mode)) {
             for (id in intArrayOf(R.id.scroll, R.id.input, R.id.send)) {
                 findViewById<View>(id).visibility = View.GONE
@@ -134,6 +154,104 @@ class MainActivity : Activity() {
      * So it is saved on CONNECT as well, which is the moment the values are
      * known to be the ones the user meant.
      */
+    /**
+     * Run a model on this phone.
+     *
+     * **Where the models live matters.** `getExternalFilesDir` is a directory
+     * a person can actually reach over USB or with a file manager, which a
+     * .gguf of several hundred megabytes has to be: nothing is going to be
+     * typed in. It is also app-private, so uninstalling takes the models with
+     * it rather than leaving gigabytes behind.
+     */
+    private fun startLocalEngine(mode: String) {
+        val dir = getExternalFilesDir(null)?.absolutePath
+        if (dir == null) {
+            setStatus("no storage available for models")
+            return
+        }
+        val found = Engine.models(dir)
+        if (found.isEmpty()) {
+            // Said plainly, with the path, because the alternative is a mode
+            // that looks broken when it is only empty.
+            setStatus("no model on this phone. Put a .gguf in $dir")
+            return
+        }
+        val model = "$dir/${found.first()}"
+        val host = if (mode == "CORE") "0.0.0.0" else "127.0.0.1"
+        // A CORE is reachable from the network, and chaos-serve refuses that
+        // without a key -- rightly. One is made here rather than demanded.
+        val useKey = if (mode == "CORE") newKey() else ""
+        setStatus("starting ${found.first()}...")
+        Thread {
+            val why = startEngineProcess(model, host, useKey)
+            ui.post {
+                if (why.isEmpty()) {
+                    // Point our own client at it. The engine takes a moment to
+                    // load the weights; the client retries as the user sends.
+                    address.setText("http://127.0.0.1:$LOCAL_PORT")
+                    key.setText(useKey)
+                    setStatus(
+                        if (mode == "CORE") {
+                            "serving ${found.first()} on port $LOCAL_PORT"
+                        } else {
+                            "running ${found.first()} on this phone"
+                        },
+                    )
+                } else {
+                    setStatus(why)
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Run the engine as a child process.
+     *
+     * **Not through JNI, and the reason is written down.** Loading the engine
+     * into this process and calling it worked for anything that did not make a
+     * thread; the moment `StreamingRunner::new` called `pthread_create` the
+     * app died with SIGSEGV/SEGV_ACCERR inside `__init_tcb`. A bigger stack did
+     * not help, moving the call to a JVM thread did not help, and the library
+     * has no TLS segment to blame. The same engine **as an executable** runs on
+     * the same device and makes threads perfectly -- `chaos-run` was verified
+     * doing exactly that.
+     *
+     * So Android does what the desktop window already does: it spawns the
+     * server as a child process and talks to it over the API. One
+     * architecture, one protocol, and the part that was fighting is gone.
+     *
+     * Android permits executing a file from `nativeLibraryDir`, which is why
+     * the binary ships as `libchaos_serve.so` and the manifest asks for native
+     * libraries to be extracted.
+     */
+    private fun startEngineProcess(model: String, host: String, key: String): String = try {
+        val exe = "${applicationInfo.nativeLibraryDir}/libchaos_serve.so"
+        val args = mutableListOf(exe, model, "--host", host, "--port", "$LOCAL_PORT")
+        if (key.isNotEmpty()) { args += listOf("--api-key", key) }
+        val p = ProcessBuilder(args).redirectErrorStream(true).start()
+        engine = p
+        // Drain the output, or a full pipe stops the engine rather than merely
+        // losing its log -- the same trap the desktop window documents.
+        Thread {
+            p.inputStream.bufferedReader().forEachLine { line ->
+                android.util.Log.i("chaos-serve", line)
+            }
+        }.start()
+        ""
+    } catch (e: Exception) {
+        "could not start the engine: ${e.message}"
+    }
+
+    /** A key for a CORE, unguessable enough and made here rather than asked for. */
+    private fun newKey(): String {
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        val r = java.security.SecureRandom()
+        return (1..26).map { alphabet[r.nextInt(alphabet.length)] }.joinToString("")
+    }
+
+    /** The engine, while it runs. */
+    private var engine: Process? = null
+
     private fun remember() {
         getSharedPreferences("chaos", Context.MODE_PRIVATE).edit()
             .putString("address", address.text.toString().trim())
@@ -249,5 +367,10 @@ class MainActivity : Activity() {
 
     private fun setStatus(text: String) {
         status.text = text
+    }
+
+    companion object {
+        /** The port the in-process engine listens on, matching the desktop. */
+        const val LOCAL_PORT = 8231
     }
 }

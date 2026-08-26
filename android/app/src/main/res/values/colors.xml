@@ -7,4 +7,12 @@
     <color name="fg_secondary">#9DA7B3</color>
     <color name="fg_tertiary">#6E7781</color>
     <color name="accent">#0000F2</color>
+
+    <!-- **The dial's own ground, and it is light.** Atur: "the dial should be
+         white; when I turned it the area around it went black." The knob is a
+         white moulded control and the app's dark theme put it on #0D1117, so
+         it read as a hole. A stove's panel is not black behind a white knob. -->
+    <color name="dial_bg">#F4F4F1</color>
+    <color name="dial_fg">#16181C</color>
+    <color name="dial_fg_dim">#6B6F76</color>
 </resources>

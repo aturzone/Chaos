@@ -61,8 +61,8 @@ class ModeKnob @JvmOverloads constructor(
     /** Called when the dial settles on a mode. */
     var onPick: ((String) -> Unit)? = null
 
-    private val fgColour = resources.getColor(R.color.fg, null)
-    private val dimColour = resources.getColor(R.color.fg_tertiary, null)
+    private val fgColour = resources.getColor(R.color.dial_fg, null)
+    private val dimColour = resources.getColor(R.color.dial_fg_dim, null)
 
     /// The detent the dial was last on, so a click sounds when it changes
     /// rather than on every pixel of a drag.

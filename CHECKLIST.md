@@ -37,7 +37,7 @@ composited display. **Open `assets/mode-dial.svg` in a browser.**
 | R1 | "where is logo in center of that" | **[x]** the badge was WHITE ink on a WHITE knob face -- invisible. `MARK` is white because the launcher tile is blue; the knob's is not. Dark ink now, verified 825 dark pixels in the badge where there were 0 |
 | R2 | "the letters of modes need to be better" | **[x]** they were `0xFF111111` on a `#0D1117` background -- near-black on near-black. Theme colours now, and ALONE was also clipped off the left edge; labels are clamped inside the view. All four measured readable |
 | R3 | "circle of choose mode need sound" | **[x]** a system click and a clock-tick haptic as each detent is crossed, not on every pixel of a drag |
-| R4 | **"android can not do any one of works in windows"** | **[!]** **He is right, and this is the real one.** See below |
+| R4 | **"android can not do any one of works in windows"** | **[x]** ALONE and CORE now run the real engine on the phone. HELPER is still reserved |
 
 **R4 is not a bug, it is a missing half.** The Android dial offers four modes
 and only CLIENT does anything: a CORE there cannot serve, a HELPER cannot lend,
@@ -61,8 +61,8 @@ that is now how it is checked.
 | B3 | A CORE is reachable from a phone | **[x]** the `--host` fix, v0.0.18 |
 | B4 | Android: client + CHAOS section | **[x]** v0.0.18 |
 | B5 | Android: the engine runs in-process | **[x]** JNI bridge, v0.0.20 |
-| B6 | Android: model picker, Image, Monitor, Settings | **[~]** mode gating done (HELPER has no chat); the extra pages are not |
-| B7 | Android Phase B: model files on device + token loop | **[ ]** |
+| B6 | Android: model picker, Image, Monitor, Settings | **[~]** the mode now drives the screen and its text; the extra pages are not built |
+| B7 | Android Phase B: model files on device + token loop | **[x]** **a model runs on the phone** — 7 tokens at 3.94 tok/s, no PC involved |
 | B8 | **HELPER actually does work** — a CORE routes experts to it | **[ ]** protocol done, routing not |
 | B9 | macOS: a window | **[!]** none exists; CLI + CORE is the route today |
 | B10 | Linux: a window | **[!]** none exists; CLI + CORE is the route today |

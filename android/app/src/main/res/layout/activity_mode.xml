@@ -10,17 +10,17 @@
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
+    android:background="@color/dial_bg"
     android:gravity="center_horizontal"
-    android:padding="20dp">
+    android:padding="@dimen/screen_pad">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="18dp"
         android:text="@string/mode_title"
-        android:textColor="@color/fg"
-        android:textSize="19sp"
+        android:textColor="@color/dial_fg"
+        android:textSize="@dimen/mode_title"
         android:textStyle="bold"
         android:gravity="center" />
 
@@ -29,8 +29,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:text="@string/mode_hint"
-        android:textColor="@color/fg_tertiary"
-        android:textSize="13sp"
+        android:textColor="@color/dial_fg_dim"
+        android:textSize="@dimen/mode_hint"
         android:gravity="center" />
 
     <com.aturzone.chaos.ModeKnob
@@ -43,8 +43,8 @@
         android:id="@+id/mode_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="@color/fg"
-        android:textSize="17sp"
+        android:textColor="@color/dial_fg"
+        android:textSize="@dimen/mode_name"
         android:textStyle="bold"
         android:gravity="center" />
 
@@ -53,8 +53,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:textColor="@color/fg_secondary"
-        android:textSize="13sp"
+        android:textColor="@color/dial_fg_dim"
+        android:textSize="@dimen/mode_desc"
         android:gravity="center" />
 
     <Button

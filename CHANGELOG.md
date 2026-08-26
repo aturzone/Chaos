@@ -8,6 +8,109 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.21] — 2026-08-26
+
+### A model runs on the phone
+
+Atur: *"android can not do any one of works in windows and just can connect
+windows"*. He was right — the dial offered four modes and only CLIENT did
+anything. On an Android 34 emulator, with no PC involved:
+
+```
+you
+What is the capital of France?
+
+chaos
+The capital of France is Paris.
+
+7 tokens in 1.8s (3.938 tok/s), finish=stop
+POST /v1/chat/completions -> 200 (stream) in 3.2s
+```
+
+**`chaos-serve` is a library now.** `network/serve/src/main.rs` became `lib.rs`
+plus a thin `src/bin/chaos-serve.rs` that is the only thing parsing arguments.
+Everything the phone needed already existed there — the token loop, sampling,
+streaming, the endpoints — and the Kotlin client already spoke to it, so no
+second token loop had to be written.
+
+**The engine runs as a child process, not inside the app.** Loading it in worked
+for anything that did not make a thread; the moment `StreamingRunner::new`
+called `pthread_create` the app died with SIGSEGV/SEGV_ACCERR inside
+`__init_tcb`. A 16 MiB stack did not help, moving the call to a JVM thread did
+not help — the crash moved deeper — and the library has no `PT_TLS` segment to
+blame. **The same engine as an executable makes threads perfectly on the same
+device**, which `chaos-run` proved in v0.0.19. So Android does what the desktop
+has always done: spawns the server and talks to it over the API.
+
+Models go in the app's external files directory — reachable over USB or a file
+manager, which a `.gguf` of several hundred megabytes has to be, and app-private
+so uninstalling takes them with it.
+
+### The launch screen
+
+The window and the app now open on **one question** instead of six pages of
+controls: a gas-stove dial with four detents across a 180° top sweep, and stops
+at both ends. Turn it, press, and the shell shows only what that mode can do.
+
+- **Windows** renders it per pixel — plain GDI has no gradient fill, and the
+  chamfer ring is most of what makes it read as three-dimensional. Light is
+  computed in screen space while geometry is read in knob space, so turning the
+  knob does not turn the highlight.
+- **Android** draws the same geometry with `Canvas`.
+- The badge is `assets/logo.svg`, rendered per density and **never redrawn**.
+- The logo animates in before the dial, and any key or click skips it.
+- `ESC` on the desktop, **CHANGE MODE** on the phone, returns to the dial.
+
+### Fixed
+
+- **The logo rasteriser was 190x too slow at splash sizes.** One splash repaint
+  measured **1510 ms**; timing each separately gave 1510, then 1, 1, 1 — the
+  cache was fine, the cost was a single rasterisation. `logo_coverage`
+  supersamples 8x8 and its grid is `n * SS` per side, so 170 px meant a
+  1360-square grid. The 8 exists because a ray is one pixel wide at 44 px; at
+  170 it is four. Size-aware now, and the first frame is **8 ms**.
+- **The dial's badge was invisible** — white ink on a white knob face, because
+  the launcher's ink is white for a blue tile. A screenshot showed **0 dark
+  pixels** in the badge; it is 825 now.
+- **The mode labels were unreadable** — `0xFF111111` on a `#0D1117` background —
+  and ALONE was clipped off the left edge entirely.
+- **The dial had a black surround.** The app's theme is dark and a white moulded
+  knob on it read as a hole; the dial screen has its own light ground.
+- **The phone's note said "THIS PHONE IS A CLIENT" in every mode**, including
+  the ones where it was running a model itself.
+- **Every size on the dial screen is a dimension resource**, with values for
+  `sw360dp`, `sw600dp` and `h480dp`.
+- **The dial clicks**, with a system click and a clock-tick haptic as each
+  detent is crossed.
+- **ggml is built position-independent.** `android/jni` is a cdylib and gained
+  ggml through `chaos-serve`; Linux CI's non-PIC archives failed the link with a
+  page of `R_X86_64_PC32` relocation errors against `stderr` that name neither.
+
+### Measured
+
+- **Queue depth is worth 2.55x on the disk.** `chaos-qdbench` reading
+  expert-sized blocks: depth 1 gives 1.34 GiB/s — reproducing what Chaos gets
+  today, which confirms it reads serially — depth 4 gives 2.39x and depth 8
+  gives **2.55x**.
+
+### Retracted
+
+- **The 5 tok/s ladder does not reach 5.** It modelled a token as
+  `bytes / bandwidth` and omitted the **0.84 s of arithmetic that never touches
+  the disk**. With that restored the rungs are 0.31 / 0.56 / 0.76 / 0.93 /
+  **0.99** — rung 1 is worth 1.82x, not 2.55x.
+- **And 5 tok/s is out of reach on this laptop at all.** V4-Flash reads
+  **7.38 GiB of always-read weights every token**; at this machine's measured
+  30.8 GiB/s that caps it at **4.17 tok/s with the disk free and no compute**.
+  5 tok/s needs 36.9 GiB/s for the trunk alone. **What is achievable here is
+  0.43 → about 1.0 tok/s**, which agrees with the 1.19 ceiling
+  `v4flash-ram-frontier` found from the opposite direction.
+
+### Still not done
+
+**HELPER is reserved.** `chaos-worker` speaks the protocol and is measured, but
+no CORE routes an expert to it yet, and both the dial and the phone say so.
+
 ## [0.0.20] — 2026-08-25
 
 ### The engine runs inside the Android app
@@ -1949,7 +2052,8 @@ Qwen3-30B-A3B Q4_K_M prefill, Chaos / llama.cpp:
   requires a competitor's exact command line and output before any competitive
   claim is citable.
 
-[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.20...HEAD
+[Unreleased]: https://github.com/aturzone/Chaos/compare/v0.0.21...HEAD
+[0.0.21]: https://github.com/aturzone/Chaos/releases/tag/v0.0.21
 [0.0.20]: https://github.com/aturzone/Chaos/releases/tag/v0.0.20
 [0.0.19]: https://github.com/aturzone/Chaos/releases/tag/v0.0.19
 [0.0.18]: https://github.com/aturzone/Chaos/releases/tag/v0.0.18

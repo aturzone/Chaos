@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "chaos-android"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-model",
  "chaos-probe",
@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-app"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
  "chaos-gguf",
@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-arch"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
  "chaos-ggml",
@@ -38,11 +38,11 @@ dependencies = [
 
 [[package]]
 name = "chaos-build"
-version = "0.0.20"
+version = "0.0.21"
 
 [[package]]
 name = "chaos-ggml"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-gguf",
  "chaos-model",
@@ -50,18 +50,18 @@ dependencies = [
 
 [[package]]
 name = "chaos-gguf"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
 ]
 
 [[package]]
 name = "chaos-grammar"
-version = "0.0.20"
+version = "0.0.21"
 
 [[package]]
 name = "chaos-image"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
  "chaos-ggml",
@@ -73,18 +73,18 @@ dependencies = [
 
 [[package]]
 name = "chaos-io"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
 ]
 
 [[package]]
 name = "chaos-jinja"
-version = "0.0.20"
+version = "0.0.21"
 
 [[package]]
 name = "chaos-model"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
  "chaos-gguf",
@@ -95,21 +95,21 @@ dependencies = [
 
 [[package]]
 name = "chaos-plan"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-gguf",
 ]
 
 [[package]]
 name = "chaos-probe"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
 ]
 
 [[package]]
 name = "chaos-run"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-arch",
  "chaos-build",
@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-serve"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-arch",
  "chaos-build",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-setup"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-app",
  "chaos-build",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-tokenizer"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-gguf",
  "chaos-model",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-worker"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "chaos-build",
  "chaos-ggml",

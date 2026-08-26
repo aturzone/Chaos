@@ -130,7 +130,7 @@ jobs:
         shell: msys2 {0}
         run: |
           git clone --depth 1 https://github.com/ggml-org/llama.cpp
-          cmake -S llama.cpp -B llama.cpp/build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DBUILD_SHARED_LIBS=OFF             -DLLAMA_BUILD_TESTS=OFF             -DLLAMA_BUILD_EXAMPLES=OFF             -DLLAMA_BUILD_SERVER=OFF             -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF
+          cmake -S llama.cpp -B llama.cpp/build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DBUILD_SHARED_LIBS=OFF             -DLLAMA_BUILD_TESTS=OFF             -DLLAMA_BUILD_EXAMPLES=OFF             -DLLAMA_BUILD_SERVER=OFF             -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
           cmake --build llama.cpp/build --target ggml ggml-base ggml-cpu -j
           mkdir -p ggml-libs
           find llama.cpp/build \( -name 'libggml*.a' -o -name 'ggml*.a' \) -print | while read -r f; do
@@ -162,7 +162,7 @@ jobs:
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=OFF \
-            -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF
+            -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
           cmake --build llama.cpp/build --config Release --target ggml ggml-base ggml-cpu -j
           mkdir -p ggml-libs
           # Archive names and locations differ between generators, so collect

@@ -18,6 +18,9 @@ a task links to.
 ```
 # ggml must be built first; point GGML_LIB_DIR at ggml-base.a, ggml-cpu.a, ggml.a
 export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: $env:GGML_LIB_DIR=...
+# On Unix add -DCMAKE_POSITION_INDEPENDENT_CODE=ON: `android/jni` is a cdylib
+# and links ggml, and a non-PIC archive fails with a page of R_X86_64_PC32
+# relocation errors against `stderr` that name neither ggml nor the cdylib.
 # GPU work needs build-vulkan/ggml/src instead: THE LINE ABOVE has no Vulkan
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"

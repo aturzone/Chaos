@@ -6,7 +6,9 @@ version = 3
 name = "chaos-android"
 version = "0.0.20"
 dependencies = [
+ "chaos-model",
  "chaos-probe",
+ "chaos-serve",
 ]
 
 [[package]]

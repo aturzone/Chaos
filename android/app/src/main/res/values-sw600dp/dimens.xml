@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  **Sizes belong here, not in the layout.** Atur: "the words should be fully
+  responsive, the whole appearance of the app." A number written into a layout
+  is one number for a 4-inch phone and a 12-inch tablet, and it is wrong on at
+  least one of them. Android picks the folder that fits the device.
+-->
+<resources>
+    <dimen name="mode_title">30sp</dimen>
+    <dimen name="mode_hint">18sp</dimen>
+    <dimen name="mode_name">25sp</dimen>
+    <dimen name="mode_desc">18sp</dimen>
+    <dimen name="screen_pad">40dp</dimen>
+</resources>

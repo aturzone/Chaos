@@ -15,6 +15,25 @@
     <!-- The CHAOS section. Atur asked for a page that says what each device is
          to the others; on a phone that is a heading and two sentences, not a
          separate screen, because a phone screen is one column. -->
-    <string name="chaos_title">CHAOS — THIS PHONE IS A CLIENT</string>
-    <string name="chaos_note">A CLIENT uses a CORE elsewhere and loads nothing itself. On the desktop, open CHAOS and press CORE, then type the address and key it shows here.\n\nThe engine itself is now on this phone — the line above is measured by Chaos running here, not by Android. What is missing before this phone can be a CORE is loading a model file and running the token loop; the bridge is done. HELPER is not finished on any device: chaos-worker speaks the protocol but no CORE routes work to it.\n\nCache, threads and device settings are missing here on purpose: they decide how a model RUNS, so they belong to whichever machine runs it.</string>
+    <string name="chaos_title">CHAOS</string>
+    <string name="chaos_note">The mode you chose decides what this screen offers. Change it with CHANGE MODE above.</string>
+
+    <!-- The launch screen. Four detents, and the one that is chosen decides
+         what the rest of the app shows. -->
+    <string name="mode_title">WHAT IS THIS DEVICE?</string>
+    <string name="mode_hint">Turn the dial. Everything else follows from this.</string>
+    <string name="enter">ENTER</string>
+    <string name="change_mode">CHANGE MODE</string>
+    <string name="desc_alone">Only this device. Nothing else can reach it.</string>
+    <string name="desc_client">Uses a CORE elsewhere. Loads nothing here.</string>
+    <string name="desc_helper">Lends the memory and cores of this device to a CORE.</string>
+    <string name="desc_core">Holds the models and answers. Others connect here.</string>
+
+    <!-- One line per mode, shown on the main screen so it never contradicts
+         the dial. The old text said "THIS PHONE IS A CLIENT" in every mode,
+         including the ones where the phone was running a model itself. -->
+    <string name="in_alone">Running a model on this phone. Nothing else can reach it.</string>
+    <string name="in_core">Serving a model from this phone. Other devices can connect.</string>
+    <string name="in_client">Using a CORE elsewhere. This phone loads nothing.</string>
+    <string name="in_helper">Reserved. A CORE does not route work here yet.</string>
 </resources>

@@ -14,3 +14,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 chaos-probe = { path = "../../core/probe" }
+# **The whole engine, not a second copy of it.** The phone had four modes and
+# only CLIENT did anything. `chaos-serve` is a library now, so ALONE and CORE
+# start the real server in-process -- same token loop, same API the Kotlin
+# client already speaks.
+chaos-serve = { path = "../../network/serve" }
+chaos-model = { path = "../../core/model" }

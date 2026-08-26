@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launch screen: one question, and the dial that answers it.
+
+  Atur: "the first mode is selected and the additional options are not all
+  messy." A phone screen is one column, so the heading sits above the knob and
+  what the mode means sits below it.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dial_bg"
+    android:gravity="center_horizontal"
+    android:padding="@dimen/screen_pad">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:text="@string/mode_title"
+        android:textColor="@color/dial_fg"
+        android:textSize="@dimen/mode_title"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/mode_hint"
+        android:textColor="@color/dial_fg_dim"
+        android:textSize="@dimen/mode_hint"
+        android:gravity="center" />
+
+    <com.aturzone.chaos.ModeKnob
+        android:id="@+id/knob"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/mode_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/dial_fg"
+        android:textSize="@dimen/mode_name"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/mode_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="@color/dial_fg_dim"
+        android:textSize="@dimen/mode_desc"
+        android:gravity="center" />
+
+    <Button
+        android:id="@+id/enter"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:text="@string/enter" />
+</LinearLayout>

@@ -28,6 +28,15 @@
         android:textColor="@color/fg_tertiary"
         android:textSize="12sp" />
 
+    <Button
+        android:id="@+id/change_mode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="4dp"
+        android:text="@string/change_mode"
+        android:textSize="11sp" />
+
     <TextView
         android:id="@+id/chaos_title"
         android:layout_width="match_parent"

@@ -58,6 +58,50 @@ object Engine {
         null
     }
 
+    /**
+     * Start the real Chaos server inside this app.
+     *
+     * **This is what makes ALONE and CORE mean anything on a phone.** It is
+     * the same server the desktop runs as a child process, so the app's own
+     * client talks to it with no second protocol and no second token loop.
+     *
+     * **This blocks for the life of the app** and must be called from a
+     * thread. The library used to spawn its own and crashed in
+     * `pthread_create` before the server ran; a thread the JVM made works.
+     *
+     * @param host `127.0.0.1` for ALONE, `0.0.0.0` for CORE
+     * @return why it stopped, or an empty string
+     */
+    fun start(model: String, host: String, port: Int, key: String): String =
+        if (!available) {
+            "the engine is not in this build"
+        } else {
+            try {
+                startServer(model, host, port, key)
+            } catch (e: UnsatisfiedLinkError) {
+                "the engine is not in this build"
+            }
+        }
+
+    /** The .gguf files in a directory, or an empty list. */
+    fun models(dir: String): List<String> =
+        if (!available) {
+            emptyList()
+        } else {
+            try {
+                listModels(dir).lines().filter { it.isNotBlank() }
+            } catch (e: UnsatisfiedLinkError) {
+                emptyList()
+            }
+        }
+
     private external fun version(): String
     private external fun describeDevice(): String
+    private external fun startServer(
+        model: String,
+        host: String,
+        port: Int,
+        key: String,
+    ): String
+    private external fun listModels(dir: String): String
 }

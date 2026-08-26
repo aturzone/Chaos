@@ -30,9 +30,13 @@ chaos-tokenizer = { path = "../../core/tokenizer" }
 [build-dependencies]
 chaos-build = { path = "../../core/build" }
 
+[lib]
+name = "chaos_serve"
+path = "src/lib.rs"
+
 [[bin]]
 name = "chaos-serve"
-path = "src/main.rs"
+path = "src/bin/chaos-serve.rs"
 # Unlike the other binaries this one has real unit tests -- request parsing and
 # JSON escaping, where a mistake corrupts a response rather than failing -- so
 # its harness is not empty and must run.

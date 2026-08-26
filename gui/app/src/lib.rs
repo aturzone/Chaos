@@ -13,6 +13,7 @@ pub mod client;
 /// Watching a download by the bytes it puts on disk, since the downloader is
 /// another process with no console.
 pub mod download;
+pub mod knob;
 /// Watching a model load by the memory it takes, since "loading" with no
 /// number is a window that looks broken.
 pub mod loading;

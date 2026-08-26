@@ -1,107 +1,78 @@
 package com.aturzone.chaos
 
+import android.content.Context
+import java.io.File
+
 /**
- * The Chaos engine, running inside this app.
+ * The Chaos engine on this device.
  *
- * # It is allowed to be absent
+ * # There is no JNI here any more, and that was a decision
  *
- * The native library is built by a cross-compile that needs the NDK, and the
- * APK that CI publishes does not carry it yet. **An app that crashed on launch
- * because an optional component was missing would be a worse app than one that
- * works as a client**, so every call here is guarded and [available] is the
- * question to ask before using any of it.
+ * The engine was loaded into this process and called through JNI for two
+ * releases. It worked for anything that did not touch a thread, and broke
+ * **bionic's per-thread bookkeeping** the moment anything did — twice, in two
+ * different directions:
  *
- * `UnsatisfiedLinkError` is an `Error`, not an `Exception`, so `catch (e:
- * Exception)` would not have caught it — the app would have died in the static
- * initialiser with no message a user could act on.
+ * ```text
+ * creating a thread from the library
+ *   pthread_create -> __init_tcb        SIGSEGV/SEGV_ACCERR
+ *
+ * a thread that had called the library, exiting
+ *   pthread_exit -> pthread_key_clean_all
+ *                -> libcrypto thread_local_destructor -> OPENSSL_free
+ *                                       SIGSEGV/SEGV_MAPERR
+ * ```
+ *
+ * A 16 MiB stack did not help. Moving the call to a thread the JVM made did
+ * not help — the crash moved deeper. The library declares no `PT_TLS` segment,
+ * so there is nothing obvious to blame, and removing an unsound
+ * `std::env::set_var` fixed a real bug without changing this one.
+ *
+ * **The same engine, built as an executable, runs on the same device and makes
+ * threads perfectly** — `chaos-run` proved that, and `libchaos_serve.so` is
+ * doing it now. So the engine is a **child process**, exactly as it is on the
+ * desktop, and the three things the bridge used to answer are answered here in
+ * Kotlin instead:
+ *
+ * - the version is a build constant
+ * - the device is [Phone], which asks Android
+ * - the models are a directory listing
+ *
+ * None of them needed native code. Keeping a library that corrupts a thread's
+ * teardown in order to avoid `File.listFiles()` would be a bad trade.
  */
 object Engine {
 
-    /** Whether the native engine loaded. False on any APK built without it. */
-    val available: Boolean
-
-    init {
-        available = try {
-            System.loadLibrary("chaos_android")
-            true
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        }
-    }
-
-    /** The engine's own version, or null when it is not here. */
-    fun versionOrNull(): String? = if (available) {
-        try {
-            version()
-        } catch (e: UnsatisfiedLinkError) {
-            // The library loaded but this symbol did not: an .so from a
-            // different build. Worth surviving rather than crashing.
-            null
-        }
-    } else {
-        null
-    }
+    /**
+     * Whether a local engine binary is present to run.
+     *
+     * Not "did a library load": the engine is a file that gets executed.
+     */
+    fun available(context: Context): Boolean = binary(context).canExecute()
 
     /**
-     * What this phone is, measured by the same `core/probe` the desktop uses.
-     *
-     * This is what decides which model a given phone can hold, rather than a
-     * hard-coded list of handsets that would be wrong the week it shipped.
+     * The engine binary, shipped in `jniLibs` so Android extracts it and
+     * permits executing it from `nativeLibraryDir`.
      */
-    fun describeDeviceOrNull(): String? = if (available) {
-        try {
-            describeDevice()
-        } catch (e: UnsatisfiedLinkError) {
-            null
-        }
-    } else {
-        null
-    }
+    fun binary(context: Context): File =
+        File(context.applicationInfo.nativeLibraryDir, "libchaos_serve.so")
+
+    /** The version this app was built from, which is the engine's too. */
+    fun version(): String = BuildConfig.VERSION_NAME
+
+    /** What this device is, measured rather than guessed. */
+    fun describeDevice(context: Context): String = Phone.describe(context)
 
     /**
-     * Start the real Chaos server inside this app.
+     * The `.gguf` files in a directory.
      *
-     * **This is what makes ALONE and CORE mean anything on a phone.** It is
-     * the same server the desktop runs as a child process, so the app's own
-     * client talks to it with no second protocol and no second token loop.
-     *
-     * **This blocks for the life of the app** and must be called from a
-     * thread. The library used to spawn its own and crashed in
-     * `pthread_create` before the server ran; a thread the JVM made works.
-     *
-     * @param host `127.0.0.1` for ALONE, `0.0.0.0` for CORE
-     * @return why it stopped, or an empty string
+     * Sorted, so the list does not reshuffle between visits — the first entry
+     * is what the app loads, and that must not depend on directory order.
      */
-    fun start(model: String, host: String, port: Int, key: String): String =
-        if (!available) {
-            "the engine is not in this build"
-        } else {
-            try {
-                startServer(model, host, port, key)
-            } catch (e: UnsatisfiedLinkError) {
-                "the engine is not in this build"
-            }
-        }
-
-    /** The .gguf files in a directory, or an empty list. */
     fun models(dir: String): List<String> =
-        if (!available) {
-            emptyList()
-        } else {
-            try {
-                listModels(dir).lines().filter { it.isNotBlank() }
-            } catch (e: UnsatisfiedLinkError) {
-                emptyList()
-            }
-        }
-
-    private external fun version(): String
-    private external fun describeDevice(): String
-    private external fun startServer(
-        model: String,
-        host: String,
-        port: Int,
-        key: String,
-    ): String
-    private external fun listModels(dir: String): String
+        File(dir).listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.map { it.name }
+            ?.sorted()
+            ?: emptyList()
 }

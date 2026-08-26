@@ -78,7 +78,7 @@ object Phone {
         return if (fits.isEmpty()) {
             "$head.\nToo little to hold a model here; use it as a client."
         } else {
-            "$head.\nCould hold ${fits.first().name} locally (%.1f GiB) once Chaos runs on Android."
+            "$head.\nCan hold ${fits.first().name} locally (%.1f GiB) and Chaos runs it here."
                 .format(fits.first().gib)
         }
     }

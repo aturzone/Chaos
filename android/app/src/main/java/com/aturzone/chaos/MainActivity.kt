@@ -64,6 +64,7 @@ class MainActivity : Activity() {
         super.onCreate(saved)
         setContentView(R.layout.activity_main)
 
+
         // **The mode decides what this screen offers.** Same split as the
         // desktop's `nav::pages_for`: a HELPER answers with activations and
         // has no token loop, so a chat box would be a control that cannot
@@ -94,12 +95,7 @@ class MainActivity : Activity() {
         address.setText(prefs.getString("address", "http://192.168.1.10:8080"))
         key.setText(prefs.getString("key", ""))
 
-        // **The engine's own reading wins when it is here.** `Phone.describe`
-        // asks Android; `Engine.describeDevice` runs the same `core/probe` the
-        // desktop uses, in this process. When the native library is absent --
-        // every APK CI has published so far -- the Android reading is what
-        // there is, and the app carries on as a client.
-        val engine = Engine.describeDeviceOrNull()
+        val engine: String? = null
         // The note must agree with the dial. It used to read "THIS PHONE IS A
         // CLIENT" in every mode, including the ones where the phone was
         // running a model itself.
@@ -126,11 +122,14 @@ class MainActivity : Activity() {
             }
         }
 
-        phone.text = if (engine != null) {
-            "engine ${Engine.versionOrNull() ?: "?"} on this phone: $engine"
-        } else {
-            Phone.describe(this)
-        }
+        phone.text = Phone.describe(this)
+
+        // **After every view field is assigned, not before.** This ran first
+        // and crashed on HELPER: its opening tab is MONITOR, which reads
+        // `address`, and `lateinit property address has not been initialized`
+        // killed the activity. ALONE opens on CHAT and never touched it, so
+        // the bug showed in exactly one of four modes.
+        wireTabs()
 
         connect.setOnClickListener { testConnection() }
         send.setOnClickListener { sendMessage() }
@@ -247,6 +246,126 @@ class MainActivity : Activity() {
         val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
         val r = java.security.SecureRandom()
         return (1..26).map { alphabet[r.nextInt(alphabet.length)] }.joinToString("")
+    }
+
+    /** Which page is showing. */
+    private var tab = "CHAT"
+
+    /**
+     * The destinations, gated by mode.
+     *
+     * **The same split as the desktop's `nav::pages_for`, and the reason is the
+     * same.** A HELPER answers with activations and runs no token loop, so a
+     * chat box would be a control that cannot work; a CLIENT loads nothing
+     * here, so it has no models to manage. Every mode keeps SETTINGS, because
+     * that is where the address and key live and a mode with no way to reach
+     * them would be a dead end.
+     */
+    private fun wireTabs() {
+        val mode = currentMode()
+        val pages = mutableListOf<String>()
+        if (ModeActivity.canChat(mode)) pages += "CHAT"
+        if (ModeActivity.canHoldModels(mode)) pages += "MODELS"
+        pages += "MONITOR"
+        pages += "SETTINGS"
+
+        findViewById<TextView>(R.id.mode_badge).text = mode
+
+        val buttons = mapOf(
+            "CHAT" to R.id.tab_chat,
+            "MODELS" to R.id.tab_models,
+            "MONITOR" to R.id.tab_monitor,
+            "SETTINGS" to R.id.tab_settings,
+        )
+        for ((name, id) in buttons) {
+            val b = findViewById<Button>(id)
+            if (name in pages) {
+                b.visibility = View.VISIBLE
+                b.setOnClickListener { showTab(name) }
+            } else {
+                // Gone, not disabled: a control that cannot work should not be
+                // on screen looking like it nearly can.
+                b.visibility = View.GONE
+            }
+        }
+        showTab(pages.first())
+    }
+
+    private fun currentMode(): String =
+        intent.getStringExtra(ModeActivity.EXTRA_MODE)
+            ?: getSharedPreferences(ModeActivity.PREFS, MODE_PRIVATE)
+                .getString(ModeActivity.KEY_MODE, "CLIENT")
+            ?: "CLIENT"
+
+    private fun showTab(name: String) {
+        tab = name
+        val pages = mapOf(
+            "CHAT" to R.id.page_chat,
+            "MODELS" to R.id.page_models,
+            "MONITOR" to R.id.page_monitor,
+            "SETTINGS" to R.id.page_settings,
+        )
+        for ((n, id) in pages) {
+            findViewById<View>(id).visibility = if (n == name) View.VISIBLE else View.GONE
+        }
+        when (name) {
+            "MODELS" -> refreshModels()
+            "MONITOR" -> refreshMonitor()
+        }
+    }
+
+    /**
+     * What models this device can see.
+     *
+     * Where they come from depends on the mode, and saying which is the point:
+     * a CORE lists what is on the phone, a CLIENT lists what the CORE it is
+     * talking to has. Two different questions with the same answer shape.
+     */
+    private fun refreshModels() {
+        val note = findViewById<TextView>(R.id.models_note)
+        val list = findViewById<TextView>(R.id.models_list)
+        val dir = getExternalFilesDir(null)?.absolutePath
+        if (dir == null) {
+            note.text = getString(R.string.models_no_storage)
+            return
+        }
+        note.text = getString(R.string.models_here, dir)
+        list.text = getString(R.string.models_reading)
+        Thread {
+            val found = Engine.models(dir)
+            ui.post {
+                list.text = if (found.isEmpty()) {
+                    getString(R.string.models_none)
+                } else {
+                    found.joinToString(System.lineSeparator()) { "  $it" }
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * What the machine is doing.
+     *
+     * Measured by `core/probe` through the engine, which is the same code the
+     * desktop's MONITOR page uses -- so the two cannot disagree about the same
+     * phone.
+     */
+    private fun refreshMonitor() {
+        val out = findViewById<TextView>(R.id.monitor_text)
+        val device = Engine.describeDevice(this)
+        val engineVersion = Engine.version()
+        val running = engine?.isAlive == true
+        val lines = listOf(
+            getString(R.string.mon_mode, currentMode()),
+            getString(R.string.mon_engine, engineVersion),
+            getString(R.string.mon_device, device),
+            getString(
+                R.string.mon_local,
+                if (running) getString(R.string.mon_running, LOCAL_PORT) else getString(R.string.mon_stopped),
+            ),
+            getString(R.string.mon_endpoint, address.text.toString()),
+        )
+        out.text = lines.joinToString(System.lineSeparator() + System.lineSeparator())
     }
 
     /** The engine, while it runs. */

@@ -36,4 +36,30 @@
     <string name="in_core">Serving a model from this phone. Other devices can connect.</string>
     <string name="in_client">Using a CORE elsewhere. This phone loads nothing.</string>
     <string name="in_helper">Reserved. A CORE does not route work here yet.</string>
+
+    <!-- The destinations, which the mode decides between. -->
+    <string name="tab_chat">CHAT</string>
+    <string name="tab_models">MODELS</string>
+    <string name="tab_monitor">MONITOR</string>
+    <string name="tab_settings">SETTINGS</string>
+
+    <!-- MODELS and MONITOR. -->
+    <string name="models_here">Models on this device, in
+%1$s</string>
+    <string name="models_reading">reading…</string>
+    <string name="models_none">None yet. Copy a .gguf into the folder above over USB or with a file manager, then come back.</string>
+    <string name="models_no_storage">No storage available for models on this device.</string>
+    <string name="engine_absent">not in this build</string>
+    <string name="mon_mode">MODE
+%1$s</string>
+    <string name="mon_engine">ENGINE
+%1$s</string>
+    <string name="mon_device">THIS DEVICE
+%1$s</string>
+    <string name="mon_local">LOCAL ENGINE
+%1$s</string>
+    <string name="mon_running">running on port %1$d</string>
+    <string name="mon_stopped">not running</string>
+    <string name="mon_endpoint">ENDPOINT
+%1$s</string>
 </resources>

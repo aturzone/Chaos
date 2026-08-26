@@ -11,6 +11,23 @@ links:
 
 # The Big Bang: V4-Flash at 5 tok/s on this laptop
 
+> **SUPERSEDED IN PART, 2026-08-26.** Phase 0 ran and did its job. Queue depth
+> is real — **2.55x on the disk**, measured — but **the ladder below is wrong**:
+> it modelled a token as `bytes / bandwidth` and forgot the **0.84 s of
+> arithmetic that never touches the disk**. With that put back, the ladder ends
+> at **~1.0 tok/s, not 5.2**.
+>
+> And 5 is out of reach here for a harder reason: V4-Flash reads **7.38 GiB of
+> always-read weights every token**, so 5 tok/s needs **36.9 GiB/s for the trunk
+> alone** against this machine's measured **30.8**. That holds even if every
+> expert were free and the arithmetic took no time.
+>
+> **What is achievable is 0.43 -> about 1.0 tok/s**, and it is worth doing.
+> `research/queue-depth-and-the-real-ceiling-2026-08-26.md` has the numbers,
+> and the one measurement left that could move them.
+
+
+
 **The target moved, and it moved for a reason.** Atur asked for 20 tok/s. That
 is closed by arithmetic on this hardware and the arithmetic is below. He then
 set the real target himself: *"we need at least 5 token on this device with all

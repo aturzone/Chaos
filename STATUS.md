@@ -26,6 +26,57 @@ to v0.0.18 through the app's own updater, uninstalled clean, and
 page works in the installed build -- ALONE and CORE both persist, worst
 blocking call 16.7 ms.
 
+## A model runs on the phone, and the four modes are real (2026-08-26)
+
+**889 tests.** Atur: *"android can not do any one of works in windows and just
+can connect windows"*. He was right — the dial offered four modes and only
+CLIENT did anything. On an Android 34 emulator, with no PC involved:
+
+```
+you
+What is the capital of France?
+
+chaos
+The capital of France is Paris.
+
+7 tokens in 1.8s (3.938 tok/s), finish=stop
+POST /v1/chat/completions -> 200 (stream) in 3.2s
+```
+
+**`chaos-serve` is a library now.** `network/serve/src/main.rs` became `lib.rs`
+plus a thin `src/bin/chaos-serve.rs` that is the only thing parsing arguments.
+Everything the phone needed already existed there, and the Kotlin client already
+spoke to it, so no second token loop had to be written against JNI.
+
+### The engine is a child process, not a loaded library
+
+Loading it into the app worked for anything that did not make a thread. **The
+moment `StreamingRunner::new` called `pthread_create` the app died with
+SIGSEGV/SEGV_ACCERR inside `__init_tcb`.** A 16 MiB stack did not help; moving
+the call to a JVM thread did not help — the crash simply moved deeper, from the
+JNI entry to `StreamingRunner`; and `llvm-readelf` shows the library has **no
+`PT_TLS` segment**, so TLS is not the cause either.
+
+**The same engine as an executable makes threads perfectly on the same device** —
+`chaos-run` was verified doing exactly that in v0.0.19. So Android does what the
+desktop window has always done: spawns the server and talks to it over the API.
+One architecture, one protocol, and the part that was fighting is gone.
+
+It ships as `libchaos_serve.so` because Android only permits executing a file
+from `nativeLibraryDir`, and the manifest asks for native libraries to be
+extracted so there is a real file to execute. **CI builds it and greps the
+finished APK for it**, because an app that silently cannot run a model is the
+state this release exists to end.
+
+### Three things Atur reported about the dial
+
+- **A black surround.** The app's theme is `#0D1117` and a white moulded knob on
+  it read as a hole. The dial screen has its own light ground now.
+- **Sizes were fixed numbers.** Every one is a dimension resource, with values
+  for `sw360dp`, `sw600dp` and `h480dp`.
+- **The note said "THIS PHONE IS A CLIENT" in every mode**, including the ones
+  where the phone was running a model itself. One line per mode now.
+
 ## The machine was measured, and the 20 tok/s target became 5 (2026-08-25)
 
 **The wall had never been measured.** "20 tok/s on V4-Flash is out of reach" had
@@ -734,7 +785,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **888 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
+**Current**: **889 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by

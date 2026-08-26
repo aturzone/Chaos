@@ -5,9 +5,13 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-26 · **Version**: **v0.0.21**, being cut from `main`
-· previous release **v0.0.20**, published 2026-08-25 and verified from its own
-published files.
+**Last updated**: 2026-08-26 · **Version**: **v0.0.21**, published 2026-08-26
+· **Branch**: `main`, verified.
+
+**v0.0.21 verified from its own published files.** The APK was downloaded from
+the release and opened: `lib/arm64-v8a/libchaos_serve.so` (3,245,872 bytes — the
+engine), `libchaos_android.so` (the bridge) and `knob_badge.png` at every
+density are all inside it.
 
 
 **v0.0.20 verified from its own published files.** The APK was downloaded from

@@ -98,7 +98,8 @@ forward pass here is fluent nonsense, never a crash.
 |---|---|---|
 | D1 | v0.0.18 — CHAOS page, the `--host` fix | **[x]** verified from published files |
 | D2 | v0.0.19 — Chaos builds and runs on Android | **[x]** |
-| D3 | v0.0.20 — engine inside the app, in the published APK | **[x]** `libchaos_android.so` confirmed inside |
+| D3 | v0.0.20 — engine inside the app, in the published APK | **[x]** confirmed inside |
+| D3b | **v0.0.21 — a model runs on the phone** | **[x]** `libchaos_serve.so` confirmed in the published APK |
 | D4 | README: version badge, the speed claims | **[x]** badge was 14 releases stale |
 | D5 | Install → update → uninstall, models untouched | **[x]** every release |
 | D6 | The APK on **real hardware** | **[ ]** emulator only — Atur's phone |

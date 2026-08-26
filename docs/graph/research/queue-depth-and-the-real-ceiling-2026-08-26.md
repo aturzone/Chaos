@@ -101,6 +101,29 @@ machine is the problem.** `v4flash-ram-frontier` said the ceiling with infinite
 RAM was 1.19; this says the same number from the other direction, which is the
 first time two independent measurements have agreed on it.
 
+## And on this machine the trunk does not even fit
+
+Running V4-Flash while writing this, Chaos reported:
+
+```
+cache      refusing 2.00 GiB for experts: 3.34 GiB of always-read
+cache      weights is still streaming, and a resident byte is read
+cache      every token (100%) against ~13% for a cached expert.
+cache      Free ~3.3 GiB and it becomes worth having.
+           closing these would free up to 5.35 GiB:
+             claude.exe                   1.96 GiB (13 processes)
+```
+
+**3.34 GiB of the 7.38 GiB always-read trunk is streaming from disk on every
+token**, on top of the 3.22 GiB of experts. So the numbers above are measured on
+a machine that is worse than the model assumes, and **the first lever is not
+code at all**: 5.35 GiB is reclaimable, and Chaos already names the processes.
+
+It named this session's own, which is worth saying plainly: **the thing taking
+the measurement was holding 1.96 GiB of what the measurement needed.** Any
+future run of these numbers should start from a clean machine, and
+`chaos-probe --quick` prints the list.
+
 ## What would reach 5
 
 A memory bus of **≥37 GiB/s with 144 GB of capacity**. An Apple M-series Ultra

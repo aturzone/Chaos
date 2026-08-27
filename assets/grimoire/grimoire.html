@@ -276,9 +276,6 @@ function netKey() {
 let endpoint = TARGET_URL;
 let lastNetKey = "";
 
-function endpointLabel() {
-  return endpoint.replace(/^https?:\/\//, "").replace(/\/$/, "").toUpperCase();
-}
 
 /* Two rites, one geometry.
 
@@ -310,10 +307,13 @@ const PALETTES = {
     bloom:     1.0,
     bg0:       [ 13,  17,  23],   /* #0D1117, the app's ground */
     bg1:       [  6,   8,  12],
-    cover:     [230, 237, 243],   /* #E6EDF3, the app's foreground */
-    coverRim:  [176, 184, 194],
-    coverInk:  [  0,   0, 242],   /* the brand, on a pale board */
-    coverGlow: [ 90,  90, 255],
+    /* Two books, one design. The board inverts with the theme -- white
+       on the dark ground, black on the light one -- and both carry the
+       same tooled rules and the same mark burning on them. */
+    cover:     [226, 230, 238],
+    coverRim:  [168, 174, 188],
+    coverInk:  [ 30,  46, 190],   /* the mark, dark on a pale board */
+    coverGlow: [  0,   0, 242],
     page:      [237, 241, 246],
     pageEdge:  [188, 196, 206],
     ink:       [ 13,  17,  23],
@@ -338,9 +338,9 @@ const PALETTES = {
     bloom:     0.18,
     bg0:       [244, 244, 241],   /* #F4F4F1, the dial's ground */
     bg1:       [225, 226, 224],
-    cover:     [ 22,  24,  28],   /* #16181C */
+    cover:     [ 22,  24,  28],   /* #16181C, the dial's foreground */
     coverRim:  [ 52,  55,  62],
-    coverInk:  [ 92,  92, 255],
+    coverInk:  [150, 186, 255],
     coverGlow: [  0,   0, 242],
     page:      [248, 247, 244],
     pageEdge:  [198, 197, 190],
@@ -1045,7 +1045,7 @@ function glowPath(pts, colour, width, alpha, bloom, closed) {
 /* Textured quad. Corners in winding order map to the image's corners.
    Subdivision count is chosen from how much perspective the quad shows,
    because affine mapping is exact only when the quad faces the lens. */
-function texQuad(img, p00, p10, p11, p01, alpha, maxSub, src) {
+function texQuad(img, p00, p10, p11, p01, alpha, maxSub, src, bright) {
   const s = [project(p00), project(p10), project(p11), project(p01)];
   for (let i = 0; i < 4; i++) if (s[i][2] <= 0.05) return;
 
@@ -1061,6 +1061,7 @@ function texQuad(img, p00, p10, p11, p01, alpha, maxSub, src) {
   const ih = src ? src[3] : img.height;
   ctx.save();
   ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  if (bright !== undefined && CAN_FILTER) ctx.filter = "brightness(" + bright + ")";
 
   const at = (u, v) => {
     const a = [
@@ -1095,18 +1096,34 @@ function texQuad(img, p00, p10, p11, p01, alpha, maxSub, src) {
    `rot` turns the mapping a quarter at a time, to answer the camera
    roll that fits the spread to a portrait screen. It flips at half
    open, where the leaves are exactly edge-on and have no area to pop. */
-function pageQuad(corners, rot) {
-  if (!rot) return corners;
-  const out = corners.slice();
-  for (let i = 0; i < rot; i++) out.push(out.shift());
-  return out;
-}
+function pageQuad(corners) { return corners; }
 
 /* A printed surface, shaded. The texture itself carries no lighting, so
    without this pass a page in the dark is as bright as one in the fire. */
+/* Whether the canvas can shade an image as it draws it. */
+const CAN_FILTER = (function () {
+  try {
+    const c = document.createElement("canvas").getContext("2d");
+    c.filter = "brightness(0.5)";
+    return c.filter === "brightness(0.5)";
+  } catch (e) { return false; }
+})();
+
 function litTexQuad(img, quad, alpha, sub, n, mid, src) {
   const s = quad.map(project);
   if (s.some(p => p[2] <= 0.05)) return;
+  const lit0 = shade([255, 255, 255], n, mid, 0);
+  const k0 = clamp((lit0[0] + lit0[1] + lit0[2]) / 3 / 235, 0.26, 0.94);
+  /* A sheet is drawn as a run of strips. Shading them with a `multiply`
+     pass clipped to each strip lands TWICE wherever two antialiased clip
+     edges meet, ruling a dark line down the page for every seam --
+     expanding the paths only turns the hairline into a band. Shading the
+     image AS IT IS DRAWN has no second pass and therefore no seam. */
+  if (CAN_FILTER) {
+    texQuad(img, quad[0], quad[1], quad[2], quad[3], alpha, sub, src, k0.toFixed(3));
+    occludeGlow(s);
+    return;
+  }
   texQuad(img, quad[0], quad[1], quad[2], quad[3], alpha, sub, src);
   occludeGlow(s);
   /* Capped below 1: a leaf lit by fire is bright, not blown out, and a
@@ -1197,14 +1214,22 @@ const BOOK_H = 2.06;
  * as in angle, which is also what really happens -- a page lifts over
  * the spine before it comes down.
  * ------------------------------------------------------------------ */
+/* Thickness is a design decision, not a detail.
+
+   A thin book reads as a card with a picture on it. Roughly a fifth of
+   the board's width, with the text block visibly layered at the
+   fore-edge, is what makes it read as a volume. */
 const SHEETS = 5;
-const T_COVER = 0.034;                       /* a board */
-const T_BLOCK = 0.092;                       /* the text block that stays put */
+const T_COVER = 0.046;                       /* a board */
+const T_BLOCK = 0.150;                       /* the text block that stays put */
 const T_RIGHT = T_COVER + T_BLOCK;           /* top of the right-hand block */
-const SHEET_GAP = 0.019;                     /* one leaf's share of the pile */
+const SHEET_GAP = 0.027;                     /* one leaf's share of the pile */
 const T_TOP = T_RIGHT + (SHEETS - 1) * SHEET_GAP;   /* the shut book's lid */
 const SPINE_X = -BOOK_W / 2;          /* shut, this centres the book */
-const GUTTER_LAP = 0.005;             /* leaves overlap, never abut */
+/* The leaves stand apart at the gutter, so the seam reads as two
+   pages rather than one sheet. Nothing straddles it now, so it is free
+   to be as wide as it looks right. */
+const GUTTER_GAP = 0.020;
 
 /* Where the spine actually is this frame. Sliding it right by half a
    board as the book opens centres BOTH states on the circle. */
@@ -1397,8 +1422,8 @@ function drawSigil(t, blaze) {
     gctx.save(); gctx.globalCompositeOperation = "lighter";
 
     /* ---- band 1: the graduated rim ------------------------------- */
-    glowPath(ringPoints(B.r1, 160, 0.002, aOuter), C.sigil, 3.4 * W1, 0.60 * A, 0.40, true);
-    glowPath(ringPoints(B.r2, 150, 0.002, aOuter), C.sigil, 2.0 * W1, 0.44 * A, 0.30, true);
+    glowPath(ringPoints(B.r1, 160, 0.002, aOuter), C.sigil, 9.0 * W1, 0.72 * A, 0.40, true);
+    glowPath(ringPoints(B.r2, 150, 0.002, aOuter), C.sigil, 5.4 * W1, 0.58 * A, 0.30, true);
 
     const ticks = [];
     const majors = [];
@@ -1412,12 +1437,12 @@ function drawSigil(t, blaze) {
         [ca * inner, sa * inner, 0.0025],
       ]);
     }
-    glowSegments(ticks, C.sigil, 1.6 * W1, 0.34 * A, 0.22);
-    glowSegments(majors, C.sigil, 2.8 * W1, 0.60 * A, 0.38);
+    glowSegments(ticks, C.sigil, 4.0 * W1, 0.44 * A, 0.22);
+    glowSegments(majors, C.sigil, 7.0 * W1, 0.74 * A, 0.38);
 
     /* ---- band 2: the inscription, turning the other way ---------- */
-    glowPath(ringPoints(B.r3, 140, 0.002, aRunes), C.sigil, 2.6 * W1, 0.48 * A, 0.30, true);
-    glowPath(ringPoints(B.r4, 130, 0.002, aRunes), C.sigil, 2.0 * W1, 0.40 * A, 0.26, true);
+    glowPath(ringPoints(B.r3, 140, 0.002, aRunes), C.sigil, 6.6 * W1, 0.62 * A, 0.30, true);
+    glowPath(ringPoints(B.r4, 130, 0.002, aRunes), C.sigil, 5.4 * W1, 0.54 * A, 0.26, true);
 
     /* A charge travelling round the inscription, rather than every
        glyph flickering on its own. Random flicker reads as a fault;
@@ -1440,26 +1465,26 @@ function drawSigil(t, blaze) {
       const target = d < 1.6 ? lit : base;
       for (const s of RUNE_RING[i]) target.push([map(s[0], s[1]), map(s[2], s[3])]);
     }
-    glowSegments(base, C.sigil, 2.4 * W1, 0.60 * A, 0.42);
-    glowSegments(lit, C.flameHot, 2.8 * W1, 0.95 * A, 0.70);
+    glowSegments(base, C.sigil, 5.4 * W1, 0.72 * A, 0.42);
+    glowSegments(lit, C.flameHot, 6.4 * W1, 1.00 * A, 0.70);
 
     /* ---- band 3: a seven-pointed figure -------------------------- */
-    glowPath(starPoints(B.r4 * 0.98, 7, 3, aHept), C.sigil, 2.2 * W1, 0.40 * A, 0.34, true);
+    glowPath(starPoints(B.r4 * 0.98, 7, 3, aHept), C.sigil, 5.6 * W1, 0.52 * A, 0.34, true);
     /* small circles pinning its points -- the detail that separates a
        drawn diagram from a stroked polygon */
     for (let i = 0; i < 7; i++) {
       const a = aHept - Math.PI / 2 + (i * TAU) / 7;
       const cx = Math.cos(a) * B.r4 * 0.98, cy = Math.sin(a) * B.r4 * 0.98;
       glowPath(ringPoints(0.052, 12, 0.004).map(q => [q[0] + cx, q[1] + cy, q[2]]),
-               C.sigil, 1.8 * W1, 0.52 * A, 0.34, true);
+               C.sigil, 4.2 * W1, 0.64 * A, 0.34, true);
     }
 
     /* ---- band 4: the five-pointed figure, counter-turning -------- */
-    glowPath(ringPoints(B.r5, 120, 0.003, 0), C.sigilDeep, 2.2 * W1, 0.40 * A, 0.26, true);
-    glowPath(starPoints(B.r5, 5, 2, aPent), C.sigil, 3.8 * W1, 0.62 * A, 0.48, true);
+    glowPath(ringPoints(B.r5, 120, 0.003, 0), C.sigilDeep, 5.4 * W1, 0.54 * A, 0.26, true);
+    glowPath(starPoints(B.r5, 5, 2, aPent), C.sigil, 9.0 * W1, 0.78 * A, 0.48, true);
 
     /* ---- band 5: the quiet middle -------------------------------- */
-    glowPath(ringPoints(B.r6, 90, 0.003, 0), C.sigilDeep, 1.8 * W1, 0.34 * A, 0.22, true);
+    glowPath(ringPoints(B.r6, 90, 0.003, 0), C.sigilDeep, 4.6 * W1, 0.48 * A, 0.22, true);
     const spokes = [];
     for (let i = 0; i < 12; i++) {
       const a = -aOuter * 1.4 + (i / 12) * TAU;
@@ -1467,7 +1492,7 @@ function drawSigil(t, blaze) {
       spokes.push([[ca * B.r6, sa * B.r6, 0.003],
                    [ca * (B.r6 - 0.14), sa * (B.r6 - 0.14), 0.003]]);
     }
-    glowSegments(spokes, C.sigilDeep, 2.0 * W1, 0.34 * A, 0.22);
+    glowSegments(spokes, C.sigilDeep, 5.0 * W1, 0.48 * A, 0.22);
 
     /* four lozenges at the quarters, fixed while everything turns */
     const loz = [];
@@ -1479,7 +1504,7 @@ function drawSigil(t, blaze) {
         .map(q => [q[0], q[1], 0.004]);
       for (let k = 0; k < 4; k++) loz.push([pts[k], pts[(k + 1) % 4]]);
     }
-    glowSegments(loz, C.sigil, 2.0 * W1, 0.55 * A, 0.40);
+    glowSegments(loz, C.sigil, 5.0 * W1, 0.68 * A, 0.40);
 
     gctx.restore();
     ctx.restore();
@@ -1579,7 +1604,14 @@ function loadBrandmark() {
       for (let x = 0; x < S; x++) {
         const i = (y * S + x) * 4;
         const lum = (d.data[i] * 0.299 + d.data[i+1] * 0.587 + d.data[i+2] * 0.114) / 255;
-        const ink = Math.max(0, 1 - lum);
+        /* Thresholded, not just inverted. The source is a white plate
+           with black artwork, and "white" in it is #FEFEFE -- so a plain
+           inversion leaves about 1/255 of alpha across the whole plate.
+           Invisible on its own; drawn ADDITIVELY under a glow it painted
+           a bright rectangle the size of the mark's bounding box onto
+           the board, which looked like a bug in the book rather than in
+           the mask. */
+        const ink = clamp((Math.max(0, 1 - lum) - 0.10) / 0.85, 0, 1);
         d.data[i] = d.data[i+1] = d.data[i+2] = 255;
         d.data[i+3] = Math.round(ink * 255);
         if (ink > 0.35) {
@@ -1625,8 +1657,10 @@ function buildCoverTexture() {
   /* Grain. On black leather the scratches catch light and the pores
      swallow it; on white vellum both go the other way, or the board
      turns into a grey smear. */
-  const lift = C.isDark ? "0,0,0," : "255,255,255,";
-  const sink = C.isDark ? "255,255,255," : "0,0,0,";
+  /* Scratches catch the light, pores swallow it -- and the board is
+     dark in both themes now, so this no longer depends on the theme. */
+  const lift = "0,0,0,";
+  const sink = "255,255,255,";
   for (let i = 0; i < 2600; i++) {
     const x = hash2(i, 1) * w, y = hash2(i, 2) * h;
     const l = 2 + hash2(i, 3) * 9, a = hash2(i, 4) * Math.PI;
@@ -1680,19 +1714,28 @@ function buildCoverTexture() {
     tc.drawImage(brandImg, 0, 0, tint.width, tint.height);
     tc.globalCompositeOperation = "source-in";
     const lg = tc.createLinearGradient(0, 0, 0, tint.height);
-    lg.addColorStop(0, rgb(mix(C.coverInk, C.coverGlow, 0.55)));
-    lg.addColorStop(0.45, rgb(C.coverGlow));
-    lg.addColorStop(1, rgb(C.coverInk));
+    lg.addColorStop(0, rgb(mix(C.coverInk, [255, 255, 255], 0.35)));
+    lg.addColorStop(0.5, rgb(C.coverInk));
+    lg.addColorStop(1, rgb(mix(C.coverInk, C.coverGlow, 0.55)));
     tc.fillStyle = lg;
     tc.fillRect(0, 0, tint.width, tint.height);
 
+    /* Three passes: a wide halo on the brand hue, a tight one, then the
+       mark itself. One pass gives an even outline, which reads as a
+       sticker; a glow falls off, and the falloff is the whole effect. */
     g.save();
-    /* A halo behind the mark, not around it, so it reads as burnt into
-       the board rather than stuck on top of it. */
-    g.shadowColor = rgb(C.coverGlow, C.isDark ? 0.60 : 0.95);
-    g.shadowBlur = C.isDark ? 18 : 26;
+    g.globalCompositeOperation = "lighter";
+    g.shadowColor = rgb(C.coverGlow, 0.95);
+    g.shadowBlur = w * 0.085;
+    g.globalAlpha = 0.85;
     g.drawImage(tint, mx, my, mw, mh);
-    g.shadowBlur = C.isDark ? 8 : 13;
+    g.shadowBlur = w * 0.038;
+    g.globalAlpha = 0.95;
+    g.drawImage(tint, mx, my, mw, mh);
+    g.restore();
+    g.save();
+    g.shadowColor = rgb(C.coverInk, 0.9);
+    g.shadowBlur = w * 0.014;
     g.drawImage(tint, mx, my, mw, mh);
     g.restore();
   }
@@ -1704,14 +1747,14 @@ function buildCoverTexture() {
      a grimoire. UnifrakturMaguntia is the hand this object would
      actually have been lettered in. Five letters is exactly the length
      blackletter can carry without becoming unreadable. */
-  g.fillStyle = rgb(C.coverInk, C.isDark ? 1 : 0.92);
-  g.font = Math.round(w * 0.185) + 'px UnifrakturMaguntia, "Cinzel", serif';
+  g.fillStyle = rgb(mix(C.coverInk, C.cover, 0.34), 0.95);
+  g.font = Math.round(w * 0.175) + 'px UnifrakturMaguntia, "Cinzel", serif';
   g.textAlign = "center";
   g.textBaseline = "alphabetic";
   const title = "Chaos";
   g.save();
-  g.shadowColor = rgb(C.coverGlow, C.isDark ? 0.5 : 0.85);
-  g.shadowBlur = 18;
+  g.shadowColor = rgb(C.coverGlow, 0.75);
+  g.shadowBlur = w * 0.030;
   /* letter-spaced by hand: canvas has no tracking */
   const tr = w * 0.022;
   const chars = title.split("");
@@ -1746,119 +1789,213 @@ function spacedText(g, text, cx, y, tracking) {
 }
 
 /* Set a line at the largest size that still fits. */
-function spacedTextFit(g, text, cx, y, tracking, maxW, sizePx, family) {
-  let size = sizePx;
-  for (let n = 0; n < 6; n++) {
-    g.font = Math.round(size) + "px " + family;
-    let total = -tracking;
-    for (const ch of text) total += g.measureText(ch).width + tracking;
-    if (total <= maxW) break;
-    size *= (maxW / total) * 0.98;
-  }
-  spacedText(g, text, cx, y, tracking);
-}
 
 /* Laid paper, for either leaf. */
-function pageGround(g, w, h, gutterAtLeft) {
+
+/* The canvas one leaf is composed into. The book always faces the
+   reader now, so there is only ever one orientation to compose for. */
+function pageCanvasSize() {
+  const shortSide = 1000;
+  return [shortSide, Math.round(shortSide * BOOK_H / BOOK_W)];
+}
+
+/* Laid paper, one leaf. */
+function leafPaper(g, w, h, gutterAtLeft) {
   const base = g.createLinearGradient(0, 0, w, h);
-  base.addColorStop(0, rgb(mix(C.page, [255, 253, 248], 0.20)));
+  base.addColorStop(0, rgb(mix(C.page, [255, 253, 248], 0.22)));
   base.addColorStop(0.55, rgb(scl(C.page, 0.98)));
   base.addColorStop(1, rgb(scl(C.page, 0.88)));
   g.fillStyle = base;
   g.fillRect(0, 0, w, h);
-
-  for (let i = 0; i < 52; i++) {
-    g.strokeStyle = rgb(C.ink, 0.026);
+  for (let i = 0; i < 54; i++) {
+    g.strokeStyle = rgb(C.ink, 0.020);
     g.lineWidth = 1;
-    const y = (i / 52) * h;
+    const y = (i / 54) * h;
     g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
   }
-  for (let i = 0; i < 380; i++) {
-    g.fillStyle = rgb(C.ink, 0.012 + hash2(i, 23) * 0.038);
+  for (let i = 0; i < 420; i++) {
+    g.fillStyle = rgb(C.ink, 0.010 + hash2(i, 23) * 0.034);
     g.beginPath();
-    g.arc(hash2(i, 21) * w, hash2(i, 22) * h, 0.8 + hash2(i, 24) * 3.6, 0, TAU);
+    g.arc(hash2(i, 21) * w, hash2(i, 22) * h, 0.8 + hash2(i, 24) * 3.4, 0, TAU);
     g.fill();
   }
-  /* the gutter's own shadow, on whichever side the spine is */
   const gx = gutterAtLeft
-    ? g.createLinearGradient(0, 0, w * 0.16, 0)
-    : g.createLinearGradient(w, 0, w * 0.84, 0);
-  gx.addColorStop(0, rgb(C.ink, 0.24));
+    ? g.createLinearGradient(0, 0, w * 0.13, 0)
+    : g.createLinearGradient(w, 0, w * 0.87, 0);
+  gx.addColorStop(0, rgb(C.ink, 0.20));
   gx.addColorStop(1, rgb(C.ink, 0));
   g.fillStyle = gx;
   g.fillRect(0, 0, w, h);
 }
 
+/* Draw one rune from the alphabet, centred, in a box of half-size `s`. */
+function inkRune(g, rune, cx, cy, s, wgt) {
+  g.lineWidth = wgt;
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  g.beginPath();
+  for (const st of rune) {
+    g.moveTo(cx + st[0] * s, cy - st[1] * s);
+    g.lineTo(cx + st[2] * s, cy - st[3] * s);
+  }
+  g.stroke();
+}
+
 /* ------------------------------------------------------------------ *
- * The right-hand leaf: the code, and nothing else at all.
+ * The left leaf: the working page.
  *
- * No plate under it, no seal around it, no caption. A white square
- * announcing "here is a QR code" is the one piece of furniture the
- * thing does not need -- the quiet zone a scanner wants is just clean
- * paper, and clean paper is what a grimoire's leaf already is.
+ * A page of a grimoire is not decoration around a message -- it IS the
+ * message, written out: a heading, a block of the words themselves, and
+ * the figure they raise. It is baked once and never redrawn; the
+ * burning that travels across it is a moving light in the scene, not a
+ * repaint of the texture, so it costs nothing per frame and the paper
+ * is never actually consumed.
+ * ------------------------------------------------------------------ */
+const INCANTATION = [
+  "QUOD VAS NON CAPIT",
+  "TAMEN CURRET",
+  "PER IGNEM CAERULEUM",
+  "APERITUR LIBER",
+  "ET SIGNUM ARDET",
+];
+
+function buildLeftPage() {
+  const [W, H] = pageCanvasSize();
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  leafPaper(g, W, H, false);
+
+  const L = W * 0.11, R = W * 0.89, mid = W / 2;
+
+  /* a rune border along the head */
+  g.strokeStyle = rgb(C.ink, 0.55);
+  for (let i = 0; i < 9; i++) {
+    inkRune(g, RUNE_ALPHABET[(i * 7 + 2) % RUNE_ALPHABET.length],
+            L + (i + 0.5) * ((R - L) / 9), H * 0.075, W * 0.021, W * 0.0055);
+  }
+  g.strokeStyle = rgb(C.ink, 0.28);
+  g.lineWidth = 1.6;
+  g.beginPath(); g.moveTo(L, H * 0.108); g.lineTo(R, H * 0.108); g.stroke();
+
+  /* the words */
+  g.textAlign = "center";
+  g.fillStyle = rgb(C.ink, 0.82);
+  const lh = H * 0.049;
+  for (let i = 0; i < INCANTATION.length; i++) {
+    let size = H * 0.038;
+    for (let k = 0; k < 6; k++) {
+      g.font = "400 " + Math.round(size) + "px Cinzel, serif";
+      let total = -W * 0.012;
+      for (const ch of INCANTATION[i]) total += g.measureText(ch).width + W * 0.012;
+      if (total <= R - L) break;
+      size *= ((R - L) / total) * 0.97;
+    }
+    spacedText(g, INCANTATION[i], mid, H * 0.175 + i * lh, W * 0.012);
+  }
+
+  /* the figure it raises */
+  const cy = H * 0.63, rr = Math.min(W * 0.34, H * 0.245);
+  g.strokeStyle = rgb(C.ink, 0.46);
+  g.lineWidth = W * 0.0085;
+  g.beginPath(); g.arc(mid, cy, rr, 0, TAU); g.stroke();
+  g.lineWidth = W * 0.0042;
+  g.beginPath(); g.arc(mid, cy, rr * 0.86, 0, TAU); g.stroke();
+  g.beginPath(); g.arc(mid, cy, rr * 0.42, 0, TAU); g.stroke();
+
+  g.lineWidth = W * 0.0075;
+  g.strokeStyle = rgb(C.ink, 0.58);
+  g.beginPath();
+  for (let k = 0, idx = 0; k < 7; k++, idx = (idx + 3) % 7) {
+    const a = -Math.PI / 2 + (idx * TAU) / 7;
+    const px = mid + Math.cos(a) * rr * 0.86, py = cy + Math.sin(a) * rr * 0.86;
+    if (k === 0) g.moveTo(px, py); else g.lineTo(px, py);
+  }
+  g.closePath(); g.stroke();
+
+  g.strokeStyle = rgb(C.ink, 0.50);
+  for (let k = 0; k < 12; k++) {
+    const a = -Math.PI / 2 + (k * TAU) / 12;
+    inkRune(g, RUNE_ALPHABET[(k * 5 + 1) % RUNE_ALPHABET.length],
+            mid + Math.cos(a) * rr * 0.63, cy + Math.sin(a) * rr * 0.63,
+            W * 0.019, W * 0.0050);
+  }
+
+  /* and a mark at the foot */
+  g.strokeStyle = rgb(C.ink, 0.34);
+  g.lineWidth = 1.4;
+  g.beginPath(); g.moveTo(L, H * 0.905); g.lineTo(R, H * 0.905); g.stroke();
+  g.strokeStyle = rgb(C.ink, 0.48);
+  for (let i = 0; i < 5; i++) {
+    inkRune(g, RUNE_ALPHABET[(i * 11 + 6) % RUNE_ALPHABET.length],
+            mid + (i - 2) * W * 0.075, H * 0.955, W * 0.020, W * 0.0052);
+  }
+
+  leftPageTex = c;
+}
+
+/* ------------------------------------------------------------------ *
+ * The right leaf: the code, and nothing else at all.
  *
- * It arrives by burning in. A front travels across the leaf; ahead of
- * it the paper is blank, along it the paper chars and glows, and behind
- * it the modules are simply there, as though the ink had been scorched
- * into the page rather than printed on it.
+ * It burns in. A front crosses the leaf; ahead of it the paper is
+ * blank, along it the paper chars and glows, and behind it the modules
+ * are simply there -- scorched into the page rather than printed on it.
  * ------------------------------------------------------------------ */
 function buildRightPage(reveal) {
   const [W, H] = pageCanvasSize();
   const c = document.createElement("canvas");
   c.width = W; c.height = H;
   const g = c.getContext("2d");
-  pageGround(g, W, H, true);
+  leafPaper(g, W, H, true);
 
   const n = qrGrid.size;
   const quiet = 4;
   const total = n + quiet * 2;
-  /* As large as the leaf will take: the code is the whole page now. */
-  const box = Math.min(W * 0.86, H * 0.78);
+  const box = Math.min(W * 0.88, H * 0.66);
   const cell = box / total;
-  const ox = (W - cell * total) / 2 + cell * quiet;
-  const oy = (H - cell * total) / 2 + cell * quiet;
+  const mx = (W - cell * total) / 2 + cell * quiet;
+  const my = (H - cell * total) / 2 + cell * quiet;
 
-  /* The burn front runs corner to corner. `d` is how far along it each
-     module sits; `band` is how wide the burning edge is. */
-  const band = 0.22;
+  const band = 0.26;
   const front = reveal * (1 + band);
-  const dAt = (x, y) => (x / n) * 0.62 + (y / n) * 0.38;
+  const dAt = (x, y) => (x / n) * 0.58 + (y / n) * 0.42;
 
-  /* Scorch the paper itself along the front, not only the modules. */
   if (reveal > 0 && reveal < 1) {
-    const x0 = ox - cell * quiet, y0 = oy - cell * quiet;
+    const x0 = mx - cell * quiet, y0 = my - cell * quiet;
     const span = cell * total;
-    const gx = g.createLinearGradient(x0, y0, x0 + span * 0.62, y0 + span * 0.38);
-    const f0 = clamp(front - band, 0, 1), f1 = clamp(front, 0, 1);
-    gx.addColorStop(0, rgb(C.ink, 0.05));
-    if (f0 > 0.001) gx.addColorStop(Math.max(0.001, f0 - 0.02), rgb(C.ink, 0.05));
-    gx.addColorStop(clamp((f0 + f1) / 2, 0.002, 0.998), rgb(C.flameDeep, 0.30));
-    if (f1 < 0.999) gx.addColorStop(Math.min(0.999, f1 + 0.02), rgb(C.page, 0));
+    const gx = g.createLinearGradient(x0, y0, x0 + span * 0.58, y0 + span * 0.42);
+    const f0 = clamp(front - band, 0.002, 0.994);
+    const f1 = clamp(front, f0 + 0.004, 0.998);
+    /* char behind, ember at the edge, clean paper ahead */
+    gx.addColorStop(0, rgb(C.ink, 0.09));
+    gx.addColorStop(Math.max(0.003, f0 - 0.05), rgb(C.ink, 0.13));
+    gx.addColorStop((f0 * 0.35 + f1 * 0.65), rgb(C.flameDeep, 0.42));
+    gx.addColorStop(f1, rgb(C.page, 0));
     gx.addColorStop(1, rgb(C.page, 0));
     g.fillStyle = gx;
     g.fillRect(x0, y0, span, span);
   }
 
-  const emberRuns = [];
+  const embers = [];
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
       if (!qrGrid.modules[y][x]) continue;
       const prog = reveal >= 1 ? 1 : clamp((front - dAt(x, y)) / band, 0, 1);
       if (prog <= 0) continue;
-      const px = ox + x * cell, py = oy + y * cell;
-      if (prog < 1) emberRuns.push([px, py, Math.sin(prog * Math.PI)]);
+      const px = mx + x * cell, py = my + y * cell;
+      if (prog < 1) embers.push([px, py, Math.sin(prog * Math.PI)]);
       /* a hair of overlap so neighbours fuse -- scanners prefer solid
          runs to a grid of separated squares */
       g.fillStyle = rgb(C.ink, prog);
       g.fillRect(px, py, cell + 0.6, cell + 0.6);
     }
   }
-  if (emberRuns.length) {
+  if (embers.length) {
     g.save();
     g.globalCompositeOperation = "lighter";
-    for (const [px, py, e] of emberRuns) {
-      g.fillStyle = rgb(C.flameHot, e * 0.75);
-      g.fillRect(px - cell * 0.3, py - cell * 0.3, cell * 1.6, cell * 1.6);
+    for (const [px, py, e] of embers) {
+      g.fillStyle = rgb(C.flameHot, e * 0.9);
+      g.fillRect(px - cell * 0.40, py - cell * 0.40, cell * 1.8, cell * 1.8);
     }
     g.restore();
   }
@@ -1866,148 +2003,12 @@ function buildRightPage(reveal) {
   rightPageTex = c;
 }
 
-/* ------------------------------------------------------------------ *
- * The left-hand leaf: what this node actually is.
- *
- * Model, route, and the rate it generates at -- for the machine serving
- * this page and no other. A browser knows none of that, so it comes
- * from the host: `window.CHAOS_STATUS`, or a same-origin `/status`
- * when Chaos is the one serving.
- *
- * Every field is an em-dash until the node reports it. Filling them
- * with plausible figures would make the leaf a picture of an instrument
- * rather than an instrument, and a made-up tokens-per-second is worse
- * than a blank one.
- * ------------------------------------------------------------------ */
-let nodeStatus = {};
-
-function statusRows() {
-  const s = nodeStatus || {};
-  const dash = "\u2014";
-  const num = (v, unit, dp) =>
-    (typeof v === "number" && isFinite(v))
-      ? v.toFixed(dp === undefined ? 2 : dp) + (unit || "")
-      : dash;
-  const str = (v) => (typeof v === "string" && v) ? v : dash;
-  return [
-    ["MODEL",    str(s.model)],
-    ["WEIGHTS",  str(s.quant), str(s.size)],
-    ["CONTEXT",  str(s.context)],
-    ["DEVICE",   str(s.device)],
-    ["GENERATE", num(s.tokensPerSecond, " tok/s")],
-    ["PREFILL",  num(s.promptMsPerToken, " ms/tok", 0)],
-    ["ROUTE",    endpointLabel().toLowerCase()],
-  ];
-}
-
-function buildLeftPage() {
-  const [W, H] = pageCanvasSize();
-  const c = document.createElement("canvas");
-  c.width = W; c.height = H;
-  const g = c.getContext("2d");
-  pageGround(g, W, H, false);
-
-  const L = W * 0.14, R = W * 0.86;
-  g.textAlign = "center";
-
-  g.fillStyle = rgb(C.ink, 0.90);
-  spacedTextFit(g, "Chaos", W / 2, H * 0.145, W * 0.004, W * 0.52,
-                H * 0.105, "UnifrakturMaguntia, Cinzel, serif");
-
-  g.strokeStyle = rgb(C.ink, 0.26);
-  g.lineWidth = 1.4;
-  g.beginPath(); g.moveTo(L, H * 0.185); g.lineTo(R, H * 0.185); g.stroke();
-
-  /* Label and value share a baseline, ranged left and right against a
-     hairline rule -- a specification sheet, not a caption stack. */
-  const rows = statusRows();
-  const top = H * 0.285, step = H * 0.079;
-  const labelSize = Math.round(H * 0.0215);
-  for (let i = 0; i < rows.length; i++) {
-    const y = top + i * step;
-
-    g.textAlign = "left";
-    g.fillStyle = rgb(C.ink, 0.40);
-    g.font = "400 " + labelSize + "px 'IBM Plex Mono', monospace";
-    let lx = L;
-    for (const ch of rows[i][0]) {
-      g.fillText(ch, lx, y);
-      lx += g.measureText(ch).width + W * 0.0055;
-    }
-    const labelEnd = lx + W * 0.02;
-
-    const val = rows[i][1];
-    let size = H * 0.032;
-    for (let k = 0; k < 7; k++) {
-      g.font = "500 " + Math.round(size) + "px 'IBM Plex Mono', monospace";
-      if (g.measureText(val).width <= R - labelEnd) break;
-      size *= ((R - labelEnd) / g.measureText(val).width) * 0.97;
-    }
-    g.textAlign = "right";
-    g.fillStyle = rgb(C.ink, val === "\u2014" ? 0.28 : 0.88);
-    g.fillText(val, R, y);
-
-    if (rows[i][2] && rows[i][2] !== "\u2014") {
-      g.textAlign = "left";
-      g.font = "400 " + Math.round(H * 0.0195) + "px 'IBM Plex Mono', monospace";
-      g.fillStyle = rgb(C.ink, 0.38);
-      g.fillText(rows[i][2], L, y + H * 0.026);
-    }
-
-    g.strokeStyle = rgb(C.ink, 0.09);
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(L, y + H * 0.038); g.lineTo(R, y + H * 0.038); g.stroke();
-  }
-
-  g.textAlign = "center";
-  g.fillStyle = rgb(C.ink, 0.52);
-  const reporting = Object.keys(nodeStatus || {}).length > 0;
-  spacedTextFit(g, reporting ? "THAT WHICH EXCEEDS THE VESSEL"
-                             : "THE NODE HAS NOT YET SPOKEN",
-                W / 2, H * 0.925, W * 0.008, W * 0.76,
-                H * 0.030, "Cinzel, serif");
-
-  leftPageTex = c;
-}
-
-/* The shape of the canvas a leaf is composed into.
-
-   When the camera rolls to fit a phone, a page that is taller than it
-   is wide appears LANDSCAPE on screen -- so its content has to be laid
-   out landscape, not laid out upright and then turned. Rotating the
-   finished image cannot work here for a second reason as well: a sheet
-   is drawn as a run of strips that slice the texture, and the rolled
-   mapping reassigns which of the texture's axes the slices run along.
-   Compose for the orientation; do not rotate into it. */
-function pageCanvasSize() {
-  const long = Math.round(900 * BOOK_H / BOOK_W);
-  return pageRot === 3 ? [long, 900] : [900, long];
-}
-
-let pagesBuiltRot = -1;
-
 function buildPages(reveal) {
   buildLeftPage();
   buildRightPage(reveal);
-  pagesBuiltRot = pageRot;
 }
 
 /* Ask the node what it is, if the node is the one serving us. */
-function pollStatus() {
-  let base;
-  try { base = new URL(endpoint, window.location.href); } catch (e) { return; }
-  if (base.origin !== window.location.origin) return;   /* cross-origin is blocked anyway */
-  fetch(base.origin + "/status", { cache: "no-store" })
-    .then(r => (r.ok ? r.json() : null))
-    .then(j => {
-      if (!j || typeof j !== "object") return;
-      const before = JSON.stringify(nodeStatus);
-      nodeStatus = j;
-      if (JSON.stringify(nodeStatus) !== before && SPRITES.length) buildPages(qrReveal);
-    })
-    .catch(() => { /* no endpoint there; the leaf keeps its dashes */ });
-}
 
 /* ==================================================================== *
  *  9.  Fire, embers, mist
@@ -2057,7 +2058,7 @@ const BUDGET = reduceMotion ? 0.35 : 1;
    fifty-seven milliseconds a frame and never showed up in a measurement
    taken before the count had settled. Rate times life is the population,
    so state the rate and the life and the population follows. */
-let fireDebt = 0, emberDebt = 0;
+let fireDebt = 0, emberDebt = 0, burnDebt = 0;
 
 function spawnFire(openness, dt) {
   /* Closed: the seam between the boards and the fore-edge. Open: along
@@ -2111,6 +2112,33 @@ function spawnFire(openness, dt) {
       p: [spineX + rrange(0, BOOK_W), rrange(-BOOK_H/2, BOOK_H/2), T_TOP * rrange(1, 1.6)],
       v: [rrange(-0.12, 0.12), rrange(-0.12, 0.12), rrange(0.35, 0.85)],
       life: 0, max: rrange(1.1, 2.3), size: rrange(0.012, 0.030),
+    });
+  }
+}
+
+/* Real fire along the burning edge, not only a gradient in the
+   texture. The scorch in the image says the paper is charring; these
+   say it is alight, and the difference between the two is most of what
+   "burning" means to the eye. */
+function spawnBurnFront(dt) {
+  if (qrReveal <= 0.001 || qrReveal >= 0.999) return;
+  burnDebt += 300 * BUDGET * dt;
+  let m = Math.min(12, Math.floor(burnDebt));
+  burnDebt -= m;
+  const front = qrReveal * 1.24;
+  while (m-- > 0) {
+    /* a point on the line 0.60u + 0.40v = front, over the spread */
+    let u = rnd(), v = (front - u * 0.60) / 0.40;
+    if (v < 0 || v > 1) { v = rnd(); u = (front - v * 0.40) / 0.60; }
+    if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+    const wx = spineX - BOOK_W + u * 2 * BOOK_W;
+    const wy = (0.5 - v) * BOOK_H * 0.92;
+    fire.push({
+      p: [wx, wy, T_RIGHT + 0.012],
+      v: [rrange(-0.05, 0.05), rrange(-0.05, 0.05), rrange(0.22, 0.50)],
+      life: 0, max: rrange(0.20, 0.44),
+      size: rrange(0.040, 0.105),
+      curl: rnd() * TAU,
     });
   }
 }
@@ -2311,13 +2339,16 @@ function frameCamera(instant) {
   cam.azim = lerp(CLOSED_CAM.azim, OPEN_CAM.azim, o);
   cam.elev = lerp(CLOSED_CAM.elev, OPEN_CAM.elev, o);
   cam.fov  = lerp(CLOSED_CAM.fov,  OPEN_CAM.fov,  o);
-  cam.roll = portrait ? lerp(0, Math.PI / 2, o) : 0;
-  /* Three quarters, not one. A roll of +90 degrees sends screen-right
-     to world +y and screen-up to world -x, so the artwork has to turn
-     the other way to meet it; one quarter turn lands the incantation
-     upside down, which is the same amount of wrong in both axes and so
-     looks like a mirror rather than a rotation. */
-  pageRot = portrait && o >= 0.5 ? 3 : 0;
+  /* The book opens facing the reader, on every screen.
+
+     Rolling the camera on a phone made the spread run down the display,
+     which fits more code into fewer pixels and is the wrong trade: it
+     opens sideways in front of someone holding it. A phone simply gets
+     the book smaller. Everything the roll dragged behind it -- leaves
+     composed at an inverted aspect, strips slicing the other axis of
+     their texture, a spread cut along the short side -- goes with it. */
+  cam.roll = 0;
+  pageRot = 0;
 
   /* what we are framing */
   let halfW, halfH, tx, ty, tz;
@@ -2355,7 +2386,6 @@ function frameCamera(instant) {
     ty = 0;
     tz = lerp(0.26, T_RIGHT, o);
   }
-  if (portrait) { const s = halfW; halfW = halfH; halfH = s; }
 
   cam.target = [tx, ty, tz];
   const tanV = Math.tan(cam.fov / 2);
@@ -2426,14 +2456,17 @@ let qrReveal = 0;
    see closed and `faceDown` is the side that ends up looking at you
    once the leaf has turned over. */
 function drawSheet(i, openness, faceUp, faceDown, out) {
-  const SEG = 14;
+  const SEG = 26;
   const st = sheetState(i, openness);
   const arc = leafArc(st.theta, st.curl, SEG);
   const y0 = -BOOK_H / 2 + 0.010, y1 = BOOK_H / 2 - 0.010;
+  const gap = GUTTER_GAP / 2;
 
   for (let j = 0; j < SEG; j++) {
-    const ax = spineX + arc[j][0], az = st.z + arc[j][1];
-    const bx = spineX + arc[j + 1][0], bz = st.z + arc[j + 1][1];
+    /* offset away from the spine so the two leaves never touch */
+    const off = -gap * Math.cos(st.theta);
+    const ax = spineX + off + arc[j][0], az = st.z + arc[j][1];
+    const bx = spineX + off + arc[j + 1][0], bz = st.z + arc[j + 1][1];
 
     const P0 = [ax, y0, az], P1 = [bx, y0, bz];
     const P2 = [bx, y1, bz], P3 = [ax, y1, az];
@@ -2457,14 +2490,9 @@ function drawSheet(i, openness, faceUp, faceDown, out) {
          mirrored or it reads backwards once the leaf turns over. */
       const s0 = facingUp ? u0 : 1 - u1;
       const s1 = facingUp ? u1 : 1 - u0;
-      /* And the strips run down the texture's HEIGHT once the camera has
-         rolled, because the rolled mapping sends the leaf's spine-to-edge
-         axis along the texture's v. */
-      const src = pageRot === 3
-        ? [0, s0 * ih, iw, (s1 - s0) * ih]
-        : [s0 * iw, 0, (s1 - s0) * iw, ih];
+      const src = [s0 * iw, 0, (s1 - s0) * iw, ih];
       const quad = facingUp ? [P3, P2, P1, P0] : [P2, P3, P0, P1];
-      out.push({ depth, n, mid, quad, src, tex: face.tex, strip: true });
+      out.push({ depth, n, mid, quad, src, tex: face.tex, screen: s });
     } else {
       const col = shade(face.col, n, mid, face.rim === undefined ? 0.10 : face.rim);
       push(depth, () => poly(s, rgb(col), 0));
@@ -2504,10 +2532,10 @@ function drawBook(t) {
   const bare = sheetPhase(SHEETS - 1, openness);
   if (rightPageTex && bare > 0.02) {
     const z = T_RIGHT;
-    const a = [spineX - GUTTER_LAP, yIn0, z];
+    const a = [spineX + GUTTER_GAP / 2, yIn0, z];
     const b = [spineX + BOOK_W - 0.012, yIn0, z];
     const c = [spineX + BOOK_W - 0.012, yIn1, z];
-    const d = [spineX - GUTTER_LAP, yIn1, z];
+    const d = [spineX + GUTTER_GAP / 2, yIn1, z];
     const s = [a, b, c, d].map(project);
     if (!s.some(q => q[2] <= 0.05)) {
       const n = [0, 0, 1];
@@ -2549,11 +2577,66 @@ function drawBook(t) {
     push(s.reduce((a, q) => a + q[2], 0) / 4, () => poly(s, rgb(col), 0));
   }
 
-  leafShimmer(leafScreensThisFrame, t, clamp((openness - 0.75) / 0.25, 0, 1));
+  /* The working page smoulders: a line of heat crosses it, over and
+     over, and the paper is never consumed. */
+  const leftStrips = [];
+  for (const it of textured) if (it.tex === leftPageTex) leftStrips.push(it.screen);
+  emberBand(leftStrips, t, clamp((openness - 0.7) / 0.3, 0, 1));
+  leafShimmer(leafScreensThisFrame, t, clamp((openness - 0.75) / 0.25, 0, 1) * 0.6);
   leafScreensThisFrame.length = 0;
 }
 
 let leafScreensThisFrame = [];
+
+/* A line of heat crossing a page, on a loop.
+
+   "Burning, but nothing happens" is the whole brief for this one: the
+   paper glows where the heat is and is exactly as it was after it
+   passes. Drawn as a moving light in the scene rather than as a repaint
+   of the texture, so the leaf is baked once and this costs a gradient a
+   frame. */
+function emberBand(screens, t, amount) {
+  if (!screens.length || amount <= 0.01) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, depth = 0;
+  for (const s of screens) {
+    for (const q of s) {
+      if (q[0] < x0) x0 = q[0];
+      if (q[0] > x1) x1 = q[0];
+      if (q[1] < y0) y0 = q[1];
+      if (q[1] > y1) y1 = q[1];
+    }
+    depth += s.reduce((a, q) => a + q[2], 0) / s.length;
+  }
+  depth /= screens.length;
+  const w = x1 - x0, h = y1 - y0;
+  if (!(w > 1 && h > 1)) return;
+
+  const cycle = (t % 6.5) / 6.5;
+  const pos = cycle * 1.7 - 0.35;
+  push(depth - 0.02, () => {
+    ctx.save();
+    ctx.beginPath();
+    for (const s of screens) {
+      ctx.moveTo(s[0][0], s[0][1]);
+      for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0], s[i][1]);
+      ctx.closePath();
+    }
+    ctx.clip();
+    ctx.globalCompositeOperation = C.blend;
+    const bx = x0 + w * pos;
+    const g = ctx.createLinearGradient(bx - w * 0.34, y0 - h * 0.2,
+                                       bx + w * 0.34, y1 + h * 0.2);
+    const a = amount * (C.isDark ? 1 : 0.85);
+    g.addColorStop(0.00, rgb(C.flameDeep, 0));
+    g.addColorStop(0.40, rgb(C.flameDeep, 0.16 * a));
+    g.addColorStop(0.50, rgb(C.flameHot, 0.50 * a));
+    g.addColorStop(0.60, rgb(C.flameDeep, 0.16 * a));
+    g.addColorStop(1.00, rgb(C.flameDeep, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0, w, h);
+    ctx.restore();
+  }, LAYER.STANDING);
+}
 
 /* A slow band of light travelling across the open spread.
 
@@ -2722,12 +2805,9 @@ function renderFrame(now) {
   }
 
   /* The code writes itself once the leaves are far enough apart. */
-  /* Re-bake if the viewport turned under us: a rolled camera needs the
-     leaves at the inverted aspect. */
-  if (pageRot !== pagesBuiltRot && qrGrid && SPRITES.length) buildPages(qrReveal);
   const wantReveal = openness > 0.55 ? 1 : 0;
   if (wantReveal && qrReveal < 1) {
-    qrReveal = clamp(qrReveal + dt / (reduceMotion ? 0.25 : 1.05), 0, 1);
+    qrReveal = clamp(qrReveal + dt / (reduceMotion ? 0.30 : 2.10), 0, 1);
     buildPages(qrReveal);
   } else if (!wantReveal && qrReveal > 0 && state === S.CLOSING) {
     qrReveal = 0;
@@ -2741,6 +2821,7 @@ function renderFrame(now) {
   frameCamera(false);
 
   spawnFire(openness, dt);
+  spawnBurnFront(dt);
   stepParticles(dt, t);
 
   /* --- paint -------------------------------------------------------- */
@@ -2880,8 +2961,6 @@ function start() {
   applyTheme(wantsDark());
   watchTheme();
   watchNetwork();
-  pollStatus();
-  setInterval(pollStatus, 5000);
   buildPages(0);
   buildCoverTexture();
   loadBrandmark();
@@ -2952,8 +3031,8 @@ window.__grimoire = {
   target: () => TARGET_URL,
   qr: () => qrGrid,
   qrCanvas: () => rightPageTex,
-  status: () => nodeStatus,
-  setStatus: (s) => { nodeStatus = s || {}; buildPages(qrReveal); },
+  coverCanvas: () => coverTex,
+  leftCanvas: () => leftPageTex,
   endpoint: () => endpoint,
   setEndpoint: (u) => { window.CHAOS_ENDPOINT = u; return applyEndpoint(true); },
   open: () => { if (state === S.CLOSED) toggle(); },

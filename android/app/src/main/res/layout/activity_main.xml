@@ -90,6 +90,31 @@
             android:text="@string/connect" />
     </LinearLayout>
 
+    <!--
+        The two ways this phone and another machine find each other: show a
+        code, or read one. Side by side because they are the same act from
+        opposite ends.
+    -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <Button
+            android:id="@+id/show_mark"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="@string/the_mark" />
+
+        <Button
+            android:id="@+id/read_code"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="@string/read_code" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/status"
         android:layout_width="match_parent"

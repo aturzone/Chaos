@@ -181,3 +181,75 @@ To dump the page's own grid: `window.__grimoire.qr()`.
   and nothing in the DOM is set in Cinzel — it exists only inside canvas calls,
   which do not count. Load each face by name before baking a texture, because a
   texture is drawn once and never redrawn.
+
+
+---
+
+## Where these files are used
+
+**They are product source, not a demo.** Nothing here is reimplemented per
+platform; every tier shows *these bytes*.
+
+| File | Who reads it |
+|---|---|
+| `grimoire.html` | `chaos_arch::grimoire::MARK` -> `chaos-serve GET /qr`; the desktop's SHOW THE MARK button opens that URL; the Android `BrandActivity` shows it |
+| `scanner.html` | `chaos_arch::grimoire::SCRY` -> `GET /scan`; the desktop's READ A CODE button; Android MARK/SCAN |
+| `fonts.css` | spliced in by `chaos_arch::grimoire::page` in place of the `<link>`s |
+| `decode_qr.py` | `scripts/qr-fixture.py` — every reference grid must decode through it |
+
+Both files are authored as document *fragments* — a `<title>`, three `<link>`s,
+then `<style>` and the page — because the tool they are previewed in supplies
+the skeleton. `chaos_arch::grimoire::page` wraps them in a real document, drops
+the font links in favour of `fonts.css`, and injects `window.CHAOS_ENDPOINT`.
+Regenerate the fonts with `python scripts/embed-fonts.py`; the licences the OFL
+requires be preserved are in `fonts/NOTICE`.
+
+`chaos-serve --emit-pages <dir>` writes the two wrapped documents to disk. That
+is how the Android APK gets them, so there is no second copy of the wrapping.
+
+## The reader: what it does, and where it stops
+
+Written because `BarcodeDetector` does the whole job in one call and **is absent
+on desktop Windows** — measured in the session that built this, not assumed. It
+is used where it exists and the bundled pipeline runs where it does not.
+
+**Measured 2026-08-27**, driving `window.__scry.readCanvas` on rendered images:
+
+- **210 of 210** across 7 scales (3-20 px per module) and 30 angles.
+- **The mark's own rendered artwork** — eased module corners, ink variation, the
+  gutter — read at every width from 1600 px down to 120 px. Fails at 100 px,
+  which is about 2.4 px per module.
+- Blur to 3.0 px; contrast down to `#606060` on `#9a9a9a`; quiet zone down to
+  zero modules.
+- **0 false positives on 40 noise frames**, `null` on a blank frame.
+- 22 ms median at the 520 px working size the camera path uses, against its
+  120 ms interval.
+
+**Not measured: a real camera.** `getUserMedia` has only been exercised down its
+failure paths here.
+
+### Three defects the first measurement missed
+
+The earlier claim, "15/15 across 4/6/8 px per module", was true and covered the
+wrong range. Each of these was found by testing one stage rather than looking at
+the output:
+
+- **It stopped reading above about ten pixels a module** — which is what happens
+  when the phone is close enough that the code fills the ring. The local
+  threshold's 8-px blocks break a large module into speckle. `readFrame` now
+  halves the frame and retries until it reads or drops under 180 px. A code
+  carries no more information at twelve pixels a module than at six.
+- **The correct three finder candidates were not always in the top five.**
+  Triples are filtered geometrically first — legs equal, hypotenuse root two
+  longer, module sizes within a factor of two — so eight candidates cost
+  arithmetic rather than grid samples.
+- **The finder centre was up to four pixels out**, because rows are scanned
+  every second row and the set that passes the ratio test is not symmetric about
+  the middle once the code is turned. Four pixels is a 1.5-degree error in the
+  sampling basis; over 29 modules that is most of a module by the far edge, and
+  every module past the middle reads as its neighbour. The centre is now the
+  midpoint of the pattern's full extent, taken twice, alternating axes.
+
+**A ten-degree band around 90 degrees failed at every scale while 85 and 270
+were fine.** An angle sweep in multiples of 45 would never have found it — which
+is the general lesson, not a fact about QR codes.

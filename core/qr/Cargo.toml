@@ -1,0 +1,22 @@
+[package]
+name = "chaos-qr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "QR encoding and terminal rendering, so a headless node can hand out its route"
+keywords = ["qr", "terminal", "cli"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+# For --route: the address another machine can reach, which is a fact about
+# this machine and so lives with the rest of them.
+chaos-probe = { path = "../../core/probe" }
+
+[[bin]]
+name = "chaos-qr"
+path = "src/main.rs"
+test = false

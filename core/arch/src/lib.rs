@@ -17,6 +17,7 @@ pub mod banner;
 mod deepseek4;
 mod deepseek4_forward;
 mod expert_cache;
+pub mod grimoire;
 mod kv;
 pub mod log;
 mod logo_bitmap;

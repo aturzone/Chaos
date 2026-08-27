@@ -4,6 +4,23 @@
 use chaos_serve::*;
 use std::process::ExitCode;
 
+/// Write `qr.html` and `scan.html` into `dir`, self-contained.
+///
+/// No endpoint is baked in: a file on disk has no idea which node will show it,
+/// and the host that loads it passes one -- `?endpoint=` for the Android
+/// WebView, `window.CHAOS_ENDPOINT` for anything embedding it.
+fn emit_pages(dir: &std::path::Path) -> std::io::Result<()> {
+    use chaos_arch::grimoire::{page, Host, Page};
+    std::fs::create_dir_all(dir)?;
+    for (name, which) in [("qr", Page::Mark), ("scan", Page::Scry)] {
+        let file = dir.join(format!("{name}.html"));
+        let html = page(which, Host::default());
+        std::fs::write(&file, &html)?;
+        println!("wrote {} ({} bytes)", file.display(), html.len());
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
     // **Before anything treats an argument as a path.** Without this,
     // `chaos-serve --version` reported "cannot find the file specified" -- the
@@ -17,6 +34,31 @@ fn main() -> ExitCode {
         println!("chaos-serve {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
+    // **Before a model is looked for**, like `--version`: this writes two files
+    // and exits, and needing a 144 GB container on disk to do it would be
+    // absurd. It exists so the Android APK can carry the two brand pages
+    // without a second implementation of the wrapping -- see
+    // `chaos_arch::grimoire` and `android/.../BrandActivity.kt`.
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if let Some(i) = args.iter().position(|a| a == "--emit-pages") {
+            let dir = match args.get(i + 1) {
+                Some(d) if !d.starts_with('-') => std::path::PathBuf::from(d),
+                _ => {
+                    eprintln!("chaos-serve: --emit-pages wants a directory to write into");
+                    return ExitCode::from(2);
+                }
+            };
+            return match emit_pages(&dir) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("chaos-serve: --emit-pages {}: {e}", dir.display());
+                    ExitCode::FAILURE
+                }
+            };
+        }
+    }
+
     let mut path = String::new();
     let mut port = 8080u16;
     let mut cache_gib = 0f64;

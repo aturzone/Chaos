@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The only permission this app needs, and the only one it asks for: it
-         talks to one server on the local network and does nothing else. -->
+    <!-- It talks to one server on the local network and does nothing else. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        **Asked for only by the reader, and only when it is opened.** The
+        scrying circle reads a QR code off another device's screen, which needs
+        a camera; nothing else in the app does. `required="false"` so a device
+        without one still installs and still gets everything except that one
+        screen – a hard requirement here would delist the app for a tablet.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
 
     <!--
         **The engine is executed, not loaded.** `libchaos_serve.so` in
@@ -41,5 +52,15 @@
             android:name=".MainActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+
+        <!--
+            The mark and the reader, in a WebView over an origin the app
+            answers itself. See BrandActivity: a camera is refused outside a
+            secure context, and a node on a LAN is plain http forever.
+        -->
+        <activity
+            android:name=".BrandActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 </manifest>

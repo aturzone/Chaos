@@ -529,17 +529,44 @@ function findPatterns(bin, w, h) {
            Math.abs(unit * 3 - r[2]) < tol * 2.2 &&
            Math.abs(unit - r[3]) < tol && Math.abs(unit - r[4]) < tol;
   };
-  const vertOk = (cx, cy, unit) => {
+  /* Walk the dark core out to the pattern's edges along one axis and
+     return where its middle actually is.
+
+     **The centre this returns is the whole reason the function exists.**
+     Rows are scanned every second row, so the row that happened to hit a
+     finder is up to a module away from its middle -- and worse, the set
+     of rows that pass the ratio test is not symmetric about the middle
+     once the code is rotated, so averaging them leans to one side. On a
+     code turned a degree or two off ninety, one finder's centre came out
+     four pixels from the truth while the other two were exact. Four
+     pixels is a one-and-a-half-degree error in the sampling basis, which
+     over twenty-nine modules puts the far edge most of a module out and
+     every module past the middle reads as its neighbour: a band of about
+     ten degrees where nothing read, at every scale, while eighty-five
+     and two hundred and seventy were fine.
+
+     The pattern is symmetric, so the midpoint of its full extent along
+     any line through the centre *is* the centre. One function does both
+     axes -- `vertical` only changes how the buffer is stepped -- and the
+     two are applied alternately so each refinement feeds the next. */
+  const centreAlong = (cx, cy, unit, vertical) => {
+    const limit = vertical ? h : w;
+    const start = vertical ? cy : cx;
+    const idx = (i) => (vertical ? i * w + cx : cy * w + i);
+    if (!bin[idx(start)]) return null;
     const run = [0, 0, 0, 0, 0];
-    let y = cy, i = 2;
-    while (y >= 0 && bin[y * w + cx]) { run[2]++; y--; }
-    while (y >= 0 && !bin[y * w + cx] && run[1] < unit * 3) { run[1]++; y--; }
-    while (y >= 0 && bin[y * w + cx] && run[0] < unit * 3) { run[0]++; y--; }
-    y = cy + 1;
-    while (y < h && bin[y * w + cx]) { run[2]++; y++; }
-    while (y < h && !bin[y * w + cx] && run[3] < unit * 3) { run[3]++; y++; }
-    while (y < h && bin[y * w + cx] && run[4] < unit * 3) { run[4]++; y++; }
-    return ok(run);
+    let i = start;
+    while (i >= 0 && bin[idx(i)]) { run[2]++; i--; }
+    const lo = i + 1;
+    while (i >= 0 && !bin[idx(i)] && run[1] < unit * 3) { run[1]++; i--; }
+    while (i >= 0 && bin[idx(i)] && run[0] < unit * 3) { run[0]++; i--; }
+    i = start + 1;
+    while (i < limit && bin[idx(i)]) { run[2]++; i++; }
+    const hi = i - 1;
+    while (i < limit && !bin[idx(i)] && run[3] < unit * 3) { run[3]++; i++; }
+    while (i < limit && bin[idx(i)] && run[4] < unit * 3) { run[4]++; i++; }
+    if (!ok(run)) return null;
+    return { centre: (lo + hi) / 2, unit: run.reduce((a, b) => a + b, 0) / 7 };
   };
 
   for (let y = 0; y < h; y += 2) {
@@ -552,9 +579,25 @@ function findPatterns(bin, w, h) {
       else { push(len); colour = v; len = 1;
         if (colour === 0 && ok(run)) {
           const total = run.reduce((a, b) => a + b, 0);
-          const cx = Math.round(x - len - run[4] - run[3] - run[2] / 2);
-          const unit = total / 7;
-          if (cx > 0 && cx < w && vertOk(cx, y, unit)) hits.push([cx, y, unit]);
+          let cx = Math.round(x - len - run[4] - run[3] - run[2] / 2);
+          let unit = total / 7;
+          if (cx <= 0 || cx >= w) continue;
+          /* Down the column through the row's centre, then back across
+             the row through the column's centre. Twice, because the
+             first vertical walk starts from a row that may be a module
+             off and the second starts from the middle. */
+          let cy = y, good = true;
+          for (let pass = 0; pass < 2 && good; pass++) {
+            const v1 = centreAlong(Math.round(cx), Math.round(cy), unit, true);
+            if (!v1) { good = false; break; }
+            cy = v1.centre;
+            unit = (unit + v1.unit) / 2;
+            const h1 = centreAlong(Math.round(cx), Math.round(cy), unit, false);
+            if (!h1) { good = false; break; }
+            cx = h1.centre;
+            unit = (unit + h1.unit) / 2;
+          }
+          if (good) hits.push([cx, cy, unit]);
         }
       }
     }
@@ -624,18 +667,118 @@ function sampleGrid(bin, w, h, corners, size) {
   return mod;
 }
 
-/* The whole read, from one frame. Returns {text, corners} or null. */
+/* Average four pixels into one. Returns [gray, w, h].
+
+   A gray buffer rather than a canvas because that is what the caller
+   already has, and because a canvas resample would cost a readback. */
+function halve(gray, w, h) {
+  const nw = w >> 1, nh = h >> 1;
+  const out = new Uint8Array(nw * nh);
+  for (let y = 0; y < nh; y++) {
+    const a = (y * 2) * w, b = (y * 2 + 1) * w;
+    for (let x = 0; x < nw; x++) {
+      const i = x * 2;
+      out[y * nw + x] = (gray[a + i] + gray[a + i + 1] +
+                         gray[b + i] + gray[b + i + 1] + 2) >> 2;
+    }
+  }
+  return [out, nw, nh];
+}
+
+/* The whole read, at full size and then at half.
+
+   **Measured, and the reason this exists.** The detector reads a code
+   whose modules are 4 to 8 pixels across and stops at about ten: at 9.6
+   px/module it decodes, at 11 it finds three finder candidates and none
+   of them are the right three, and at 13 and above `findPatterns` finds
+   nothing at all. That is not an exotic case -- it is what happens when
+   the phone is held close enough that the code fills the ring, which is
+   what anyone does first.
+
+   The cause is the local threshold. Blocks are eight pixels square, so
+   at eleven pixels a module a block can sit entirely inside one module,
+   where the ink variation the mark is drawn with is the only signal
+   there is; the module breaks into speckle and the 1:1:3:1:1 run is
+   gone. A code carries no more information at twelve pixels a module
+   than at six, so the fix is to stop looking at it that closely.
+
+   Half scale rather than a smaller working frame, because a small code
+   far away needs every pixel it has. Trying full size first costs
+   nothing on the frames that already worked: a frame that fails
+   `findPatterns` fails it in the first few milliseconds.
+
+   Corners come back in the coordinates the caller passed in. */
 function readFrame(gray, w, h) {
+  let g = gray, cw = w, ch = h, factor = 1;
+  for (;;) {
+    const got = readFrameAt(g, cw, ch);
+    if (got) {
+      if (factor === 1) return got;
+      const up = (p) => ({ x: p.x * factor, y: p.y * factor });
+      return {
+        text: got.text,
+        size: got.size,
+        corners: { tl: up(got.corners.tl), tr: up(got.corners.tr), bl: up(got.corners.bl) },
+      };
+    }
+    /* Below this there is nothing to gain and a real chance of losing a
+       code that was already marginal. Each level is a quarter of the
+       pixels of the one before, so the whole ladder costs about a third
+       more than the first rung. */
+    if (Math.min(cw, ch) < 180) return null;
+    [g, cw, ch] = halve(g, cw, ch);
+    factor *= 2;
+  }
+}
+
+/* One read at one scale. Returns {text, corners, size} or null. */
+function readFrameAt(gray, w, h) {
   const bin = binarize(gray, w, h);
   const pats = findPatterns(bin, w, h);
   if (pats.length < 3) return null;
-  /* try the strongest few triples rather than only the top three */
-  const take = pats.slice(0, 5);
+
+  /* **Which three of the candidates are the finders.**
+
+     Taking the strongest three is not enough and taking the strongest
+     five was not either: a narrow band of angles around 90 degrees
+     produced six candidates whose correct three were not all inside the
+     top five, and the read failed at every scale while 85 and 95 degrees
+     both worked. A test that only tried multiples of 45 would never see
+     it.
+
+     So consider more candidates, and spend the extra budget on
+     arithmetic instead of on grid samples. Three finder patterns sit at
+     the corners of a right isosceles triangle and are all the same size,
+     which is two cheap tests that throw out nearly every false triple:
+     the two legs equal, the hypotenuse root two longer, the module sizes
+     within a factor of two. What survives is ordered by how close it is
+     to that ideal, so the true triple is tried first and the ladder
+     above almost never reaches a second rung. */
+  const take = pats.slice(0, 8);
+  const triples = [];
   for (let a = 0; a < take.length; a++)
   for (let b = a + 1; b < take.length; b++)
   for (let c = b + 1; c < take.length; c++) {
-    const corners = orderCorners(take[a], take[b], take[c]);
-    const unit = (take[a].u + take[b].u + take[c].u) / 3;
+    const t3 = [take[a], take[b], take[c]];
+    const u = t3.map(p => p.u);
+    if (Math.max(...u) > Math.min(...u) * 2) continue;
+    const d = [
+      Math.hypot(t3[0].x - t3[1].x, t3[0].y - t3[1].y),
+      Math.hypot(t3[1].x - t3[2].x, t3[1].y - t3[2].y),
+      Math.hypot(t3[0].x - t3[2].x, t3[0].y - t3[2].y),
+    ].sort((m, n) => m - n);
+    if (d[0] < 1) continue;
+    /* legs equal, and the hypotenuse root two longer */
+    const legs = Math.abs(d[1] - d[0]) / d[1];
+    const hyp = Math.abs(d[2] - d[1] * Math.SQRT2) / d[2];
+    if (legs > 0.30 || hyp > 0.30) continue;
+    triples.push([t3, legs + hyp]);
+  }
+  triples.sort((m, n) => m[1] - n[1]);
+
+  for (const [t3] of triples) {
+    const corners = orderCorners(t3[0], t3[1], t3[2]);
+    const unit = (t3[0].u + t3[1].u + t3[2].u) / 3;
     const span = Math.hypot(corners.tr.x - corners.tl.x, corners.tr.y - corners.tl.y);
 
     /* Try every plausible version rather than trusting one estimate.
@@ -655,11 +798,46 @@ function readFrame(gray, w, h) {
       cands.push([d, Math.abs(mps - unit)]);
     }
     cands.sort((p, q) => p[1] - q[1]);
-    for (const [d] of cands) {
-      const mod = sampleGrid(bin, w, h, corners, d);
-      if (!mod) continue;
-      const text = decodeGrid(mod, d);
-      if (text) return { text, corners, size: d };
+
+    /* **A square code, sampled with a square basis.**
+
+       The grid comes from two legs, top-left to top-right and top-left
+       to bottom-left, and they should be the same length because the
+       code is square. When one finder's centre is estimated a few pixels
+       off -- which happens, its own module size came out 9.1 against the
+       other two at 8.0 -- the legs disagree by six per cent, the error
+       accumulates over twenty-nine modules, and by the far edge the
+       sampler is a module and a half out. Every module past the middle
+       reads as its neighbour.
+
+       That is what made a ten-degree band around ninety degrees fail at
+       every scale while eighty-five and two hundred and seventy worked:
+       nothing structural, one imprecise corner. Averaging the two
+       lengths and keeping each direction costs two square roots, and it
+       is tried in addition to the raw basis rather than instead of it,
+       so no read that works today can be lost. */
+    const bases = [corners];
+    {
+      const ax = corners.tr.x - corners.tl.x, ay = corners.tr.y - corners.tl.y;
+      const bx = corners.bl.x - corners.tl.x, by = corners.bl.y - corners.tl.y;
+      const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      if (la > 1 && lb > 1 && Math.abs(la - lb) / Math.max(la, lb) > 0.015) {
+        const L = (la + lb) / 2;
+        bases.push({
+          tl: corners.tl,
+          tr: { x: corners.tl.x + ax / la * L, y: corners.tl.y + ay / la * L },
+          bl: { x: corners.tl.x + bx / lb * L, y: corners.tl.y + by / lb * L },
+        });
+      }
+    }
+
+    for (const basis of bases) {
+      for (const [d] of cands) {
+        const mod = sampleGrid(bin, w, h, basis, d);
+        if (!mod) continue;
+        const text = decodeGrid(mod, d);
+        if (text) return { text, corners: basis, size: d };
+      }
     }
   }
   return null;

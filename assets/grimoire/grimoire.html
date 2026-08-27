@@ -1225,11 +1225,14 @@ const BOOK_H = 2.06;
    A thin book reads as a card with a picture on it. Roughly a fifth of
    the board's width, with the text block visibly layered at the
    fore-edge, is what makes it read as a volume. */
-const SHEETS = 5;
-const T_COVER = 0.046;                       /* a board */
-const T_BLOCK = 0.150;                       /* the text block that stays put */
+/* Enough leaves that the pile which TURNS is a fair share of the pile
+   that does not. Five looked like a cover and a few sheets riding on a
+   solid block; fourteen reads as a book being leafed through. */
+const SHEETS = 14;
+const T_COVER = 0.044;                       /* a board */
+const T_BLOCK = 0.082;                       /* the text block that stays put */
 const T_RIGHT = T_COVER + T_BLOCK;           /* top of the right-hand block */
-const SHEET_GAP = 0.027;                     /* one leaf's share of the pile */
+const SHEET_GAP = 0.0115;                    /* one leaf's share of the pile */
 const T_TOP = T_RIGHT + (SHEETS - 1) * SHEET_GAP;   /* the shut book's lid */
 const SPINE_X = -BOOK_W / 2;          /* shut, this centres the book */
 /* The leaves stand apart at the gutter, so the seam reads as two
@@ -1247,7 +1250,7 @@ let spineX = SPINE_X;
    before it to land reads as a machine dealing cards. Real pages are
    already lifting while their neighbour is still coming down. */
 function sheetPhase(i, openness) {
-  const span = 0.56;                          /* one leaf's whole journey */
+  const span = 0.34;                          /* one leaf's whole journey */
   const start = (i / Math.max(1, SHEETS - 1)) * (1 - span);
   const k = clamp((openness - start) / span, 0, 1);
   return easeInOutCubic(k);
@@ -2586,7 +2589,7 @@ function drawSheet(i, openness, faceUp, faceDown, out) {
 
      Shut and open are the two states anyone actually looks at, and both
      are flat. */
-  const SEG = Math.abs(st.curl) < 0.02 ? 1 : 26;
+  const SEG = Math.abs(st.curl) < 0.02 ? 1 : 18;
   const arc = leafArc(st.theta, st.curl, SEG);
   const y0 = -BOOK_H / 2 + 0.010, y1 = BOOK_H / 2 - 0.010;
   const gap = GUTTER_GAP / 2;
@@ -2619,6 +2622,16 @@ function drawSheet(i, openness, faceUp, faceDown, out) {
     const u0 = j0 / SEG, u1 = j1 / SEG;
 
     if (face.tex) {
+      /* An opaque backing under every textured strip.
+      
+         The white patch came back the moment the book started moving,
+         and that is the tell: a FLAT sheet is one quad and cannot have
+         gaps, a BENDING one is twenty-odd strips and can. Chasing the
+         exact hairline is the wrong fix -- whatever opens it, what
+         showed through was the white leaf underneath. Backing each strip
+         with the board's own colour means a gap can only ever reveal
+         more board. */
+      push(depth + 0.004, () => poly(s, rgb(shade(face.col, n, mid, 0.08)), 0));
       const iw = face.tex.width, ih = face.tex.height;
       /* Seen from the far side, the sheet's texture has to be laid on
          mirrored or it reads backwards once the leaf turns over. */

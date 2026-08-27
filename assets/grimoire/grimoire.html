@@ -383,6 +383,10 @@ function flameRamp(t) {
    wins; otherwise the operating system decides, and the un-stamped
    "system" state is the one most people are actually in. */
 function wantsDark() {
+  /* `?theme=dark` / `?theme=light` forces one, for looking at each
+     version on its own without touching system settings. */
+  const q = /[?&#]theme=(dark|light)/.exec(window.location.href);
+  if (q) return q[1] === "dark";
   const stamped = document.documentElement.getAttribute("data-theme");
   if (stamped === "dark") return true;
   if (stamped === "light") return false;
@@ -1820,58 +1824,85 @@ function pageCanvasSize() {
 
 /* One burn, crossing both leaves.
 
-   `d` is how far along the front a point at (u, v) on a leaf sits, both
-   in 0..1 over the page. The right leaf runs a little ahead of the
-   left, so the fire reads as travelling through the open book rather
-   than as two pages lighting at once. */
-const BURN_BAND = 0.30;
-function burnFront(reveal, lead) {
-  return reveal * (1 + BURN_BAND) + (lead || 0) * 0.10;
-}
-function burnAt(u, v) { return u * 0.58 + v * 0.42; }
+   `s` is how far along the front a point sits, as u*DX + v*DY with u
+   and v running 0..1 over the page. DX + DY is exactly 1, so the far
+   corner is s = 1 and the front sweeps the whole leaf.
 
-/* Erase whatever is ahead of the front, and glow along it. Used on a
-   transparent layer so the paper underneath survives. */
+   Getting that into a canvas gradient is the part that bit. A linear
+   gradient from (0,0) to (w*DX, h*DY) does NOT give s: the parameter is
+   the projection onto that axis divided by its own length, and for a
+   page this shape the far corner lands at t = 2.05. Everything past
+   halfway therefore sat on the end stop and never changed -- the leaves
+   formed to the middle and stopped. The axis has to be V / |V|^2, which
+   is what puts the far corner at exactly 1. */
+const BURN_BAND = 0.30;
+const BURN_DX = 0.58, BURN_DY = 0.42;
+
+function burnGradient(g, w, h) {
+  const vx = BURN_DX / w, vy = BURN_DY / h;
+  const inv = 1 / (vx * vx + vy * vy);
+  return g.createLinearGradient(0, 0, vx * inv, vy * inv);
+}
+
+function burnFront(reveal, lead) {
+  return reveal * (1 + BURN_BAND) + (lead || 0) * 0.09;
+}
+function burnAt(u, v) { return u * BURN_DX + v * BURN_DY; }
+
+/* Ember ALONG the ink, not across the leaf.
+
+   Painted with `source-atop` onto the layer the writing lives on, so it
+   can only land where there is something to burn. Filling the whole
+   page instead -- which is what it used to do -- reads as a light
+   sweeping over paper; this reads as the letters themselves catching,
+   which is the thing being asked for. */
+function burnInk(g, w, h, reveal, lead) {
+  if (reveal <= 0 || reveal >= 1) return;
+  const f = burnFront(reveal, lead);
+  const f0 = clamp(f - BURN_BAND, 0.001, 0.995);
+  const f1 = clamp(f, f0 + 0.004, 0.999);
+  g.save();
+  g.globalCompositeOperation = "source-atop";
+
+  /* char, just behind the edge */
+  const ch = burnGradient(g, w, h);
+  ch.addColorStop(0, rgb(C.ink, 0));
+  ch.addColorStop(Math.max(0.001, f0 * 0.55 + f1 * 0.45), rgb(C.ink, 0));
+  ch.addColorStop(f1, rgb(C.flameDeep, 0.55));
+  ch.addColorStop(1, rgb(C.flameDeep, 0.55));
+  g.fillStyle = ch;
+  g.fillRect(0, 0, w, h);
+
+  /* and the bright line itself */
+  g.globalCompositeOperation = "source-atop";
+  const em = burnGradient(g, w, h);
+  const a = clamp(f1 - 0.045, 0.002, 0.994);
+  const b = clamp(f1 + 0.012, a + 0.003, 0.999);
+  em.addColorStop(0, rgb(C.flameHot, 0));
+  em.addColorStop(a, rgb(C.flameHot, 0));
+  em.addColorStop(clamp((a + b) / 2, a + 0.001, b - 0.001), rgb(C.flameCore, 0.95));
+  em.addColorStop(b, rgb(C.flameHot, 0));
+  em.addColorStop(1, rgb(C.flameHot, 0));
+  g.fillStyle = em;
+  g.fillRect(0, 0, w, h);
+  g.restore();
+}
+
+/* Erase whatever is ahead of the front. On the ink layer only, so the
+   paper under it survives untouched. */
 function burnMask(g, w, h, reveal, lead) {
   if (reveal >= 1) return;
   const f = burnFront(reveal, lead);
-  const f0 = clamp(f - BURN_BAND, 0.001, 0.997);
+  const f0 = clamp(f - 0.02, 0.001, 0.997);
   const f1 = clamp(f, f0 + 0.002, 0.999);
   g.save();
   g.globalCompositeOperation = "destination-out";
-  const gx = g.createLinearGradient(0, 0, w * 0.58, h * 0.42);
+  const gx = burnGradient(g, w, h);
   gx.addColorStop(0, "rgba(0,0,0,0)");
   gx.addColorStop(f0, "rgba(0,0,0,0)");
   gx.addColorStop(f1, "rgba(0,0,0,1)");
   gx.addColorStop(1, "rgba(0,0,0,1)");
   g.fillStyle = gx;
-  g.fillRect(0, 0, w, h);
-  g.restore();
-}
-
-/* The char and the ember, over the whole leaf -- never bounded to a box,
-   which is what drew a visible square around the code. */
-function burnEdge(g, w, h, reveal, lead) {
-  if (reveal <= 0 || reveal >= 1) return;
-  const f = burnFront(reveal, lead);
-  const f0 = clamp(f - BURN_BAND, 0.002, 0.994);
-  const f1 = clamp(f, f0 + 0.004, 0.998);
-  const gx = g.createLinearGradient(0, 0, w * 0.58, h * 0.42);
-  gx.addColorStop(0, rgb(C.ink, 0.10));
-  gx.addColorStop(Math.max(0.003, f0 - 0.06), rgb(C.ink, 0.14));
-  gx.addColorStop(f0 * 0.3 + f1 * 0.7, rgb(C.flameDeep, 0.46));
-  gx.addColorStop(f1, rgb(C.page, 0));
-  gx.addColorStop(1, rgb(C.page, 0));
-  g.fillStyle = gx;
-  g.fillRect(0, 0, w, h);
-  /* the bright line itself */
-  g.save();
-  g.globalCompositeOperation = "lighter";
-  const gy = g.createLinearGradient(0, 0, w * 0.58, h * 0.42);
-  gy.addColorStop(Math.max(0.002, f1 - 0.055), rgb(C.flameDeep, 0));
-  gy.addColorStop(clamp(f1 - 0.012, 0.004, 0.996), rgb(C.flameHot, 0.85));
-  gy.addColorStop(Math.min(0.998, f1 + 0.010), rgb(C.flameDeep, 0));
-  g.fillStyle = gy;
   g.fillRect(0, 0, w, h);
   g.restore();
 }
@@ -2013,9 +2044,9 @@ function buildLeftPage(reveal) {
             mid + (i - 2) * W * 0.075, H * 0.955, W * 0.020, W * 0.0052);
   }
 
+  burnInk(gi, W, H, reveal, 0);
   burnMask(gi, W, H, reveal, 0);
   g.drawImage(ink, 0, 0);
-  burnEdge(g, W, H, reveal, 0);
 
   leftPageTex = c;
 }
@@ -2083,9 +2114,9 @@ function buildRightPage(reveal) {
     }
   }
 
+  burnInk(gi, W, H, reveal, 1);
   burnMask(gi, W, H, reveal, 1);
   g.drawImage(ink, 0, 0);
-  burnEdge(g, W, H, reveal, 1);
 
   rightPageTex = c;
 }

@@ -78,12 +78,42 @@ impl Level {
 /// `blocks * (data + ec) == the version's total codewords`, which a test checks
 /// rather than a reader.
 const ECC: [[[usize; 5]; 4]; 6] = [
-    [[7, 1, 19, 0, 0], [10, 1, 16, 0, 0], [13, 1, 13, 0, 0], [17, 1, 9, 0, 0]],
-    [[10, 1, 34, 0, 0], [16, 1, 28, 0, 0], [22, 1, 22, 0, 0], [28, 1, 16, 0, 0]],
-    [[15, 1, 55, 0, 0], [26, 1, 44, 0, 0], [18, 2, 17, 0, 0], [22, 2, 13, 0, 0]],
-    [[20, 1, 80, 0, 0], [18, 2, 32, 0, 0], [26, 2, 24, 0, 0], [16, 4, 9, 0, 0]],
-    [[26, 1, 108, 0, 0], [24, 2, 43, 0, 0], [18, 2, 15, 2, 16], [22, 2, 11, 2, 12]],
-    [[18, 2, 68, 0, 0], [16, 4, 27, 0, 0], [24, 4, 19, 0, 0], [28, 4, 15, 0, 0]],
+    [
+        [7, 1, 19, 0, 0],
+        [10, 1, 16, 0, 0],
+        [13, 1, 13, 0, 0],
+        [17, 1, 9, 0, 0],
+    ],
+    [
+        [10, 1, 34, 0, 0],
+        [16, 1, 28, 0, 0],
+        [22, 1, 22, 0, 0],
+        [28, 1, 16, 0, 0],
+    ],
+    [
+        [15, 1, 55, 0, 0],
+        [26, 1, 44, 0, 0],
+        [18, 2, 17, 0, 0],
+        [22, 2, 13, 0, 0],
+    ],
+    [
+        [20, 1, 80, 0, 0],
+        [18, 2, 32, 0, 0],
+        [26, 2, 24, 0, 0],
+        [16, 4, 9, 0, 0],
+    ],
+    [
+        [26, 1, 108, 0, 0],
+        [24, 2, 43, 0, 0],
+        [18, 2, 15, 2, 16],
+        [22, 2, 11, 2, 12],
+    ],
+    [
+        [18, 2, 68, 0, 0],
+        [16, 4, 27, 0, 0],
+        [24, 4, 19, 0, 0],
+        [28, 4, 15, 0, 0],
+    ],
 ];
 
 /// Total codewords per version, for the consistency test above.
@@ -118,7 +148,13 @@ impl Code {
         (0..self.size)
             .map(|y| {
                 (0..self.size)
-                    .map(|x| if self.dark(x as isize, y as isize) { '1' } else { '0' })
+                    .map(|x| {
+                        if self.dark(x as isize, y as isize) {
+                            '1'
+                        } else {
+                            '0'
+                        }
+                    })
                     .collect()
             })
             .collect()
@@ -129,7 +165,11 @@ impl Code {
 #[derive(Debug)]
 pub enum Error {
     /// The payload does not fit in version 6 at this level.
-    TooLong { bytes: usize, capacity: usize, level: Level },
+    TooLong {
+        bytes: usize,
+        capacity: usize,
+        level: Level,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -352,7 +392,11 @@ pub fn encode(text: &str, level: Level) -> Result<Code, Error> {
 
     // finders, with their separators: the ring at Chebyshev distance 2 is the
     // light gap, everything out to 3 is dark, 4 is the separator.
-    for (cx, cy) in [(3isize, 3isize), (size as isize - 4, 3), (3, size as isize - 4)] {
+    for (cx, cy) in [
+        (3isize, 3isize),
+        (size as isize - 4, 3),
+        (3, size as isize - 4),
+    ] {
         for dy in -4isize..=4 {
             for dx in -4isize..=4 {
                 let d = dx.abs().max(dy.abs());
@@ -539,7 +583,11 @@ fn penalty(g: &[u8], size: usize) -> u32 {
                 let mut ma = true;
                 let mut mb = true;
                 for k in 0..11 {
-                    let v = if transposed { at(b + k, a) } else { at(a, b + k) };
+                    let v = if transposed {
+                        at(b + k, a)
+                    } else {
+                        at(a, b + k)
+                    };
                     if v != A[k] {
                         ma = false;
                     }
@@ -633,7 +681,11 @@ impl Code {
                     let bg = if lower { 40 } else { 107 };
                     out.push_str(&format!("\x1b[{fg};{bg}m\u{2580}"));
                 } else {
-                    let (u, l) = if invert { (!upper, !lower) } else { (upper, lower) };
+                    let (u, l) = if invert {
+                        (!upper, !lower)
+                    } else {
+                        (upper, lower)
+                    };
                     out.push(match (u, l) {
                         (true, true) => '\u{2588}',
                         (true, false) => '\u{2580}',
@@ -674,15 +726,15 @@ mod tests {
     /// that still renders.
     #[test]
     fn the_ecc_table_is_consistent() {
-        for v in 1..=6usize {
-            for li in 0..4usize {
-                let t = ECC[v - 1][li];
+        for (i, levels) in ECC.iter().enumerate() {
+            for (li, t) in levels.iter().enumerate() {
                 let total = t[1] * (t[2] + t[0]) + t[3] * (t[4] + t[0]);
                 assert_eq!(
                     total,
-                    TOTAL_CODEWORDS[v - 1],
-                    "version {v} level {li}: {total} codewords, want {}",
-                    TOTAL_CODEWORDS[v - 1]
+                    TOTAL_CODEWORDS[i],
+                    "version {} level {li}: {total} codewords, want {}",
+                    i + 1,
+                    TOTAL_CODEWORDS[i]
                 );
             }
         }
@@ -708,8 +760,14 @@ mod tests {
     #[test]
     fn the_timing_patterns_survive_the_format_strip() {
         let c = encode("http://192.168.1.20:8080", Level::Q).unwrap();
-        assert!(c.dark(6, 8) == (8 % 2 == 0), "timing row broken at column 8");
-        assert!(c.dark(8, 6) == (8 % 2 == 0), "timing column broken at row 8");
+        assert!(
+            c.dark(6, 8) == (8 % 2 == 0),
+            "timing row broken at column 8"
+        );
+        assert!(
+            c.dark(8, 6) == (8 % 2 == 0),
+            "timing column broken at row 8"
+        );
         // And the whole line alternates, starting dark at the finder edge.
         for i in 8..c.size - 8 {
             assert_eq!(c.dark(i as isize, 6), i % 2 == 0, "timing row at {i}");
@@ -752,7 +810,10 @@ mod tests {
             assert!(line.trim().is_empty(), "top margin is not blank");
         }
         for line in &lines {
-            assert!(line.starts_with("        "), "left margin is not four modules");
+            assert!(
+                line.starts_with("        "),
+                "left margin is not four modules"
+            );
             assert_eq!(line.chars().count(), (c.size + 8) * 2);
         }
     }

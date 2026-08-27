@@ -226,7 +226,12 @@ mod tests {
         let mark = page(Page::Mark, Host::default());
         assert_eq!(mark.matches("href=\"http").count(), 1);
         assert!(mark.contains("href=\"https://github.com/aturzone/Chaos\""));
-        assert_eq!(page(Page::Scry, Host::default()).matches("href=\"http").count(), 0);
+        assert_eq!(
+            page(Page::Scry, Host::default())
+                .matches("href=\"http")
+                .count(),
+            0
+        );
     }
 
     #[test]

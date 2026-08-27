@@ -74,11 +74,18 @@ mod tests {
     fn a_wildcard_resolves_to_a_real_address() {
         for host in ["0.0.0.0", "::", ""] {
             let (addr, loopback) = reachable_address(host);
-            assert!(addr.parse::<std::net::IpAddr>().is_ok(), "{addr} for {host}");
+            assert!(
+                addr.parse::<std::net::IpAddr>().is_ok(),
+                "{addr} for {host}"
+            );
             assert_ne!(addr, "0.0.0.0");
             // Whatever it found, `loopback` has to agree with the address.
             let ip: std::net::IpAddr = addr.parse().unwrap();
-            assert_eq!(loopback, ip.is_loopback(), "{addr} reported loopback={loopback}");
+            assert_eq!(
+                loopback,
+                ip.is_loopback(),
+                "{addr} reported loopback={loopback}"
+            );
         }
     }
 }

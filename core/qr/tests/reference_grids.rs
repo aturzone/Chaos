@@ -67,7 +67,10 @@ fn fixtures() -> Vec<Reference> {
                 rows: Vec::new(),
             });
         } else {
-            out.last_mut().expect("a grid before its rows").rows.push(line.to_string());
+            out.last_mut()
+                .expect("a grid before its rows")
+                .rows
+                .push(line.to_string());
         }
     }
     assert!(out.len() >= 9, "the fixture lost entries: {}", out.len());

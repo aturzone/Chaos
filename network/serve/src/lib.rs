@@ -791,9 +791,9 @@ fn theme_of(query: &str) -> Option<&str> {
 /// how a number nobody checked ends up quoted back as a result.
 fn status_json(engine: &Engine<'_>, node: &Node) -> String {
     let rate = match node.last.get() {
-        Some((produced, tps)) => format!(
-            r#","last_generation":{{"tokens":{produced},"tokens_per_second":{tps:.3}}}"#
-        ),
+        Some((produced, tps)) => {
+            format!(r#","last_generation":{{"tokens":{produced},"tokens_per_second":{tps:.3}}}"#)
+        }
         None => String::new(),
     };
     format!(

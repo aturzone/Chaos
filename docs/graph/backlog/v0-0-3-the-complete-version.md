@@ -40,6 +40,54 @@ and paste the command.
 
 ---
 
+## 0b. START HERE: the desktop app is broken, and Atur is the one who found it
+
+**This outranks everything else in this file.** On 2026-08-27 Atur opened the
+installed desktop app and reported, in his words:
+
+> the latest version was very broken — even mode selection got mixed up inside
+> the application, even though mode selection happens once and you enter that
+> mode. Everything was falling apart.
+
+**Take this at face value and reproduce it before touching anything else.** It
+has not been reproduced by anyone else, and nothing below is worth doing on top
+of an app that is broken when opened.
+
+What is known about the shape of the complaint, offered as a starting point and
+**not as a diagnosis**:
+
+- The phone asks the mode **once**, on a launch screen (`ModeActivity`), stores
+  it, and every later screen is gated by it. **The desktop does not work that
+  way**: the four roles live on a page called CHAOS (`nav::Page::Chaos`,
+  `ID_ROLE_ALONE` / `CORE` / `HELPER` / `CLIENT`) inside the running app, mixed
+  in with the address, the key and the status box. That difference is
+  structural, it is what "mixed up inside the application" describes, and it was
+  never a decision anybody wrote down.
+- `nav::pages_for(role)` already decides which pages a role can reach, and a
+  test asserts every role can still reach CHAOS. So the gating exists; what may
+  not exist is a coherent *moment* at which the role is chosen.
+- The app is v0.0.21 as installed. The branch this file arrived on adds two
+  buttons to that same CHAOS page, so **check whether those made it worse.**
+
+**Deliverables, in order:**
+
+1. Reproduce it. Open the installed app, not a `cargo run` build, and write down
+   exactly what happens — `scripts/run-through.ps1` walks every control on every
+   page and produces one transcript, and `scripts/poke-app.ps1` clicks a single
+   control, times the UI thread and checks a layout for overlaps. **A screen grab
+   is uniform black in a session with no composited display**, which is why
+   those two instruments read rectangles rather than pixels.
+2. Ask Atur for specifics if reproduction fails — do not quietly decide he was
+   wrong. He has been right about this app four times running, and one of those
+   ("a phone can not do any one of works in windows") turned out to be a server
+   that had never bound anything but loopback.
+3. Decide, and write down, **when the desktop asks for a mode**. If the answer
+   is "once, on first launch, like the phone", that is a real change to the
+   window's startup path and it should be planned, not improvised.
+4. Only then continue with the rest of this file.
+
+---
+
 ## 1. Where the work stands
 
 ### Done and verified — the brand tier
@@ -251,6 +299,42 @@ build a stranger can reproduce, no secrets in history, CI that runs on a fork.
 
 ---
 
+## 4h. Where the code is, and what merging it needs
+
+**Everything described in §1 is on `ticket/brand-qr-altar`,
+[PR #146](https://github.com/aturzone/Chaos/pull/146).** Check its state before
+assuming: if it is merged, `main` has it and the branch should be gone; if it is
+open, read the CI result rather than the diff.
+
+Things that came up merging it, which will come up again:
+
+- **`main` moves under you.** PR #145 landed mid-branch and turned the Android
+  `MainActivity` into a tab bar over four pages, moving the address and key
+  fields two levels deeper. `git merge` auto-resolved the layout **into the
+  wrong place** — two buttons ended up above the pages, where they would have
+  shown on every tab, and they read a field that had moved. **A clean automatic
+  merge is not a correct merge**; open the files it touched and look.
+- **CI counts the tests and compares them with the docs.** `STATUS.md`,
+  `README.md` and `CLAUDE.md` each carry a test count, and a mismatch fails
+  linux and macos with `STATUS.md says N tests, the suite runs M`. Update all
+  three in the same commit as anything that adds a test.
+- **`pull_request` CI did not fire on the first push** and the PR sat with no
+  checks for fifteen minutes. `POST /actions/workflows/ci.yml/dispatches` with
+  `{"ref": "<branch>"}` starts it by hand.
+- `gh` may fail with `TLS handshake timeout` against `api.github.com/graphql`
+  while `git push` over HTTPS works fine and the REST API answers. Use REST:
+  `POST /repos/aturzone/Chaos/pulls` with a JSON body.
+- **The remote moved.** `github.com/aturzone/Bigtea` redirects to
+  `github.com/aturzone/Chaos`; push to the new name.
+
+Then the standing rule from `CLAUDE.md`: merge when CI is green, close what it
+supersedes, delete the branch, prune, fast-forward `main` from `origin/main`
+**explicitly** (a local `main` with no upstream makes `git pull` a silent
+no-op), check a file only the merge added, and **re-run the tests on `main`
+itself**.
+
+---
+
 ## 5. Working rules, each bought with a mistake
 
 - Push with the token from `C:\Projects\.env` inline in the URL, output
@@ -287,6 +371,7 @@ build a stranger can reproduce, no secrets in history, CI that runs on a fork.
 
 A release where:
 
+- **the desktop app opens and works** — §0b, which is where to start;
 - the mark and the reader appear in the desktop app, the Android app, the web UI
   and a bare terminal, from one source of truth — **and a real phone has
   scanned both**;

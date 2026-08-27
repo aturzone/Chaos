@@ -327,6 +327,7 @@ const PALETTES = {
        the circle; using it as the ambient as well multiplies every
        surface by a pure blue and turns white vellum into navy card.
        Light from a blue source is blue-CAST, not blue. */
+    lineScale: 1.0,
     ambientCol:[190, 196, 255],
     ambient:   0.55,
     keyCol:    [150, 162, 255],
@@ -353,6 +354,7 @@ const PALETTES = {
     sigilDeep: [  0,   0, 150],
     /* Near-neutral: a white room bounces white light, and a blue ambient
        turns every pale surface into plastic. */
+    lineScale: 0.52,
     ambientCol:[250, 250, 252],
     ambient:   0.70,
     keyCol:    [214, 216, 252],
@@ -1229,7 +1231,7 @@ const SPINE_X = -BOOK_W / 2;          /* shut, this centres the book */
 /* The leaves stand apart at the gutter, so the seam reads as two
    pages rather than one sheet. Nothing straddles it now, so it is free
    to be as wide as it looks right. */
-const GUTTER_GAP = 0.020;
+const GUTTER_GAP = 0.008;
 
 /* Where the spine actually is this frame. Sliding it right by half a
    board as the book opens centres BOTH states on the circle. */
@@ -1253,6 +1255,14 @@ function sheetPhase(i, openness) {
    curl and therefore a hole at zero, exactly where most of the frames
    are. Midpoint steps at eight segments are smooth to the eye and have
    no special case. */
+/* Sample the arc at a fractional index, so strips can overlap. */
+function arcAt(arc, f) {
+  const i = Math.max(0, Math.min(arc.length - 1, Math.floor(f)));
+  const k = Math.max(0, Math.min(1, f - i));
+  const a = arc[i], b = arc[Math.min(arc.length - 1, i + 1)];
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+}
+
 function leafArc(theta, curl, segs) {
   const pts = [[0, 0]];
   let x = 0, z = 0;
@@ -1407,7 +1417,10 @@ function drawSigil(t, blaze) {
   /* The deep brand blue on a white ground carries less than the same
      hue lifted on a black one, so the light theme asks for more. */
   const A = heat * breathe * (C.isDark ? 1.15 : 1.75);
-  const W1 = DPR;
+  /* Ink on white carries far further than light on black, so the same
+     weight that reads as drawn in the dark theme reads as clumsy in
+     the light one. */
+  const W1 = DPR * C.lineScale;
   const B = BAND;
 
   /* Rates in radians a second. Chosen coprime-ish so the layers drift
@@ -1657,25 +1670,31 @@ function buildCoverTexture() {
   /* Grain. On black leather the scratches catch light and the pores
      swallow it; on white vellum both go the other way, or the board
      turns into a grey smear. */
-  /* Scratches catch the light, pores swallow it -- and the board is
-     dark in both themes now, so this no longer depends on the theme. */
-  const lift = "0,0,0,";
-  const sink = "255,255,255,";
-  for (let i = 0; i < 2600; i++) {
+  /* Grain, in the board's own colour rather than in white.
+
+     White scratches on a black board do not read as leather; they read
+     as dust on a screen, which is what they looked like. Tone-on-tone
+     is what a grain actually is. */
+  const bright = rgb(scl(C.cover, C.isDark ? 0.82 : 2.2));
+  const deep = rgb(scl(C.cover, C.isDark ? 1.15 : 0.45));
+  for (let i = 0; i < 1400; i++) {
     const x = hash2(i, 1) * w, y = hash2(i, 2) * h;
-    const l = 2 + hash2(i, 3) * 9, a = hash2(i, 4) * Math.PI;
-    g.strokeStyle = "rgba(" + sink + (0.012 + hash2(i, 5) * 0.030) + ")";
-    g.lineWidth = 0.8;
+    const l = 3 + hash2(i, 3) * 11, a = hash2(i, 4) * Math.PI;
+    g.strokeStyle = bright;
+    g.globalAlpha = 0.10 + hash2(i, 5) * 0.16;
+    g.lineWidth = 0.9;
     g.beginPath();
     g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
     g.stroke();
   }
-  for (let i = 0; i < 1500; i++) {
-    g.fillStyle = "rgba(" + lift + (0.04 + hash2(i, 8) * 0.10) + ")";
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = deep;
+    g.globalAlpha = 0.10 + hash2(i, 8) * 0.14;
     g.beginPath();
-    g.arc(hash2(i, 6) * w, hash2(i, 7) * h, 0.6 + hash2(i, 9) * 1.7, 0, TAU);
+    g.arc(hash2(i, 6) * w, hash2(i, 7) * h, 0.7 + hash2(i, 9) * 1.6, 0, TAU);
     g.fill();
   }
+  g.globalAlpha = 1;
 
   /* two tooled rules, the outer one heavier */
   const inset = w * 0.075;
@@ -1799,6 +1818,64 @@ function pageCanvasSize() {
   return [shortSide, Math.round(shortSide * BOOK_H / BOOK_W)];
 }
 
+/* One burn, crossing both leaves.
+
+   `d` is how far along the front a point at (u, v) on a leaf sits, both
+   in 0..1 over the page. The right leaf runs a little ahead of the
+   left, so the fire reads as travelling through the open book rather
+   than as two pages lighting at once. */
+const BURN_BAND = 0.30;
+function burnFront(reveal, lead) {
+  return reveal * (1 + BURN_BAND) + (lead || 0) * 0.10;
+}
+function burnAt(u, v) { return u * 0.58 + v * 0.42; }
+
+/* Erase whatever is ahead of the front, and glow along it. Used on a
+   transparent layer so the paper underneath survives. */
+function burnMask(g, w, h, reveal, lead) {
+  if (reveal >= 1) return;
+  const f = burnFront(reveal, lead);
+  const f0 = clamp(f - BURN_BAND, 0.001, 0.997);
+  const f1 = clamp(f, f0 + 0.002, 0.999);
+  g.save();
+  g.globalCompositeOperation = "destination-out";
+  const gx = g.createLinearGradient(0, 0, w * 0.58, h * 0.42);
+  gx.addColorStop(0, "rgba(0,0,0,0)");
+  gx.addColorStop(f0, "rgba(0,0,0,0)");
+  gx.addColorStop(f1, "rgba(0,0,0,1)");
+  gx.addColorStop(1, "rgba(0,0,0,1)");
+  g.fillStyle = gx;
+  g.fillRect(0, 0, w, h);
+  g.restore();
+}
+
+/* The char and the ember, over the whole leaf -- never bounded to a box,
+   which is what drew a visible square around the code. */
+function burnEdge(g, w, h, reveal, lead) {
+  if (reveal <= 0 || reveal >= 1) return;
+  const f = burnFront(reveal, lead);
+  const f0 = clamp(f - BURN_BAND, 0.002, 0.994);
+  const f1 = clamp(f, f0 + 0.004, 0.998);
+  const gx = g.createLinearGradient(0, 0, w * 0.58, h * 0.42);
+  gx.addColorStop(0, rgb(C.ink, 0.10));
+  gx.addColorStop(Math.max(0.003, f0 - 0.06), rgb(C.ink, 0.14));
+  gx.addColorStop(f0 * 0.3 + f1 * 0.7, rgb(C.flameDeep, 0.46));
+  gx.addColorStop(f1, rgb(C.page, 0));
+  gx.addColorStop(1, rgb(C.page, 0));
+  g.fillStyle = gx;
+  g.fillRect(0, 0, w, h);
+  /* the bright line itself */
+  g.save();
+  g.globalCompositeOperation = "lighter";
+  const gy = g.createLinearGradient(0, 0, w * 0.58, h * 0.42);
+  gy.addColorStop(Math.max(0.002, f1 - 0.055), rgb(C.flameDeep, 0));
+  gy.addColorStop(clamp(f1 - 0.012, 0.004, 0.996), rgb(C.flameHot, 0.85));
+  gy.addColorStop(Math.min(0.998, f1 + 0.010), rgb(C.flameDeep, 0));
+  g.fillStyle = gy;
+  g.fillRect(0, 0, w, h);
+  g.restore();
+}
+
 /* Laid paper, one leaf. */
 function leafPaper(g, w, h, gutterAtLeft) {
   const base = g.createLinearGradient(0, 0, w, h);
@@ -1859,77 +1936,86 @@ const INCANTATION = [
   "ET SIGNUM ARDET",
 ];
 
-function buildLeftPage() {
+function buildLeftPage(reveal) {
   const [W, H] = pageCanvasSize();
   const c = document.createElement("canvas");
   c.width = W; c.height = H;
   const g = c.getContext("2d");
   leafPaper(g, W, H, false);
+  /* The writing goes on its own layer so the burn can eat the INK
+     without eating the paper under it. */
+  const ink = document.createElement("canvas");
+  ink.width = W; ink.height = H;
+  const gi = ink.getContext("2d");
 
   const L = W * 0.11, R = W * 0.89, mid = W / 2;
 
   /* a rune border along the head */
-  g.strokeStyle = rgb(C.ink, 0.55);
+  gi.strokeStyle = rgb(C.ink, 0.55);
   for (let i = 0; i < 9; i++) {
-    inkRune(g, RUNE_ALPHABET[(i * 7 + 2) % RUNE_ALPHABET.length],
+    inkRune(gi, RUNE_ALPHABET[(i * 7 + 2) % RUNE_ALPHABET.length],
             L + (i + 0.5) * ((R - L) / 9), H * 0.075, W * 0.021, W * 0.0055);
   }
-  g.strokeStyle = rgb(C.ink, 0.28);
-  g.lineWidth = 1.6;
-  g.beginPath(); g.moveTo(L, H * 0.108); g.lineTo(R, H * 0.108); g.stroke();
+  gi.strokeStyle = rgb(C.ink, 0.28);
+  gi.lineWidth = 1.6;
+  gi.beginPath(); gi.moveTo(L, H * 0.108); gi.lineTo(R, H * 0.108); gi.stroke();
 
   /* the words */
-  g.textAlign = "center";
-  g.fillStyle = rgb(C.ink, 0.82);
+  gi.textAlign = "center";
+  gi.fillStyle = rgb(C.ink, 0.82);
   const lh = H * 0.049;
   for (let i = 0; i < INCANTATION.length; i++) {
     let size = H * 0.038;
     for (let k = 0; k < 6; k++) {
-      g.font = "400 " + Math.round(size) + "px Cinzel, serif";
+      gi.font = "400 " + Math.round(size) + "px Cinzel, serif";
       let total = -W * 0.012;
-      for (const ch of INCANTATION[i]) total += g.measureText(ch).width + W * 0.012;
+      for (const ch of INCANTATION[i]) total += gi.measureText(ch).width + W * 0.012;
       if (total <= R - L) break;
       size *= ((R - L) / total) * 0.97;
     }
-    spacedText(g, INCANTATION[i], mid, H * 0.175 + i * lh, W * 0.012);
+    spacedText(gi, INCANTATION[i], mid, H * 0.175 + i * lh, W * 0.012);
   }
 
   /* the figure it raises */
   const cy = H * 0.63, rr = Math.min(W * 0.34, H * 0.245);
-  g.strokeStyle = rgb(C.ink, 0.46);
-  g.lineWidth = W * 0.0085;
-  g.beginPath(); g.arc(mid, cy, rr, 0, TAU); g.stroke();
-  g.lineWidth = W * 0.0042;
-  g.beginPath(); g.arc(mid, cy, rr * 0.86, 0, TAU); g.stroke();
-  g.beginPath(); g.arc(mid, cy, rr * 0.42, 0, TAU); g.stroke();
+  gi.strokeStyle = rgb(C.ink, 0.46);
+  gi.lineWidth = W * 0.0085;
+  gi.beginPath(); gi.arc(mid, cy, rr, 0, TAU); gi.stroke();
+  gi.lineWidth = W * 0.0042;
+  gi.beginPath(); gi.arc(mid, cy, rr * 0.86, 0, TAU); gi.stroke();
+  gi.beginPath(); gi.arc(mid, cy, rr * 0.42, 0, TAU); gi.stroke();
 
-  g.lineWidth = W * 0.0075;
-  g.strokeStyle = rgb(C.ink, 0.58);
-  g.beginPath();
+  gi.lineWidth = W * 0.0075;
+  gi.strokeStyle = rgb(C.ink, 0.58);
+  gi.beginPath();
   for (let k = 0, idx = 0; k < 7; k++, idx = (idx + 3) % 7) {
     const a = -Math.PI / 2 + (idx * TAU) / 7;
     const px = mid + Math.cos(a) * rr * 0.86, py = cy + Math.sin(a) * rr * 0.86;
-    if (k === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    if (k === 0) gi.moveTo(px, py); else gi.lineTo(px, py);
   }
-  g.closePath(); g.stroke();
+  gi.closePath(); gi.stroke();
 
-  g.strokeStyle = rgb(C.ink, 0.50);
+  gi.strokeStyle = rgb(C.ink, 0.50);
   for (let k = 0; k < 12; k++) {
     const a = -Math.PI / 2 + (k * TAU) / 12;
-    inkRune(g, RUNE_ALPHABET[(k * 5 + 1) % RUNE_ALPHABET.length],
+    inkRune(gi, RUNE_ALPHABET[(k * 5 + 1) % RUNE_ALPHABET.length],
             mid + Math.cos(a) * rr * 0.63, cy + Math.sin(a) * rr * 0.63,
             W * 0.019, W * 0.0050);
   }
 
   /* and a mark at the foot */
-  g.strokeStyle = rgb(C.ink, 0.34);
-  g.lineWidth = 1.4;
-  g.beginPath(); g.moveTo(L, H * 0.905); g.lineTo(R, H * 0.905); g.stroke();
-  g.strokeStyle = rgb(C.ink, 0.48);
+  gi.strokeStyle = rgb(C.ink, 0.34);
+  gi.lineWidth = 1.4;
+  gi.beginPath(); gi.moveTo(L, H * 0.905); gi.lineTo(R, H * 0.905); gi.stroke();
+  gi.strokeStyle = rgb(C.ink, 0.48);
   for (let i = 0; i < 5; i++) {
-    inkRune(g, RUNE_ALPHABET[(i * 11 + 6) % RUNE_ALPHABET.length],
+    inkRune(gi, RUNE_ALPHABET[(i * 11 + 6) % RUNE_ALPHABET.length],
             mid + (i - 2) * W * 0.075, H * 0.955, W * 0.020, W * 0.0052);
   }
+
+  burnMask(gi, W, H, reveal, 0);
+  g.drawImage(ink, 0, 0);
+  burnEdge(g, W, H, reveal, 0);
 
   leftPageTex = c;
 }
@@ -1955,56 +2041,57 @@ function buildRightPage(reveal) {
   const cell = box / total;
   const mx = (W - cell * total) / 2 + cell * quiet;
   const my = (H - cell * total) / 2 + cell * quiet;
+  const cx = mx + (n * cell) / 2, cy = my + (n * cell) / 2;
 
-  const band = 0.26;
-  const front = reveal * (1 + band);
-  const dAt = (x, y) => (x / n) * 0.58 + (y / n) * 0.42;
+  /* An aura, not a plate. A square around a code is the one piece of
+     furniture it does not need -- and it was the visible box. A soft
+     circular breath of the brand blue says "something is here" without
+     drawing an edge, and does not touch the quiet zone's contrast. */
+  const aura = g.createRadialGradient(cx, cy, cell * 2, cx, cy, box * 0.86);
+  aura.addColorStop(0, rgb(C.flameDeep, 0.09));
+  aura.addColorStop(0.62, rgb(C.flameDeep, 0.045));
+  aura.addColorStop(1, rgb(C.flameDeep, 0));
+  g.fillStyle = aura;
+  g.fillRect(0, 0, W, H);
 
-  if (reveal > 0 && reveal < 1) {
-    const x0 = mx - cell * quiet, y0 = my - cell * quiet;
-    const span = cell * total;
-    const gx = g.createLinearGradient(x0, y0, x0 + span * 0.58, y0 + span * 0.42);
-    const f0 = clamp(front - band, 0.002, 0.994);
-    const f1 = clamp(front, f0 + 0.004, 0.998);
-    /* char behind, ember at the edge, clean paper ahead */
-    gx.addColorStop(0, rgb(C.ink, 0.09));
-    gx.addColorStop(Math.max(0.003, f0 - 0.05), rgb(C.ink, 0.13));
-    gx.addColorStop((f0 * 0.35 + f1 * 0.65), rgb(C.flameDeep, 0.42));
-    gx.addColorStop(f1, rgb(C.page, 0));
-    gx.addColorStop(1, rgb(C.page, 0));
-    g.fillStyle = gx;
-    g.fillRect(x0, y0, span, span);
-  }
+  /* The modules go on their own layer so the burn eats the ink and
+     leaves the paper. */
+  const ink = document.createElement("canvas");
+  ink.width = W; ink.height = H;
+  const gi = ink.getContext("2d");
 
-  const embers = [];
+  /* Drawn strangely, on purpose, and within what a reader tolerates:
+     every module keeps its exact CENTRE and its full share of the cell
+     at the corners that matter, but the corners are eased and the ink
+     varies a little from module to module, the way a hand-inked block
+     would. Scanners sample centres; they do not care about corners. */
+  const r = cell * 0.30;
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
       if (!qrGrid.modules[y][x]) continue;
-      const prog = reveal >= 1 ? 1 : clamp((front - dAt(x, y)) / band, 0, 1);
-      if (prog <= 0) continue;
       const px = mx + x * cell, py = my + y * cell;
-      if (prog < 1) embers.push([px, py, Math.sin(prog * Math.PI)]);
-      /* a hair of overlap so neighbours fuse -- scanners prefer solid
-         runs to a grid of separated squares */
-      g.fillStyle = rgb(C.ink, prog);
-      g.fillRect(px, py, cell + 0.6, cell + 0.6);
+      const jitter = 0.94 + hash2(x * 31 + 7, y * 17 + 3) * 0.10;
+      gi.fillStyle = rgb(C.ink, 0.90 + hash2(x + 5, y + 11) * 0.10);
+      const s = cell * jitter + 0.6;
+      if (gi.roundRect) {
+        gi.beginPath();
+        gi.roundRect(px - (s - cell) / 2, py - (s - cell) / 2, s, s, r);
+        gi.fill();
+      } else {
+        gi.fillRect(px, py, cell + 0.6, cell + 0.6);
+      }
     }
   }
-  if (embers.length) {
-    g.save();
-    g.globalCompositeOperation = "lighter";
-    for (const [px, py, e] of embers) {
-      g.fillStyle = rgb(C.flameHot, e * 0.9);
-      g.fillRect(px - cell * 0.40, py - cell * 0.40, cell * 1.8, cell * 1.8);
-    }
-    g.restore();
-  }
+
+  burnMask(gi, W, H, reveal, 1);
+  g.drawImage(ink, 0, 0);
+  burnEdge(g, W, H, reveal, 1);
 
   rightPageTex = c;
 }
 
 function buildPages(reveal) {
-  buildLeftPage();
+  buildLeftPage(reveal);
   buildRightPage(reveal);
 }
 
@@ -2456,8 +2543,19 @@ let qrReveal = 0;
    see closed and `faceDown` is the side that ends up looking at you
    once the leaf has turned over. */
 function drawSheet(i, openness, faceUp, faceDown, out) {
-  const SEG = 26;
   const st = sheetState(i, openness);
+  /* A flat sheet is ONE surface, not a run of strips.
+
+     Strips exist to make a bend shade like paper. A sheet that is not
+     bending has nothing to gain from them and two things to lose: the
+     seams show as ruled lines, and any strip that fails to cover its
+     share lets the leaf UNDER it through -- which is what the white
+     patch on the shut cover was. Not a mark on the artwork at all; the
+     board simply had gaps in it, and sheet one is white paper.
+
+     Shut and open are the two states anyone actually looks at, and both
+     are flat. */
+  const SEG = Math.abs(st.curl) < 0.02 ? 1 : 26;
   const arc = leafArc(st.theta, st.curl, SEG);
   const y0 = -BOOK_H / 2 + 0.010, y1 = BOOK_H / 2 - 0.010;
   const gap = GUTTER_GAP / 2;
@@ -2465,8 +2563,13 @@ function drawSheet(i, openness, faceUp, faceDown, out) {
   for (let j = 0; j < SEG; j++) {
     /* offset away from the spine so the two leaves never touch */
     const off = -gap * Math.cos(st.theta);
-    const ax = spineX + off + arc[j][0], az = st.z + arc[j][1];
-    const bx = spineX + off + arc[j + 1][0], bz = st.z + arc[j + 1][1];
+    /* Strips overlap their neighbour by a whisker. Butting them leaves a
+       hairline of whatever is beneath showing between every pair. */
+    const lap = SEG > 1 ? 0.6 / SEG : 0;
+    const j0 = Math.max(0, j - lap), j1 = Math.min(SEG, j + 1 + lap);
+    const A = arcAt(arc, j0), Bp = arcAt(arc, j1);
+    const ax = spineX + off + A[0], az = st.z + A[1];
+    const bx = spineX + off + Bp[0], bz = st.z + Bp[1];
 
     const P0 = [ax, y0, az], P1 = [bx, y0, bz];
     const P2 = [bx, y1, bz], P3 = [ax, y1, az];
@@ -2482,7 +2585,7 @@ function drawSheet(i, openness, faceUp, faceDown, out) {
     if (!facingUp) n = mul3(n, -1);
 
     const depth = s.reduce((a, q) => a + q[2], 0) / 4;
-    const u0 = j / SEG, u1 = (j + 1) / SEG;
+    const u0 = j0 / SEG, u1 = j1 / SEG;
 
     if (face.tex) {
       const iw = face.tex.width, ih = face.tex.height;
@@ -2577,116 +2680,12 @@ function drawBook(t) {
     push(s.reduce((a, q) => a + q[2], 0) / 4, () => poly(s, rgb(col), 0));
   }
 
-  /* The working page smoulders: a line of heat crosses it, over and
-     over, and the paper is never consumed. */
-  const leftStrips = [];
-  for (const it of textured) if (it.tex === leftPageTex) leftStrips.push(it.screen);
-  emberBand(leftStrips, t, clamp((openness - 0.7) / 0.3, 0, 1));
-  leafShimmer(leafScreensThisFrame, t, clamp((openness - 0.75) / 0.25, 0, 1) * 0.6);
   leafScreensThisFrame.length = 0;
 }
 
 let leafScreensThisFrame = [];
 
-/* A line of heat crossing a page, on a loop.
 
-   "Burning, but nothing happens" is the whole brief for this one: the
-   paper glows where the heat is and is exactly as it was after it
-   passes. Drawn as a moving light in the scene rather than as a repaint
-   of the texture, so the leaf is baked once and this costs a gradient a
-   frame. */
-function emberBand(screens, t, amount) {
-  if (!screens.length || amount <= 0.01) return;
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, depth = 0;
-  for (const s of screens) {
-    for (const q of s) {
-      if (q[0] < x0) x0 = q[0];
-      if (q[0] > x1) x1 = q[0];
-      if (q[1] < y0) y0 = q[1];
-      if (q[1] > y1) y1 = q[1];
-    }
-    depth += s.reduce((a, q) => a + q[2], 0) / s.length;
-  }
-  depth /= screens.length;
-  const w = x1 - x0, h = y1 - y0;
-  if (!(w > 1 && h > 1)) return;
-
-  const cycle = (t % 6.5) / 6.5;
-  const pos = cycle * 1.7 - 0.35;
-  push(depth - 0.02, () => {
-    ctx.save();
-    ctx.beginPath();
-    for (const s of screens) {
-      ctx.moveTo(s[0][0], s[0][1]);
-      for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0], s[i][1]);
-      ctx.closePath();
-    }
-    ctx.clip();
-    ctx.globalCompositeOperation = C.blend;
-    const bx = x0 + w * pos;
-    const g = ctx.createLinearGradient(bx - w * 0.34, y0 - h * 0.2,
-                                       bx + w * 0.34, y1 + h * 0.2);
-    const a = amount * (C.isDark ? 1 : 0.85);
-    g.addColorStop(0.00, rgb(C.flameDeep, 0));
-    g.addColorStop(0.40, rgb(C.flameDeep, 0.16 * a));
-    g.addColorStop(0.50, rgb(C.flameHot, 0.50 * a));
-    g.addColorStop(0.60, rgb(C.flameDeep, 0.16 * a));
-    g.addColorStop(1.00, rgb(C.flameDeep, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(x0, y0, w, h);
-    ctx.restore();
-  }, LAYER.STANDING);
-}
-
-/* A slow band of light travelling across the open spread.
-
-   This is the one moving thing allowed to cross the code, so it is kept
-   faint and wide: a scanner reads contrast between neighbouring modules
-   and a gentle gradient over the whole plate does not change that,
-   whereas anything sharp enough to notice individually would. It is
-   drawn over both leaves as one shape so it does not stop at the
-   gutter -- the spread is one surface and the light should know it. */
-function leafShimmer(screens, t, amount) {
-  if (!screens.length || amount <= 0.01) return;
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, depth = 0;
-  for (const s of screens) {
-    for (const q of s) {
-      if (q[0] < x0) x0 = q[0];
-      if (q[0] > x1) x1 = q[0];
-      if (q[1] < y0) y0 = q[1];
-      if (q[1] > y1) y1 = q[1];
-    }
-    depth += s.reduce((a, q) => a + q[2], 0) / s.length;
-  }
-  depth /= screens.length;
-  const w = x1 - x0, h = y1 - y0;
-  if (!(w > 1 && h > 1)) return;
-
-  /* a full sweep every eight seconds, with a long dark pause between */
-  const cycle = (t % 8) / 8;
-  const pos = cycle * 1.9 - 0.45;
-  if (pos < -0.3 || pos > 1.3) return;
-
-  push(depth - 0.02, () => {
-    ctx.save();
-    ctx.beginPath();
-    for (const s of screens) {
-      ctx.moveTo(s[0][0], s[0][1]);
-      for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0], s[i][1]);
-      ctx.closePath();
-    }
-    ctx.clip();
-    ctx.globalCompositeOperation = C.blend;
-    const bx = x0 + w * pos, by = y0;
-    const g = ctx.createLinearGradient(bx - w * 0.28, by, bx + w * 0.28, by + h);
-    g.addColorStop(0, rgb(C.sigil, 0));
-    g.addColorStop(0.5, rgb(C.sigil, 0.16 * amount));
-    g.addColorStop(1, rgb(C.sigil, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(x0, y0, w, h);
-    ctx.restore();
-  }, LAYER.STANDING);
-}
 
 function buildLights(t) {
   lights.length = 0;

@@ -4,6 +4,11 @@ plugins {
 }
 
 android {
+    // `Engine.version()` reads BuildConfig.VERSION_NAME, so the version the
+    // app reports is the one the build stamped rather than a second constant
+    // that can drift from it.
+    buildFeatures { buildConfig = true }
+
     namespace = "com.aturzone.chaos"
 
     // **34, not the newest.** `compileSdk` has to be a platform that is

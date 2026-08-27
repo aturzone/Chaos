@@ -1,169 +1,313 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  One screen: where the PC is, what this phone is, the conversation, and a box
-  to type in. Framework views only – no androidx, so this lays out with
-  LinearLayout rather than ConstraintLayout, which is a fair trade for an APK
-  with no dependencies in it.
+  The app, after the dial has chosen a mode.
+
+  **Tabs, not one long column.** Atur: "all the items related to that mode are
+  displayed … the application is completely complete." A phone shows one thing
+  at a time, so the destinations sit in a row at the top and only one page is
+  visible. Which of them exist at all depends on the mode, the same way
+  `nav::pages_for` decides it on the desktop.
+
+  Framework views only – no androidx – so this is LinearLayout and FrameLayout
+  rather than ConstraintLayout or a TabLayout. That is what keeps the APK free
+  of a hundred transitive artifacts.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
-    android:padding="16dp">
+    android:padding="@dimen/screen_pad">
 
-    <TextView
+    <LinearLayout
+        android:orientation="horizontal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textColor="@color/fg"
-        android:textSize="22sp"
-        android:textStyle="bold" />
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="@color/fg"
+            android:textSize="@dimen/mode_name"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/mode_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="10dp"
+            android:textColor="@color/accent_text"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12" />
+
+        <Button
+            android:id="@+id/change_mode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/change_mode"
+            android:textSize="11sp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/phone"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:textColor="@color/fg_tertiary"
-        android:textSize="12sp" />
-
-    <Button
-        android:id="@+id/change_mode"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end"
-        android:layout_marginTop="4dp"
-        android:text="@string/change_mode"
         android:textSize="11sp" />
 
-    <TextView
-        android:id="@+id/chaos_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="@string/chaos_title"
-        android:textColor="@color/fg"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/chaos_note"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/chaos_note"
-        android:textColor="@color/fg_tertiary"
-        android:textSize="12sp" />
-
-    <EditText
-        android:id="@+id/address"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:hint="@string/hint_address"
-        android:inputType="textUri"
-        android:textColor="@color/fg"
-        android:textColorHint="@color/fg_tertiary"
-        android:importantForAutofill="no" />
-
+    <!-- The destinations. Hidden individually when a mode cannot use one. -->
     <LinearLayout
+        android:id="@+id/tabs"
         android:orientation="horizontal"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp">
 
-        <EditText
-            android:id="@+id/key"
+        <Button
+            android:id="@+id/tab_chat"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:hint="@string/hint_key"
-            android:inputType="textPassword"
-            android:textColor="@color/fg"
-            android:textColorHint="@color/fg_tertiary"
-            android:importantForAutofill="no" />
+            android:text="@string/tab_chat"
+            android:textSize="12sp" />
 
         <Button
-            android:id="@+id/connect"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/connect" />
-    </LinearLayout>
-
-    <!--
-        The two ways this phone and another machine find each other: show a
-        code, or read one. Side by side because they are the same act from
-        opposite ends.
-    -->
-    <LinearLayout
-        android:orientation="horizontal"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <Button
-            android:id="@+id/show_mark"
+            android:id="@+id/tab_models"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="@string/the_mark" />
+            android:text="@string/tab_models"
+            android:textSize="12sp" />
 
         <Button
-            android:id="@+id/read_code"
+            android:id="@+id/tab_monitor"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="@string/read_code" />
+            android:text="@string/tab_monitor"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/tab_settings"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="@string/tab_settings"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:text="@string/not_connected"
         android:textColor="@color/fg_secondary"
-        android:textSize="13sp" />
+        android:textSize="12sp" />
 
-    <ScrollView
-        android:id="@+id/scroll"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="12dp"
-        android:background="@color/panel"
-        android:padding="10dp">
-
-        <TextView
-            android:id="@+id/transcript"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/fg"
-            android:textIsSelectable="true"
-            android:textSize="15sp" />
-    </ScrollView>
-
-    <LinearLayout
-        android:orientation="horizontal"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
         android:layout_marginTop="8dp">
 
-        <EditText
-            android:id="@+id/input"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:hint="@string/hint_message"
-            android:inputType="textMultiLine|textCapSentences"
-            android:maxLines="4"
-            android:textColor="@color/fg"
-            android:textColorHint="@color/fg_tertiary"
-            android:importantForAutofill="no" />
+        <!-- CHAT -->
+        <LinearLayout
+            android:id="@+id/page_chat"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
-        <Button
-            android:id="@+id/send"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/send" />
-    </LinearLayout>
+            <ScrollView
+                android:id="@+id/scroll"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@color/panel"
+                android:padding="10dp">
+
+                <TextView
+                    android:id="@+id/transcript"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/fg"
+                    android:textIsSelectable="true"
+                    android:textSize="15sp" />
+            </ScrollView>
+
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp">
+
+                <EditText
+                    android:id="@+id/input"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/hint_message"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:maxLines="4"
+                    android:textColor="@color/fg"
+                    android:textColorHint="@color/fg_tertiary"
+                    android:importantForAutofill="no" />
+
+                <Button
+                    android:id="@+id/send"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/send" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- MODELS -->
+        <LinearLayout
+            android:id="@+id/page_models"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/models_note"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/fg_tertiary"
+                android:textSize="12sp" />
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="8dp"
+                android:background="@color/panel"
+                android:padding="10dp">
+
+                <TextView
+                    android:id="@+id/models_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/fg"
+                    android:textIsSelectable="true"
+                    android:textSize="13sp" />
+            </ScrollView>
+        </LinearLayout>
+
+        <!-- MONITOR -->
+        <ScrollView
+            android:id="@+id/page_monitor"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/panel"
+            android:padding="10dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/monitor_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/fg"
+                android:textIsSelectable="true"
+                android:textSize="13sp" />
+        </ScrollView>
+
+        <!-- SETTINGS -->
+        <ScrollView
+            android:id="@+id/page_settings"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:id="@+id/chaos_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chaos_title"
+                    android:textColor="@color/fg"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/chaos_note"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/chaos_note"
+                    android:textColor="@color/fg_tertiary"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/address"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="@string/hint_address"
+                    android:inputType="textUri"
+                    android:textColor="@color/fg"
+                    android:textColorHint="@color/fg_tertiary"
+                    android:importantForAutofill="no" />
+
+                <LinearLayout
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <EditText
+                        android:id="@+id/key"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/hint_key"
+                        android:inputType="textPassword"
+                        android:textColor="@color/fg"
+                        android:textColorHint="@color/fg_tertiary"
+                        android:importantForAutofill="no" />
+
+                    <Button
+                        android:id="@+id/connect"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/connect" />
+                </LinearLayout>
+
+                <!--
+                    The two ways this phone and another machine find each other:
+                    show a code, or read one. Side by side because they are the
+                    same act from opposite ends, and here rather than under the
+                    tab bar because they read the address field above them.
+                -->
+                <LinearLayout
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp">
+
+                    <Button
+                        android:id="@+id/show_mark"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="@string/the_mark" />
+
+                    <Button
+                        android:id="@+id/read_code"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="@string/read_code" />
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
 </LinearLayout>

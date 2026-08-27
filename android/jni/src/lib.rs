@@ -206,10 +206,16 @@ pub unsafe extern "system" fn Java_com_aturzone_chaos_Engine_listModels(
     if dir.is_empty() {
         return to_java(env, "");
     }
-    // `CHAOS_MODELS` is read before anything home-relative, which is how the
-    // app hands the engine its own files directory -- an Android shell has
-    // `HOME=/`, so nothing home-relative would be right here.
-    std::env::set_var("CHAOS_MODELS", &dir);
+    // **`set_var` is not safe in a process with threads, and this proved it.**
+    // It was here to point the engine at the app's files directory, and it
+    // crashed the app: a thread that had called this later died in
+    // `pthread_key_clean_all` -> libcrypto's `thread_local_destructor` ->
+    // `OPENSSL_free`, SIGSEGV. Writing the environment can free a string
+    // another thread still holds, and the fault surfaces somewhere else
+    // entirely -- here, in a library this code never calls.
+    //
+    // It was never needed: the directory is an argument, and the engine is
+    // started with the model's full path.
     let mut names: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {

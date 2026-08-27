@@ -1,9 +1,10 @@
 # Burning Grimoire — an interactive QR mark
 
 `grimoire.html` is one self-contained page. A book carrying the Chaos mark burns
-with blue fire inside a lit rune circle; tapping it swings the camera overhead,
-opens the cover, blazes the circle and writes a QR code across the open spread.
-Tapping again shuts it.
+with blue fire inside a lit rune circle; tapping it swings the camera overhead
+and the book **turns its own pages** — five sheets, each starting after the one
+beneath it and bending as it goes — until the left leaf shows what this node is
+and the code burns itself into the right one. Tapping again shuts it.
 
 There is no ground. The host application composites the rite over its own
 background, so all that is drawn is the book, the candles, the circle and what
@@ -37,6 +38,24 @@ and a STUN server is an external host the artifact sandbox will not reach. The
 network cannot be sniffed from inside a page; it has to be handed in, or inferred
 from where the page was served. Options 1 and 3 are those two answers.
 
+## The two leaves
+
+- **Right**: the code, and nothing else. No plate, no frame, no caption — the
+  quiet zone a scanner needs is just clean paper, and a white square announcing
+  "here is a QR code" is the one thing it does not need. It arrives by burning
+  in: a front crosses the leaf, the paper chars and glows along it, and the
+  modules are simply there behind it.
+- **Left**: what this node actually is — model, weights, context, device,
+  tokens per second, route. From `window.CHAOS_STATUS` or a same-origin
+  `/status`. **Every field is an em-dash until the node reports it.** Filling
+  them with plausible figures would make the leaf a picture of an instrument;
+  an invented tokens-per-second is worse than a blank one.
+
+  ```js
+  window.__grimoire.setStatus({ model: "...", quant: "...", size: "...",
+    context: "...", device: "...", tokensPerSecond: 0.42, promptMsPerToken: 1640 })
+  ```
+
 ## Themes
 
 Both are built. Light is the application's default: black leather on white, with
@@ -46,9 +65,18 @@ ground and blooms; on white there is nothing left to add to, so the same fire is
 laid over the ground instead and the bloom is nearly off. That is what
 `PALETTES[*].blend` selects.
 
-**The blue is a choice, not the brand.** This repository's accent is orange
-(`#ff7a33` / `#d1500f`, in `crates/chaos-arch/src/ui.rs`) and `assets/logo.svg`
-is black-and-white line art. There is no brand blue to match, so one was picked.
+**The blue is the brand's, `#0000F2`.** It is declared in
+`android/app/src/main/res/values/colors.xml`, under a comment saying that palette
+is "the same as the desktop window, so the two read as one product". An earlier
+pass here concluded there was no brand blue and invented a sky blue — it had read
+an *untracked leftover* file whose accent was orange. Check `git ls-files` before
+concluding a colour does not exist.
+
+The whole ramp sits on that one hue and varies only in value, because "the same
+blue" means the same hue. Note where it is NOT used: the ambient and key light
+are near-white with a blue cast. `#0000F2` is what glows — fire, circle, the mark
+— and using it to *illuminate* multiplies every surface by pure blue and turns
+white vellum into navy card.
 
 The mark on the cover is the real `assets/logo.svg`, inlined and rendered at
 size. The page turns its luminance into an alpha mask so the artwork can be
@@ -141,6 +169,14 @@ To dump the page's own grid: `window.__grimoire.qr()`.
   arbitrary. The spine is skipped below a hair of angle.
 - **Additive rings bead.** 144 segments with round caps means every joint is two
   caps stacked; one path and one stroke instead.
+- **Composing beats rotating, twice over.** A leaf shown by a rolled camera
+  appears landscape, so its content must be laid out landscape — and rotating
+  the finished image cannot fix it, because a sheet is drawn as strips that
+  slice the texture and the rolled mapping reassigns which axis they slice.
+- **A run of strips double-darkens its own seams.** The shading pass is a
+  `multiply` clipped to each strip; where two antialiased clip edges meet it
+  lands twice and rules a dark line down the page. Push the overlay path out
+  from its centroid, as the texture triangles already were.
 - **`fonts.ready` can resolve having loaded nothing.** Faces are declared lazily
   and nothing in the DOM is set in Cinzel — it exists only inside canvas calls,
   which do not count. Load each face by name before baking a texture, because a

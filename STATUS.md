@@ -6,7 +6,13 @@ closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
 **Last updated**: 2026-08-27 · **Version**: **v0.0.21**, published 2026-08-26
-· **Branch**: `ticket/brand-qr-altar`.
+· **Branch**: `main`, verified — 909 tests re-run on `main` itself after #146
+merged, and the four files only that merge added are present.
+
+**Open, and ahead of everything else**: Atur opened the installed desktop app
+on 2026-08-27 and found it badly broken, with mode selection tangled into the
+running application. Unreproduced by anyone else. See §0b of
+`docs/graph/backlog/v0-0-3-the-complete-version.md`.
 
 **v0.0.21 verified from its own published files.** The APK was downloaded from
 the release and opened: `lib/arm64-v8a/libchaos_serve.so` (3,245,872 bytes — the

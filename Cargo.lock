@@ -108,6 +108,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "chaos-qr"
+version = "0.0.21"
+dependencies = [
+ "chaos-probe",
+]
+
+[[package]]
 name = "chaos-run"
 version = "0.0.21"
 dependencies = [
@@ -136,6 +143,7 @@ dependencies = [
  "chaos-jinja",
  "chaos-model",
  "chaos-probe",
+ "chaos-qr",
  "chaos-tokenizer",
 ]
 

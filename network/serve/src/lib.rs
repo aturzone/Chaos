@@ -45,14 +45,27 @@ pub fn usage() {
     println!();
     println!("Serves an OpenAI-compatible endpoint on 127.0.0.1:");
     println!("  GET  /                      the browser interface -- open this");
+    println!("  GET  /qr                    the mark: this node's route, as a code");
+    println!("                              to point another device's camera at");
+    println!("  GET  /scan                  the reader, for pointing this device at");
+    println!("                              another node's mark");
     println!("  POST /v1/chat/completions   the one an agent calls");
     println!("  GET  /v1/models             what is loaded");
     println!("  GET  /health                readiness, and what the engine is doing");
+    println!("  GET  /status                the same, plus the route and the last");
+    println!("                              measured tokens per second");
     println!();
     println!("  --api-key <key>   require `Authorization: Bearer <key>` on /v1/*");
     println!("  --host <addr>     what to listen on (default 127.0.0.1;");
     println!("                    0.0.0.0 reaches a phone on the same Wi-Fi and");
     println!("                    then --api-key is required, not optional)");
+    println!();
+    println!("  --emit-pages <dir>  write qr.html and scan.html and exit, for a");
+    println!("                      host that embeds them (the Android APK does)");
+    println!();
+    println!("  CHAOS_QR=1        draw the route as a QR code in this terminal even");
+    println!("                    on loopback (=0 never). Off loopback it is drawn");
+    println!("                    anyway -- that is how a phone finds a headless node.");
     println!();
     println!("Binds to localhost only: no TLS, one request at a time.");
 }
@@ -306,6 +319,47 @@ pub fn serve(
     run_loop(engine, &tokenizer, host, port, t0, api_key)
 }
 
+/// What this process knows about itself, which the engine cannot say.
+///
+/// **The route is the point.** The mark that `GET /qr` serves encodes the
+/// address *another machine* uses to reach this node, and a page cannot work
+/// that out for itself: opened on the node's own loopback, `location.origin`
+/// is `http://127.0.0.1:8080`, which is a perfectly good URL and useless to
+/// the one person who matters -- the one holding a phone. The server bound the
+/// socket, so the server knows, and hands the answer in.
+///
+/// `Cell` rather than a lock because `run_loop` serves one request at a time;
+/// that is a documented property of this server, not an accident.
+struct Node {
+    /// e.g. `http://192.168.1.20:8080`.
+    route: String,
+    /// True when `route` is loopback -- nothing else can reach it, and the
+    /// pages and `/status` say so rather than implying a network that is not
+    /// there.
+    loopback: bool,
+    since: std::time::Instant,
+    /// The last finished generation: tokens produced, and the rate.
+    last: std::cell::Cell<Option<(usize, f64)>>,
+}
+
+impl Node {
+    fn new(host: &str, port: u16) -> Self {
+        let (addr, loopback) = chaos_probe::net::reachable_address(host);
+        Node {
+            route: format!("http://{addr}:{port}"),
+            loopback,
+            since: std::time::Instant::now(),
+            last: std::cell::Cell::new(None),
+        }
+    }
+
+    fn record(&self, produced: usize, seconds: f64) {
+        if produced > 0 && seconds > 0.0 {
+            self.last.set(Some((produced, produced as f64 / seconds)));
+        }
+    }
+}
+
 /// Accept and answer requests, one at a time.
 fn run_loop(
     engine: Engine<'_>,
@@ -317,12 +371,20 @@ fn run_loop(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("{host}:{port}");
     let listener = TcpListener::bind(&addr)?;
+    let node = Node::new(host, port);
     println!("ready      {addr} in {:.1}s", t0.elapsed().as_secs_f64());
     // The URL comes first and on its own line: most terminals make it
     // clickable, and someone who wanted a window rather than a socket should
     // not have to read an endpoint list to find the interface.
     println!("           open       http://{addr}");
+    println!("           the mark   {}/qr", node.route);
+    println!("           the reader {}/scan", node.route);
     println!("           for agents POST /v1/chat/completions");
+    if node.loopback && host != "127.0.0.1" && host != "localhost" {
+        println!("           NOTE: no route off this machine was found, so the mark");
+        println!("                 carries a loopback address. Nothing else can scan it.");
+    }
+    print_route_code(&node);
     // Whether a key is required is the one thing a client cannot discover by
     // trying, so it is printed rather than left to a 401.
     match &api_key {
@@ -364,7 +426,7 @@ fn run_loop(
                 if let Err(e) = s.set_read_timeout(Some(std::time::Duration::from_secs(3))) {
                     eprintln!("could not set a read timeout: {e}");
                 }
-                if let Err(e) = handle(s, &engine, tokenizer, api_key.as_deref()) {
+                if let Err(e) = handle(s, &engine, tokenizer, api_key.as_deref(), &node) {
                     // A peer that connected and said nothing is routine, not a
                     // fault; anything else is worth printing.
                     let msg = e.to_string();
@@ -464,9 +526,17 @@ fn handle(
     engine: &Engine<'_>,
     tokenizer: &Tokenizer,
     api_key: Option<&str>,
+    node: &Node,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let req = read_request(&stream)?;
     let started = std::time::Instant::now();
+    // Matched on the path, not the whole target: `/qr?theme=dark` is the same
+    // route as `/qr`, and an exact match on the target made the query string
+    // the difference between the page and a 404.
+    let (path, query) = match req.target.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (req.target.as_str(), ""),
+    };
 
     // The shape OpenAI clients expect, so a wrong key reads as a wrong key in
     // whatever tool is calling rather than as an unexplained failure. Produced
@@ -480,7 +550,7 @@ fn handle(
                 .to_string(),
         )
     } else {
-        match (req.method.as_str(), req.target.as_str()) {
+        match (req.method.as_str(), path) {
             // The browser interface. Served from the binary with nothing external
             // to fetch, so a machine with no network still gets the whole page.
             ("GET", "/") => {
@@ -490,6 +560,35 @@ fn handle(
             // here" is one line; leaving it a 404 puts a red error in the log for
             // an entirely normal request.
             ("GET", "/favicon.ico") => (204, String::new()),
+            // **The mark.** A book bearing the sigil, burning in a rune
+            // circle, which opens onto a QR code cut from `node.route` -- so
+            // pointing a phone at this screen is how another machine finds
+            // this one. `?theme=dark|light` makes it match the window the host
+            // application put around it; without it the operating system's
+            // preference decides.
+            ("GET", "/qr") | ("GET", "/mark") => {
+                let html = chaos_arch::grimoire::mark(chaos_arch::grimoire::Host {
+                    endpoint: Some(&node.route),
+                    theme: theme_of(query),
+                });
+                return send_html(stream, &html, &req, started);
+            }
+            // **The reader**, which is the same circle pointed the other way.
+            // It carries its own QR detector rather than calling
+            // `BarcodeDetector`, which is absent on desktop Windows and on
+            // iOS. A camera needs a secure context, so over a LAN this page
+            // says why it cannot open one instead of failing silently.
+            ("GET", "/scan") => {
+                let html = chaos_arch::grimoire::scry(chaos_arch::grimoire::Host {
+                    endpoint: Some(&node.route),
+                    theme: theme_of(query),
+                });
+                return send_html(stream, &html, &req, started);
+            }
+            // Everything a client needs to describe this node without loading
+            // a model of its own. `/health` answers the narrower question of
+            // whether it is up, and predates this.
+            ("GET", "/status") => (200, status_json(engine, node)),
             ("GET", "/health") => (
                 200,
                 format!(
@@ -512,19 +611,15 @@ fn handle(
                     // event per token, so a client sees words appear instead of
                     // waiting for the whole answer. Nothing more may be written
                     // afterwards, so this returns early.
-                    return stream_completion(stream, &req, engine, tokenizer, &params, started);
+                    return stream_completion(
+                        stream, &req, engine, tokenizer, &params, started, node,
+                    );
                 }
                 match generate(&req.body, engine, tokenizer, &params, &mut |_| Ok(())) {
-                    Ok((text, prompt_tokens, produced, finish)) => (
-                        200,
-                        completion_json(
-                            engine.model_name(),
-                            &text,
-                            prompt_tokens,
-                            produced,
-                            finish,
-                        ),
-                    ),
+                    Ok((text, prompt_tokens, produced, finish)) => (200, {
+                        node.record(produced, started.elapsed().as_secs_f64());
+                        completion_json(engine.model_name(), &text, prompt_tokens, produced, finish)
+                    }),
                     Err(e) => (400, error_json(&e.to_string())),
                 }
             }
@@ -627,6 +722,93 @@ fn send_html(
     Ok(())
 }
 
+/// Draw this node's route in the terminal, as a code a phone can read.
+///
+/// **This is the CLI refusing to be a lesser tier.** Someone runs Chaos on a
+/// headless box and wants to reach it from their phone; there is no window to
+/// show the mark in and no browser to open it with, so the route comes out of
+/// the terminal they are already looking at -- over SSH, in a log, in a tmux
+/// pane. `chaos-qr` does the same thing on demand for any payload.
+///
+/// **Printed when the node is actually reachable**, because a code carrying
+/// `http://127.0.0.1:8080` is a route to nowhere that looks exactly like a
+/// route. `CHAOS_QR=1` prints it anyway (someone forwarding a port over SSH
+/// has a loopback address that IS reachable, and only they know that);
+/// `CHAOS_QR=0` never does.
+fn print_route_code(node: &Node) {
+    let forced = std::env::var("CHAOS_QR").ok();
+    let want = match forced.as_deref() {
+        Some("0") | Some("no") | Some("false") => false,
+        Some(_) => true,
+        None => !node.loopback,
+    };
+    if !want {
+        return;
+    }
+    match chaos_qr::encode(&node.route, chaos_qr::Level::Q) {
+        Ok(code) => {
+            println!();
+            print!("{}", code.render(chaos_qr::Render::Ansi, 4));
+            println!("           scan that, or open {}/qr", node.route);
+            println!();
+        }
+        // A route too long for a version-6 code is not a reason to refuse to
+        // serve. It is also barely possible -- 74 bytes at level Q against the
+        // 28 an IPv4 route takes -- so it is reported rather than handled.
+        Err(e) => eprintln!("could not draw the route as a code: {e}"),
+    }
+}
+
+/// The value of one key in a query string, undecoded beyond what is there.
+///
+/// Only one caller exists and it compares the result against a fixed set, so
+/// percent-decoding would be work with no reader. A value that needed it
+/// simply will not match, which is the safe direction.
+fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v)
+}
+
+/// `?theme=dark` or `?theme=light`, and nothing else.
+///
+/// Anything unrecognised is `None` rather than a default, so a typo leaves the
+/// page following the operating system instead of silently forcing a theme.
+fn theme_of(query: &str) -> Option<&str> {
+    match query_value(query, "theme") {
+        Some(t @ ("dark" | "light")) => Some(t),
+        _ => None,
+    }
+}
+
+/// Everything this node can say about itself, as JSON.
+///
+/// **Every field is measured or configured, none is predicted.**
+/// `tokens_per_second` is absent until a generation has actually finished
+/// here, because a prediction served under the same name as a measurement is
+/// how a number nobody checked ends up quoted back as a result.
+fn status_json(engine: &Engine<'_>, node: &Node) -> String {
+    let rate = match node.last.get() {
+        Some((produced, tps)) => {
+            format!(r#","last_generation":{{"tokens":{produced},"tokens_per_second":{tps:.3}}}"#)
+        }
+        None => String::new(),
+    };
+    format!(
+        r#"{{"status":"ok","model":"{}","context_limit":{},"context_ceiling":{},"route":"{}","reachable":{},"uptime_seconds":{:.0},"verified_architectures":{}{}}}"#,
+        escape(engine.model_name()),
+        engine.context_limit(),
+        engine.hard_context_limit(),
+        escape(&node.route),
+        !node.loopback,
+        node.since.elapsed().as_secs_f64(),
+        VERIFIED_ARCHITECTURES.len(),
+        rate
+    )
+}
+
 /// Answer a `stream: true` request as server-sent events.
 ///
 /// The status line and headers are written **before** generation starts, which
@@ -644,6 +826,7 @@ fn stream_completion(
     tokenizer: &Tokenizer,
     params: &Params,
     started: std::time::Instant,
+    node: &Node,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Built by concatenation rather than as one multi-line literal: HTTP header
     // lines are CRLF-separated with no leading whitespace, and a literal that
@@ -679,7 +862,8 @@ fn stream_completion(
     });
 
     match result {
-        Ok((_, _, _, finish)) => {
+        Ok((_, _, produced, finish)) => {
+            node.record(produced, started.elapsed().as_secs_f64());
             stream.write_all(sse_chunk("", Some(finish)).as_bytes())?;
         }
         Err(e) => {

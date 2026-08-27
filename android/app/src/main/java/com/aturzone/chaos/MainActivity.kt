@@ -91,6 +91,18 @@ class MainActivity : Activity() {
         send = findViewById(R.id.send)
         connect = findViewById(R.id.connect)
 
+        // **The node's route travels with them, taken from the address box.**
+        // Read at the moment of the tap rather than captured here, because the
+        // box is editable and a route captured at startup is the previous one.
+        findViewById<Button>(R.id.show_mark).setOnClickListener {
+            remember()
+            BrandActivity.open(this, BrandActivity.PAGE_MARK, address.text.toString())
+        }
+        findViewById<Button>(R.id.read_code).setOnClickListener {
+            remember()
+            BrandActivity.open(this, BrandActivity.PAGE_SCRY, address.text.toString())
+        }
+
         val prefs = getSharedPreferences("chaos", Context.MODE_PRIVATE)
         address.setText(prefs.getString("address", "http://192.168.1.10:8080"))
         key.setText(prefs.getString("key", ""))

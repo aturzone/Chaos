@@ -20,6 +20,7 @@ mod bandwidth;
 /// tok/s without running a multi-gigabyte benchmark on every launch.
 pub mod cache;
 mod gpu;
+pub mod net;
 mod platform;
 pub mod processes;
 

@@ -1,0 +1,1252 @@
+<title>Scrying Circle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --ground:   #f4f4f1;
+    --ground-2: #e2e3e0;
+    --brand:    #0000f2;
+    --hot:      #5c5cff;
+    --ink:      #16181c;
+    --dim:      #6b6f76;
+    --rule:     rgba(0, 0, 242, .28);
+    --panel:    rgba(255, 255, 255, .72);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #0d1117;
+      --ground-2: #06080c;
+      --brand:    #3a3aff;
+      --hot:      #a8b4ff;
+      --ink:      #e6edf3;
+      --dim:      #7f8b9d;
+      --rule:     rgba(90, 90, 255, .30);
+      --panel:    rgba(6, 10, 20, .62);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:   #0d1117;
+    --ground-2: #06080c;
+    --brand:    #3a3aff;
+    --hot:      #a8b4ff;
+    --ink:      #e6edf3;
+    --dim:      #7f8b9d;
+    --rule:     rgba(90, 90, 255, .30);
+    --panel:    rgba(6, 10, 20, .62);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--ground-2);
+    color: var(--ink);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+  #stage { position: fixed; inset: 0; background: var(--ground-2); }
+  #scene { display: block; width: 100%; height: 100%; }
+  video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  .plate {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px;
+    border: 1px solid var(--rule);
+    background: var(--panel);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    font-size: clamp(10px, 1.6vw, 12px);
+    letter-spacing: .16em; text-transform: uppercase;
+    color: var(--dim); white-space: nowrap;
+    transition: opacity .35s ease, transform .35s cubic-bezier(.22,.8,.3,1);
+  }
+  #hint { bottom: clamp(16px, 4vh, 40px); pointer-events: none; }
+  #hint .mark {
+    width: 7px; height: 7px; background: var(--brand);
+    box-shadow: 0 0 10px var(--brand); transform: rotate(45deg); flex: none;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity:.35 } 50% { opacity:1 } }
+
+  #result {
+    bottom: clamp(16px, 4vh, 40px);
+    flex-direction: column; align-items: stretch; gap: 8px;
+    max-width: min(90vw, 640px); white-space: normal;
+    opacity: 0; pointer-events: none;
+    transform: translateX(-50%) translateY(10px);
+  }
+  #result.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+  #result .label { color: var(--dim); font-size: 10px; letter-spacing: .22em; }
+  #result .value {
+    color: var(--ink); font-size: clamp(12px, 2.2vw, 15px);
+    letter-spacing: .02em; text-transform: none;
+    word-break: break-all; line-height: 1.45;
+  }
+  #result .row { display: flex; gap: 10px; }
+  #result button, #result a {
+    flex: 1; text-align: center; text-decoration: none;
+    font: inherit; font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    padding: 9px 12px; cursor: pointer;
+    border: 1px solid var(--rule); background: transparent; color: var(--brand);
+  }
+  #result button:hover, #result a:hover { background: var(--rule); }
+  #result button:focus-visible, #result a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  #note {
+    position: fixed; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    max-width: min(86vw, 460px); text-align: center;
+    font-size: clamp(11px, 2vw, 13px); line-height: 1.6;
+    letter-spacing: .04em; text-transform: none;
+    color: var(--dim); display: none;
+  }
+  #note.show { display: block; }
+  #note b { color: var(--ink); font-weight: 500; }
+  #note button {
+    margin-top: 16px; font: inherit; font-size: 11px;
+    letter-spacing: .16em; text-transform: uppercase;
+    padding: 10px 18px; cursor: pointer;
+    border: 1px solid var(--rule); background: transparent; color: var(--brand);
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #hint .mark { animation: none; opacity: .8; }
+    .plate { transition-duration: .01ms; }
+  }
+</style>
+
+<div id="stage">
+  <canvas id="scene"></canvas>
+  <video id="feed" playsinline muted></video>
+</div>
+
+<p id="hint" class="plate"><span class="mark" aria-hidden="true"></span><span id="hint-text">Hold a code in the circle</span></p>
+
+<div id="result" class="plate" role="status">
+  <span class="label">The circle read</span>
+  <span class="value" id="result-value"></span>
+  <span class="row">
+    <a id="result-open" href="#" rel="noopener noreferrer" target="_blank">Open</a>
+    <button id="result-copy" type="button">Copy</button>
+    <button id="result-again" type="button">Scan again</button>
+  </span>
+</div>
+
+<div id="note"><span id="note-text"></span><br><button id="note-action" type="button">Allow the camera</button></div>
+<p id="live" class="sr-only" aria-live="polite"></p>
+
+<script>
+"use strict";
+(function () {
+
+/* ==================================================================== *
+ *  A scrying circle: the ring is the viewfinder.
+ *
+ *  No square, no frame. What the circle covers is what gets read, and
+ *  a code is only accepted once its centre lies inside the ring -- so
+ *  aiming is the interaction rather than a corner-bracket overlay.
+ *
+ *  Reading a QR from a camera is TWO jobs and only one of them is the
+ *  interesting one. Decoding a known grid is arithmetic. FINDING the
+ *  grid in a photograph -- locating three finder patterns, working out
+ *  which corner is which, undoing the perspective, and sampling module
+ *  centres -- is the part that makes it a scanner. `BarcodeDetector`
+ *  does both and is used where it exists, but it is absent on Windows
+ *  desktop (measured, not assumed), so the whole pipeline is here.
+ * ==================================================================== */
+
+const BRAND = [0, 0, 242];
+
+/* ==================================================================== *
+ *  1.  GF(256) and Reed-Solomon, with correction
+ *
+ *  The encoder elsewhere in this repo only had to COMPUTE parity. A
+ *  reader has to use it: a camera frame is never clean, and a decoder
+ *  that only accepts a perfect read is a decoder that mostly fails.
+ * ==================================================================== */
+
+const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+(function () {
+  let x = 1;
+  for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+})();
+const gmul = (a, b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+const gdiv = (a, b) => a === 0 ? 0 : EXP[(LOG[a] + 255 - LOG[b]) % 255];
+const ginv = (a) => EXP[255 - LOG[a]];
+
+function polyEval(poly, x) {
+  let y = poly[0];
+  for (let i = 1; i < poly.length; i++) y = gmul(y, x) ^ poly[i];
+  return y;
+}
+function polyMul(a, b) {
+  const r = new Uint8Array(a.length + b.length - 1);
+  for (let i = 0; i < a.length; i++)
+    for (let j = 0; j < b.length; j++) r[i + j] ^= gmul(a[i], b[j]);
+  return r;
+}
+
+/* Berlekamp-Massey, then Chien, then Forney.
+
+   Written with sigma in ASCENDING degree (sigma[0] = 1) because that is
+   the form the recurrence is stated in, and mixing the two orderings is
+   how the first attempt at this quietly produced a locator that found
+   no roots.
+
+   Two conventions exist for Forney's numerator depending on whether the
+   syndromes start at j=0 or j=1. Rather than argue it, both are tried
+   and the answer is only accepted if every syndrome of the corrected
+   block is zero -- which is a proof, not a preference. Returning null
+   matters as much as returning bytes: a wrong read reported as success
+   is worse than no read. */
+function rsCorrect(bytes, ecLen) {
+  const synd = new Uint8Array(ecLen);
+  let bad = false;
+  for (let i = 0; i < ecLen; i++) {
+    let s = 0;
+    for (let j = 0; j < bytes.length; j++) s = gmul(s, EXP[i]) ^ bytes[j];
+    synd[i] = s;
+    if (s) bad = true;
+  }
+  if (!bad) return bytes;
+
+  let sigma = [1], B = [1], L = 0, m = 1, b = 1;
+  for (let n = 0; n < ecLen; n++) {
+    let d = synd[n];
+    for (let i = 1; i <= L && i < sigma.length; i++) d ^= gmul(sigma[i], synd[n - i]);
+    if (d === 0) { m++; continue; }
+    const T = sigma.slice();
+    const coef = gdiv(d, b);
+    for (let i = 0; i < B.length; i++) {
+      const k = i + m;
+      while (sigma.length <= k) sigma.push(0);
+      sigma[k] ^= gmul(coef, B[i]);
+    }
+    if (2 * L <= n) { L = n + 1 - L; B = T; b = d; m = 1; }
+    else m++;
+  }
+  while (sigma.length > 1 && sigma[sigma.length - 1] === 0) sigma.pop();
+  if (L === 0 || L > (ecLen >> 1)) return null;
+
+  const evalAsc = (poly, x) => {
+    let s = 0;
+    for (let k = 0; k < poly.length; k++) if (poly[k]) s ^= gmul(poly[k], powGF(x, k));
+    return s;
+  };
+
+  /* Chien: position i is counted from the END of the block. */
+  const pos = [];
+  for (let i = 0; i < bytes.length; i++) {
+    if (evalAsc(sigma, EXP[(255 - i) % 255]) === 0) pos.push(i);
+  }
+  if (pos.length !== L) return null;
+
+  const omega = new Uint8Array(ecLen);
+  for (let i = 0; i < ecLen; i++) {
+    let s = 0;
+    for (let k = 0; k <= i && k < sigma.length; k++) s ^= gmul(sigma[k], synd[i - k]);
+    omega[i] = s;
+  }
+
+  for (const withX of [false, true]) {
+    const out = Uint8Array.from(bytes);
+    let ok = true;
+    for (const i of pos) {
+      const xi = EXP[i % 255];
+      const xiInv = EXP[(255 - i) % 255];
+      const num = evalAsc(omega, xiInv);
+      /* the formal derivative over GF(2) keeps only the odd terms */
+      let den = 0;
+      for (let k = 1; k < sigma.length; k += 2)
+        if (sigma[k]) den ^= gmul(sigma[k], powGF(xiInv, k - 1));
+      if (den === 0) { ok = false; break; }
+      let mag = gdiv(num, den);
+      if (withX) mag = gmul(mag, xi);
+      out[bytes.length - 1 - i] ^= mag;
+    }
+    if (!ok) continue;
+    let clean = true;
+    for (let i = 0; i < ecLen && clean; i++) {
+      let s = 0;
+      for (let j = 0; j < out.length; j++) s = gmul(s, EXP[i]) ^ out[j];
+      if (s) clean = false;
+    }
+    if (clean) return out;
+  }
+  return null;
+}
+function powGF(a, e) {
+  if (e === 0) return 1;
+  if (a === 0) return 0;
+  return EXP[(LOG[a] * e) % 255];
+}
+
+/* ==================================================================== *
+ *  2.  Grid -> text
+ * ==================================================================== */
+
+const ECC = {
+  1: {L:[7,1,19,0,0],M:[10,1,16,0,0],Q:[13,1,13,0,0],H:[17,1,9,0,0]},
+  2: {L:[10,1,34,0,0],M:[16,1,28,0,0],Q:[22,1,22,0,0],H:[28,1,16,0,0]},
+  3: {L:[15,1,55,0,0],M:[26,1,44,0,0],Q:[18,2,17,0,0],H:[22,2,13,0,0]},
+  4: {L:[20,1,80,0,0],M:[18,2,32,0,0],Q:[26,2,24,0,0],H:[16,4,9,0,0]},
+  5: {L:[26,1,108,0,0],M:[24,2,43,0,0],Q:[18,2,15,2,16],H:[22,2,11,2,12]},
+  6: {L:[18,2,68,0,0],M:[16,4,27,0,0],Q:[24,4,19,0,0],H:[28,4,15,0,0]},
+  7: {L:[20,2,78,0,0],M:[18,4,31,0,0],Q:[18,2,14,4,15],H:[26,4,13,1,14]},
+  8: {L:[24,2,97,0,0],M:[22,2,38,2,39],Q:[22,4,18,2,19],H:[26,4,14,2,15]},
+  9: {L:[30,2,116,0,0],M:[22,3,36,2,37],Q:[20,4,16,4,17],H:[24,4,12,4,13]},
+  10:{L:[18,2,68,2,69],M:[26,4,43,1,44],Q:[24,6,19,2,20],H:[28,6,15,2,16]},
+};
+const ALIGN = {1:[],2:[6,18],3:[6,22],4:[6,26],5:[6,30],6:[6,34],
+               7:[6,22,38],8:[6,24,42],9:[6,26,46],10:[6,28,50]};
+const LEVEL_FROM_BITS = {1:"L",0:"M",3:"Q",2:"H"};
+const MASKS = [
+  (i,j)=>(i+j)%2===0, (i,j)=>i%2===0, (i,j)=>j%3===0, (i,j)=>(i+j)%3===0,
+  (i,j)=>((i>>1)+Math.floor(j/3))%2===0, (i,j)=>(i*j)%2+(i*j)%3===0,
+  (i,j)=>(((i*j)%2+(i*j)%3)%2)===0, (i,j)=>(((i+j)%2+(i*j)%3)%2)===0,
+];
+
+function formatWord(levelBits, mask) {
+  const data = (levelBits << 3) | mask;
+  let rem = data;
+  for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+  return ((data << 10) | rem) ^ 0x5412;
+}
+const FORMATS = (function () {
+  const m = [];
+  for (const lb of [0,1,2,3]) for (let k = 0; k < 8; k++) m.push([formatWord(lb,k), lb, k]);
+  return m;
+})();
+
+/* Read a sampled grid and return the text, or null. */
+function decodeGrid(mod, size) {
+  const version = (size - 17) / 4;
+  if (!Number.isInteger(version) || version < 1 || version > 10) return null;
+
+  const fn = [];
+  for (let y = 0; y < size; y++) fn.push(new Uint8Array(size));
+  const mark = (cx, cy, r) => {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const y = cy + dy, x = cx + dx;
+      if (x >= 0 && y >= 0 && x < size && y < size) fn[y][x] = 1;
+    }
+  };
+  mark(3, 3, 4); mark(size - 4, 3, 4); mark(3, size - 4, 4);
+  for (let i = 0; i < size; i++) { fn[6][i] = 1; fn[i][6] = 1; }
+  const ac = ALIGN[version];
+  for (const cy of ac) for (const cx of ac) {
+    if ((cx === ac[0] && cy === ac[0]) || (cx === ac[0] && cy === ac[ac.length-1]) ||
+        (cx === ac[ac.length-1] && cy === ac[0])) continue;
+    mark(cx, cy, 2);
+  }
+  for (let i = 0; i < 9; i++) { fn[i][8] = 1; fn[8][i] = 1; }
+  for (let i = 0; i < 8; i++) { fn[8][size-1-i] = 1; fn[size-1-i][8] = 1; }
+  if (version >= 7) {
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 3; j++) {
+      fn[i][size-11+j] = 1; fn[size-11+j][i] = 1;
+    }
+  }
+
+  /* format, read twice and taken by closest legal word */
+  const read1 = () => {
+    let b = 0;
+    for (let i = 0; i <= 5; i++) b |= mod[i][8] << i;
+    b |= mod[7][8] << 6; b |= mod[8][8] << 7; b |= mod[8][7] << 8;
+    for (let i = 9; i < 15; i++) b |= mod[8][14-i] << i;
+    return b;
+  };
+  const read2 = () => {
+    let b = 0;
+    for (let i = 0; i < 8; i++) b |= mod[8][size-1-i] << i;
+    for (let i = 8; i < 15; i++) b |= mod[size-15+i][8] << i;
+    return b;
+  };
+  let best = null, bestD = 99;
+  for (const cand of [read1(), read2()]) {
+    for (const [word, lb, mk] of FORMATS) {
+      let d = 0, x = word ^ cand;
+      while (x) { d += x & 1; x >>>= 1; }
+      if (d < bestD) { bestD = d; best = [lb, mk]; }
+    }
+  }
+  if (!best || bestD > 3) return null;
+  const level = LEVEL_FROM_BITS[best[0]], mask = best[1];
+
+  const un = [];
+  for (let y = 0; y < size; y++) {
+    un.push(new Uint8Array(size));
+    for (let x = 0; x < size; x++)
+      un[y][x] = mod[y][x] ^ ((!fn[y][x] && MASKS[mask](y, x)) ? 1 : 0);
+  }
+
+  const bits = [];
+  let right = size - 1;
+  while (right >= 1) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      for (let k = 0; k < 2; k++) {
+        const x = right - k;
+        const upward = ((right + 1) & 2) === 0;
+        const y = upward ? size - 1 - vert : vert;
+        if (!fn[y][x]) bits.push(un[y][x]);
+      }
+    }
+    right -= 2;
+  }
+  const cw = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    let b = 0;
+    for (let k = 0; k < 8; k++) b = (b << 1) | bits[i + k];
+    cw.push(b);
+  }
+
+  const spec = ECC[version] && ECC[version][level];
+  if (!spec) return null;
+  const [ecLen, g1, d1, g2, d2] = spec;
+  const nBlocks = g1 + g2;
+  const sizes = [];
+  for (let i = 0; i < g1; i++) sizes.push(d1);
+  for (let i = 0; i < g2; i++) sizes.push(d2);
+  const totalData = sizes.reduce((a, b) => a + b, 0);
+  if (cw.length < totalData + ecLen * nBlocks) return null;
+
+  const blocks = sizes.map(() => []);
+  let idx = 0;
+  const longest = Math.max.apply(null, sizes);
+  for (let i = 0; i < longest; i++)
+    for (let b = 0; b < nBlocks; b++) if (i < sizes[b]) blocks[b].push(cw[idx++]);
+  const ecs = sizes.map(() => []);
+  for (let i = 0; i < ecLen; i++)
+    for (let b = 0; b < nBlocks; b++) ecs[b].push(cw[idx++]);
+
+  const data = [];
+  for (let b = 0; b < nBlocks; b++) {
+    const full = Uint8Array.from(blocks[b].concat(ecs[b]));
+    const fixed = rsCorrect(full, ecLen);
+    if (!fixed) return null;
+    for (let i = 0; i < sizes[b]; i++) data.push(fixed[i]);
+  }
+
+  /* parse the segments */
+  const stream = [];
+  for (const b of data) for (let k = 7; k >= 0; k--) stream.push((b >> k) & 1);
+  let pos = 0;
+  const take = (n) => { let v = 0; for (let i = 0; i < n; i++) v = (v << 1) | (stream[pos++] | 0); return v; };
+  const countBits = (mode) => {
+    if (version <= 9) return mode === 1 ? 10 : mode === 2 ? 9 : mode === 4 ? 8 : 8;
+    return mode === 1 ? 12 : mode === 2 ? 11 : mode === 4 ? 16 : 10;
+  };
+  const ALNUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+  let out = "";
+  const bytesOut = [];
+  while (pos + 4 <= stream.length) {
+    const mode = take(4);
+    if (mode === 0) break;
+    if (mode === 1) {
+      let n = take(countBits(1));
+      while (n >= 3) { const v = take(10); out += String(Math.floor(v/100)) + String(Math.floor(v/10)%10) + String(v%10); n -= 3; }
+      if (n === 2) { const v = take(7); out += String(Math.floor(v/10)) + String(v%10); }
+      else if (n === 1) out += String(take(4));
+    } else if (mode === 2) {
+      let n = take(countBits(2));
+      while (n >= 2) { const v = take(11); out += ALNUM[Math.floor(v/45)] + ALNUM[v%45]; n -= 2; }
+      if (n === 1) out += ALNUM[take(6)];
+    } else if (mode === 4) {
+      const n = take(countBits(4));
+      for (let i = 0; i < n; i++) bytesOut.push(take(8));
+      out += new TextDecoder().decode(Uint8Array.from(bytesOut.splice(0)));
+    } else if (mode === 7) {
+      take(8);                       /* ECI, single-byte assignment only */
+    } else {
+      break;                         /* kanji and the rest: not handled */
+    }
+  }
+  return out.length ? out : null;
+}
+
+/* ==================================================================== *
+ *  3.  Finding the code in a picture
+ * ==================================================================== */
+
+/* Local threshold. A single global cut fails the moment one side of the
+   frame is brighter than the other, which is most of the time when a
+   hand is holding a phone over a screen. */
+function binarize(gray, w, h) {
+  const B = 8, bw = Math.ceil(w / B), bh = Math.ceil(h / B);
+  const means = new Float32Array(bw * bh);
+  for (let by = 0; by < bh; by++) {
+    for (let bx = 0; bx < bw; bx++) {
+      let sum = 0, n = 0, mn = 255, mx = 0;
+      for (let y = by * B; y < Math.min(h, by * B + B); y++)
+        for (let x = bx * B; x < Math.min(w, bx * B + B); x++) {
+          const v = gray[y * w + x];
+          sum += v; n++;
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+      means[by * bw + bx] = (mx - mn > 24) ? sum / n : -1;
+    }
+  }
+  /* fill flat blocks from their neighbours, then smooth */
+  let global = 0, gn = 0;
+  for (let i = 0; i < means.length; i++) if (means[i] >= 0) { global += means[i]; gn++; }
+  global = gn ? global / gn : 128;
+  const out = new Uint8Array(w * h);
+  for (let by = 0; by < bh; by++) {
+    for (let bx = 0; bx < bw; bx++) {
+      let sum = 0, n = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const yy = by + dy, xx = bx + dx;
+        if (yy < 0 || xx < 0 || yy >= bh || xx >= bw) continue;
+        const m = means[yy * bw + xx];
+        if (m >= 0) { sum += m; n++; }
+      }
+      const th = n ? sum / n : global;
+      for (let y = by * B; y < Math.min(h, by * B + B); y++)
+        for (let x = bx * B; x < Math.min(w, bx * B + B); x++)
+          out[y * w + x] = gray[y * w + x] < th ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+/* A finder pattern is dark:light:dark:light:dark in 1:1:3:1:1. Scan the
+   rows for that ratio, then confirm down the column through the middle
+   -- one axis alone finds every horizontal stripe in the picture. */
+function findPatterns(bin, w, h) {
+  const hits = [];
+  const ok = (r) => {
+    const unit = (r[0] + r[1] + r[2] + r[3] + r[4]) / 7;
+    if (unit < 1) return false;
+    const tol = unit * 0.6;
+    return Math.abs(unit - r[0]) < tol && Math.abs(unit - r[1]) < tol &&
+           Math.abs(unit * 3 - r[2]) < tol * 2.2 &&
+           Math.abs(unit - r[3]) < tol && Math.abs(unit - r[4]) < tol;
+  };
+  /* Walk the dark core out to the pattern's edges along one axis and
+     return where its middle actually is.
+
+     **The centre this returns is the whole reason the function exists.**
+     Rows are scanned every second row, so the row that happened to hit a
+     finder is up to a module away from its middle -- and worse, the set
+     of rows that pass the ratio test is not symmetric about the middle
+     once the code is rotated, so averaging them leans to one side. On a
+     code turned a degree or two off ninety, one finder's centre came out
+     four pixels from the truth while the other two were exact. Four
+     pixels is a one-and-a-half-degree error in the sampling basis, which
+     over twenty-nine modules puts the far edge most of a module out and
+     every module past the middle reads as its neighbour: a band of about
+     ten degrees where nothing read, at every scale, while eighty-five
+     and two hundred and seventy were fine.
+
+     The pattern is symmetric, so the midpoint of its full extent along
+     any line through the centre *is* the centre. One function does both
+     axes -- `vertical` only changes how the buffer is stepped -- and the
+     two are applied alternately so each refinement feeds the next. */
+  const centreAlong = (cx, cy, unit, vertical) => {
+    const limit = vertical ? h : w;
+    const start = vertical ? cy : cx;
+    const idx = (i) => (vertical ? i * w + cx : cy * w + i);
+    if (!bin[idx(start)]) return null;
+    const run = [0, 0, 0, 0, 0];
+    let i = start;
+    while (i >= 0 && bin[idx(i)]) { run[2]++; i--; }
+    const lo = i + 1;
+    while (i >= 0 && !bin[idx(i)] && run[1] < unit * 3) { run[1]++; i--; }
+    while (i >= 0 && bin[idx(i)] && run[0] < unit * 3) { run[0]++; i--; }
+    i = start + 1;
+    while (i < limit && bin[idx(i)]) { run[2]++; i++; }
+    const hi = i - 1;
+    while (i < limit && !bin[idx(i)] && run[3] < unit * 3) { run[3]++; i++; }
+    while (i < limit && bin[idx(i)] && run[4] < unit * 3) { run[4]++; i++; }
+    if (!ok(run)) return null;
+    return { centre: (lo + hi) / 2, unit: run.reduce((a, b) => a + b, 0) / 7 };
+  };
+
+  for (let y = 0; y < h; y += 2) {
+    let run = [0, 0, 0, 0, 0], colour = 0, x = 0;
+    const push = (len) => { run.shift(); run.push(len); };
+    let len = 0;
+    for (x = 0; x < w; x++) {
+      const v = bin[y * w + x];
+      if (v === colour) { len++; }
+      else { push(len); colour = v; len = 1;
+        if (colour === 0 && ok(run)) {
+          const total = run.reduce((a, b) => a + b, 0);
+          let cx = Math.round(x - len - run[4] - run[3] - run[2] / 2);
+          let unit = total / 7;
+          if (cx <= 0 || cx >= w) continue;
+          /* Down the column through the row's centre, then back across
+             the row through the column's centre. Twice, because the
+             first vertical walk starts from a row that may be a module
+             off and the second starts from the middle. */
+          let cy = y, good = true;
+          for (let pass = 0; pass < 2 && good; pass++) {
+            const v1 = centreAlong(Math.round(cx), Math.round(cy), unit, true);
+            if (!v1) { good = false; break; }
+            cy = v1.centre;
+            unit = (unit + v1.unit) / 2;
+            const h1 = centreAlong(Math.round(cx), Math.round(cy), unit, false);
+            if (!h1) { good = false; break; }
+            cx = h1.centre;
+            unit = (unit + h1.unit) / 2;
+          }
+          if (good) hits.push([cx, cy, unit]);
+        }
+      }
+    }
+  }
+  /* cluster */
+  const groups = [];
+  for (const [x, y, u] of hits) {
+    let g = null;
+    for (const c of groups) if (Math.hypot(c.x - x, c.y - y) < c.u * 3.2) { g = c; break; }
+    if (g) { g.x = (g.x * g.n + x) / (g.n + 1); g.y = (g.y * g.n + y) / (g.n + 1);
+             g.u = (g.u * g.n + u) / (g.n + 1); g.n++; }
+    else groups.push({ x, y, u, n: 1 });
+  }
+  return groups.filter(g => g.n >= 2).sort((a, b) => b.n - a.n);
+}
+
+/* Which of the three is the corner, and are they clockwise? */
+function orderCorners(a, b, c) {
+  const d = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
+  const ab = d(a, b), bc = d(b, c), ca = d(c, a);
+  let tl, p1, p2;
+  if (ab >= bc && ab >= ca) { tl = c; p1 = a; p2 = b; }
+  else if (bc >= ab && bc >= ca) { tl = a; p1 = b; p2 = c; }
+  else { tl = b; p1 = c; p2 = a; }
+  /* cross product decides which of p1/p2 is the top-right */
+  const cross = (p1.x - tl.x) * (p2.y - tl.y) - (p1.y - tl.y) * (p2.x - tl.x);
+  return cross < 0 ? { tl, tr: p2, bl: p1 } : { tl, tr: p1, bl: p2 };
+}
+
+/* Sample the grid. Affine from three corners plus the parallelogram's
+   fourth -- honest about its limit: it holds for a camera roughly
+   square-on and drifts under strong perspective. */
+function sampleGrid(bin, w, h, corners, size) {
+  const { tl, tr, bl } = corners;
+  const n = size;
+  /* The centre of a finder pattern sits at module 3.5, not 3 -- it is
+     seven modules across, so its middle is half a module past the
+     third. Using 3 puts every sample half a module off centre, which
+     lands the vote on the boundary between two modules and reads a
+     third of the grid wrong. The symptom is not "no code here"; it is
+     a grid that looks plausible and fails its parity. */
+  const ex = { x: (tr.x - tl.x) / (n - 7), y: (tr.y - tl.y) / (n - 7) };
+  const ey = { x: (bl.x - tl.x) / (n - 7), y: (bl.y - tl.y) / (n - 7) };
+  const ox = tl.x - 3.5 * ex.x - 3.5 * ey.x;
+  const oy = tl.y - 3.5 * ex.y - 3.5 * ey.y;
+  /* Vote over a quarter of a module, not over a fixed pixel: at three
+     pixels per module a one-pixel ring reaches into the neighbours. */
+  const unit = Math.hypot(ex.x, ex.y);
+  const rad = Math.max(0, Math.round(unit * 0.22));
+  const mod = [];
+  for (let j = 0; j < n; j++) {
+    const row = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const px = Math.round(ox + (i + 0.5) * ex.x + (j + 0.5) * ey.x);
+      const py = Math.round(oy + (i + 0.5) * ex.y + (j + 0.5) * ey.y);
+      if (px < 0 || py < 0 || px >= w || py >= h) return null;
+      let dark = 0, seen = 0;
+      for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
+        const qx = px + dx, qy = py + dy;
+        if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+        dark += bin[qy * w + qx]; seen++;
+      }
+      row[i] = dark * 2 > seen ? 1 : 0;
+    }
+    mod.push(row);
+  }
+  return mod;
+}
+
+/* Average four pixels into one. Returns [gray, w, h].
+
+   A gray buffer rather than a canvas because that is what the caller
+   already has, and because a canvas resample would cost a readback. */
+function halve(gray, w, h) {
+  const nw = w >> 1, nh = h >> 1;
+  const out = new Uint8Array(nw * nh);
+  for (let y = 0; y < nh; y++) {
+    const a = (y * 2) * w, b = (y * 2 + 1) * w;
+    for (let x = 0; x < nw; x++) {
+      const i = x * 2;
+      out[y * nw + x] = (gray[a + i] + gray[a + i + 1] +
+                         gray[b + i] + gray[b + i + 1] + 2) >> 2;
+    }
+  }
+  return [out, nw, nh];
+}
+
+/* The whole read, at full size and then at half.
+
+   **Measured, and the reason this exists.** The detector reads a code
+   whose modules are 4 to 8 pixels across and stops at about ten: at 9.6
+   px/module it decodes, at 11 it finds three finder candidates and none
+   of them are the right three, and at 13 and above `findPatterns` finds
+   nothing at all. That is not an exotic case -- it is what happens when
+   the phone is held close enough that the code fills the ring, which is
+   what anyone does first.
+
+   The cause is the local threshold. Blocks are eight pixels square, so
+   at eleven pixels a module a block can sit entirely inside one module,
+   where the ink variation the mark is drawn with is the only signal
+   there is; the module breaks into speckle and the 1:1:3:1:1 run is
+   gone. A code carries no more information at twelve pixels a module
+   than at six, so the fix is to stop looking at it that closely.
+
+   Half scale rather than a smaller working frame, because a small code
+   far away needs every pixel it has. Trying full size first costs
+   nothing on the frames that already worked: a frame that fails
+   `findPatterns` fails it in the first few milliseconds.
+
+   Corners come back in the coordinates the caller passed in. */
+function readFrame(gray, w, h) {
+  let g = gray, cw = w, ch = h, factor = 1;
+  for (;;) {
+    const got = readFrameAt(g, cw, ch);
+    if (got) {
+      if (factor === 1) return got;
+      const up = (p) => ({ x: p.x * factor, y: p.y * factor });
+      return {
+        text: got.text,
+        size: got.size,
+        corners: { tl: up(got.corners.tl), tr: up(got.corners.tr), bl: up(got.corners.bl) },
+      };
+    }
+    /* Below this there is nothing to gain and a real chance of losing a
+       code that was already marginal. Each level is a quarter of the
+       pixels of the one before, so the whole ladder costs about a third
+       more than the first rung. */
+    if (Math.min(cw, ch) < 180) return null;
+    [g, cw, ch] = halve(g, cw, ch);
+    factor *= 2;
+  }
+}
+
+/* One read at one scale. Returns {text, corners, size} or null. */
+function readFrameAt(gray, w, h) {
+  const bin = binarize(gray, w, h);
+  const pats = findPatterns(bin, w, h);
+  if (pats.length < 3) return null;
+
+  /* **Which three of the candidates are the finders.**
+
+     Taking the strongest three is not enough and taking the strongest
+     five was not either: a narrow band of angles around 90 degrees
+     produced six candidates whose correct three were not all inside the
+     top five, and the read failed at every scale while 85 and 95 degrees
+     both worked. A test that only tried multiples of 45 would never see
+     it.
+
+     So consider more candidates, and spend the extra budget on
+     arithmetic instead of on grid samples. Three finder patterns sit at
+     the corners of a right isosceles triangle and are all the same size,
+     which is two cheap tests that throw out nearly every false triple:
+     the two legs equal, the hypotenuse root two longer, the module sizes
+     within a factor of two. What survives is ordered by how close it is
+     to that ideal, so the true triple is tried first and the ladder
+     above almost never reaches a second rung. */
+  const take = pats.slice(0, 8);
+  const triples = [];
+  for (let a = 0; a < take.length; a++)
+  for (let b = a + 1; b < take.length; b++)
+  for (let c = b + 1; c < take.length; c++) {
+    const t3 = [take[a], take[b], take[c]];
+    const u = t3.map(p => p.u);
+    if (Math.max(...u) > Math.min(...u) * 2) continue;
+    const d = [
+      Math.hypot(t3[0].x - t3[1].x, t3[0].y - t3[1].y),
+      Math.hypot(t3[1].x - t3[2].x, t3[1].y - t3[2].y),
+      Math.hypot(t3[0].x - t3[2].x, t3[0].y - t3[2].y),
+    ].sort((m, n) => m - n);
+    if (d[0] < 1) continue;
+    /* legs equal, and the hypotenuse root two longer */
+    const legs = Math.abs(d[1] - d[0]) / d[1];
+    const hyp = Math.abs(d[2] - d[1] * Math.SQRT2) / d[2];
+    if (legs > 0.30 || hyp > 0.30) continue;
+    triples.push([t3, legs + hyp]);
+  }
+  triples.sort((m, n) => m[1] - n[1]);
+
+  for (const [t3] of triples) {
+    const corners = orderCorners(t3[0], t3[1], t3[2]);
+    const unit = (t3[0].u + t3[1].u + t3[2].u) / 3;
+    const span = Math.hypot(corners.tr.x - corners.tl.x, corners.tr.y - corners.tl.y);
+
+    /* Try every plausible version rather than trusting one estimate.
+
+       The module size taken from a finder's horizontal cross-section is
+       only right when the code is square to the camera: turn it and the
+       cut through the pattern lengthens, so the estimate shrinks the
+       version by up to a factor of root two -- far more than the +/- one
+       step a nudge can recover. Sizes are four apart and there are not
+       many of them, so ask the parity instead of guessing. Ordering by
+       distance from the estimate means the common case still hits
+       first. */
+    const cands = [];
+    for (let d = 21; d <= 45; d += 4) {
+      const mps = span / (d - 7);
+      if (mps < 1.6) continue;                    /* finer than we sampled */
+      cands.push([d, Math.abs(mps - unit)]);
+    }
+    cands.sort((p, q) => p[1] - q[1]);
+
+    /* **A square code, sampled with a square basis.**
+
+       The grid comes from two legs, top-left to top-right and top-left
+       to bottom-left, and they should be the same length because the
+       code is square. When one finder's centre is estimated a few pixels
+       off -- which happens, its own module size came out 9.1 against the
+       other two at 8.0 -- the legs disagree by six per cent, the error
+       accumulates over twenty-nine modules, and by the far edge the
+       sampler is a module and a half out. Every module past the middle
+       reads as its neighbour.
+
+       That is what made a ten-degree band around ninety degrees fail at
+       every scale while eighty-five and two hundred and seventy worked:
+       nothing structural, one imprecise corner. Averaging the two
+       lengths and keeping each direction costs two square roots, and it
+       is tried in addition to the raw basis rather than instead of it,
+       so no read that works today can be lost. */
+    const bases = [corners];
+    {
+      const ax = corners.tr.x - corners.tl.x, ay = corners.tr.y - corners.tl.y;
+      const bx = corners.bl.x - corners.tl.x, by = corners.bl.y - corners.tl.y;
+      const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      if (la > 1 && lb > 1 && Math.abs(la - lb) / Math.max(la, lb) > 0.015) {
+        const L = (la + lb) / 2;
+        bases.push({
+          tl: corners.tl,
+          tr: { x: corners.tl.x + ax / la * L, y: corners.tl.y + ay / la * L },
+          bl: { x: corners.tl.x + bx / lb * L, y: corners.tl.y + by / lb * L },
+        });
+      }
+    }
+
+    for (const basis of bases) {
+      for (const [d] of cands) {
+        const mod = sampleGrid(bin, w, h, basis, d);
+        if (!mod) continue;
+        const text = decodeGrid(mod, d);
+        if (text) return { text, corners: basis, size: d };
+      }
+    }
+  }
+  return null;
+}
+
+/* ==================================================================== *
+ *  4.  The circle
+ * ==================================================================== */
+
+const RUNES = [
+  [[0,-1,0,1],[0,0.35,0.7,0.75],[0,0,0.7,0.4]],
+  [[-0.6,1,-0.6,-1],[-0.6,1,0.6,0.45],[0.6,0.45,0.6,-1]],
+  [[0,-1,0,1],[0,0.6,0.7,0.1],[0.7,0.1,0,-0.4]],
+  [[0,-1,0,1],[0,0.9,0.7,0.45],[0,0.3,0.7,-0.15]],
+  [[0.7,1,-0.3,0],[-0.3,0,0.7,-1]],
+  [[-0.7,1,0.7,-1],[0.7,1,-0.7,-1]],
+  [[-0.6,1,-0.6,-1],[0.6,1,0.6,-1],[-0.6,0.3,0.6,-0.3]],
+  [[0,-1,0,1],[-0.7,-0.4,0.7,0.4]],
+  [[0,-1,0,1]],
+  [[0,-1,0,1],[0,0.5,-0.7,1],[0,0.5,0.7,1]],
+  [[0.6,1,-0.4,0.4],[-0.4,0.4,0.6,-0.2],[0.6,-0.2,-0.4,-1]],
+  [[0,-1,0,1],[0,1,-0.6,0.45],[0,1,0.6,0.45]],
+  [[-0.65,1,-0.65,-1],[0.65,1,0.65,-1],[-0.65,1,0.65,0],[0.65,1,-0.65,0]],
+  [[0,1,0.6,0],[0.6,0,0,-1],[0,-1,-0.6,0],[-0.6,0,0,1]],
+];
+
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d", { alpha: false });
+const video = document.getElementById("feed");
+const hintEl = document.getElementById("hint");
+const hintText = document.getElementById("hint-text");
+const resultEl = document.getElementById("result");
+const resultValue = document.getElementById("result-value");
+const resultOpen = document.getElementById("result-open");
+const noteEl = document.getElementById("note");
+const noteText = document.getElementById("note-text");
+const noteAction = document.getElementById("note-action");
+const liveEl = document.getElementById("live");
+
+let W = 0, H = 0, DPR = 1;
+const reduceMotion = window.matchMedia &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+let COL = { brand: "#0000f2", hot: "#5c5cff", ground: "#0d1117", ink: "#e6edf3" };
+function readTheme() {
+  COL = { brand: css("--brand") || "#0000f2", hot: css("--hot") || "#5c5cff",
+          ground: css("--ground") || "#0d1117", ink: css("--ink") || "#e6edf3" };
+}
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const r = stage.getBoundingClientRect();
+  const want = r.width * r.height * DPR * DPR;
+  if (want > 2.0e6) DPR = Math.max(0.7, DPR * Math.sqrt(2.0e6 / want));
+  W = Math.max(1, Math.round(r.width * DPR));
+  H = Math.max(1, Math.round(r.height * DPR));
+  canvas.width = W; canvas.height = H;
+  canvas.style.width = r.width + "px";
+  canvas.style.height = r.height + "px";
+}
+
+/* ---- state ---------------------------------------------------------- */
+let stream = null;
+let scanning = false;
+let lockT = 0;                 /* 0 searching, 1 locked */
+let found = null;              /* {text, quad in canvas coords} */
+let lastScan = 0;
+const work = document.createElement("canvas");
+const wctx = work.getContext("2d", { willReadFrequently: true });
+let detector = null;
+
+/* ---- the ring ------------------------------------------------------- */
+function ringRadius() { return Math.min(W, H) * 0.32; }
+
+function drawCircle(t) {
+  const cx = W / 2, cy = H / 2, R = ringRadius();
+  const w1 = DPR * (COL.ground === "#f4f4f1" ? 0.6 : 1);
+  /* Bright enough to read while it is still searching: the ring is
+     the interface, not a hint, and a viewfinder you can barely see
+     is not one. Locking on brightens it rather than revealing it. */
+  const A = 0.86 + lockT * 0.14;
+  const spin = reduceMotion ? 0 : t;
+
+  ctx.save();
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+
+  const ring = (r, lw, alpha, phase, dash) => {
+    ctx.beginPath();
+    for (let i = 0; i <= 180; i++) {
+      const a = phase + (i / 180) * Math.PI * 2;
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = alphaCol(COL.brand, alpha * A);
+    ctx.lineWidth = lw * w1;
+    if (dash) ctx.setLineDash(dash); else ctx.setLineDash([]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+
+  ring(R * 1.16, 5.4, 0.78, spin * 0.021);
+  ring(R * 1.09, 3.0, 0.55, spin * 0.021);
+
+  /* graduation */
+  ctx.beginPath();
+  for (let i = 0; i < 72; i++) {
+    const a = spin * 0.021 + (i / 72) * Math.PI * 2;
+    const long = i % 6 === 0;
+    const r0 = R * 1.16, r1 = R * (long ? 1.055 : 1.10);
+    ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+    ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+  }
+  ctx.strokeStyle = alphaCol(COL.brand, 0.52 * A);
+  ctx.lineWidth = 2.6 * w1;
+  ctx.stroke();
+
+  /* the inscription, turning the other way */
+  const rMid = R * 1.30, rHalf = R * 0.055, tHalf = (Math.PI * 2 * rMid / 20) * 0.30;
+  ctx.beginPath();
+  for (let i = 0; i < 20; i++) {
+    const a = -spin * 0.047 + (i / 20) * Math.PI * 2;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const rune = RUNES[(i * 5 + 3) % RUNES.length];
+    for (const s of rune) {
+      const map = (x, y) => [
+        cx + ca * (rMid + y * rHalf) - sa * x * tHalf,
+        cy + sa * (rMid + y * rHalf) + ca * x * tHalf,
+      ];
+      const p = map(s[0], s[1]), q = map(s[2], s[3]);
+      ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+    }
+  }
+  ctx.strokeStyle = alphaCol(COL.brand, 0.88 * A);
+  ctx.lineWidth = 3.4 * w1;
+  ctx.stroke();
+
+  ring(R * 1.40, 3.4, 0.46, -spin * 0.047);
+
+  /* the aperture: what the circle covers is what gets read */
+  ring(R, 4.2, 0.72 + lockT * 0.28, spin * 0.083);
+  ctx.beginPath();
+  for (let k = 0, idx = 0; k < 7; k++, idx = (idx + 3) % 7) {
+    const a = spin * 0.083 - Math.PI / 2 + (idx * Math.PI * 2) / 7;
+    const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = alphaCol(COL.brand, (0.30 + lockT * 0.45) * A);
+  ctx.lineWidth = 2.4 * w1;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function alphaCol(hex, a) {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map(c => c + c).join("") : h, 16);
+  return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+}
+
+function drawMark(quad) {
+  if (!quad) return;
+  ctx.save();
+  ctx.strokeStyle = alphaCol(COL.hot, 0.95);
+  ctx.lineWidth = 3.4 * DPR;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(quad[0][0], quad[0][1]);
+  for (let i = 1; i < quad.length; i++) ctx.lineTo(quad[i][0], quad[i][1]);
+  ctx.closePath();
+  ctx.stroke();
+  for (const p of quad) {
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], 7 * DPR, 0, Math.PI * 2);
+    ctx.fillStyle = alphaCol(COL.brand, 0.9);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---- the frame ------------------------------------------------------ */
+let last = performance.now();
+
+function frame(now) {
+  const t = now / 1000;
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  lockT += ((found ? 1 : 0) - lockT) * Math.min(1, dt * 6);
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = COL.ground;
+  ctx.fillRect(0, 0, W, H);
+
+  /* the feed, cover-fitted and pushed back so the circle reads over it */
+  if (video.videoWidth) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const s = Math.max(W / vw, H / vh);
+    const dw = vw * s, dh = vh * s;
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.restore();
+    /* darken outside the ring so the aperture is the subject */
+    const R = ringRadius();
+    const g = ctx.createRadialGradient(W/2, H/2, R * 0.92, W/2, H/2, R * 2.1);
+    g.addColorStop(0, alphaCol(COL.ground, 0));
+    g.addColorStop(1, alphaCol(COL.ground, 0.86));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  drawCircle(t);
+  if (found) drawMark(found.quad);
+
+  requestAnimationFrame(frame);
+}
+
+/* ---- scanning ------------------------------------------------------- */
+async function scanTick() {
+  if (!scanning || !video.videoWidth) return;
+  const now = performance.now();
+  if (now - lastScan < 120) return;
+  lastScan = now;
+
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const target = 520;
+  const s = Math.min(1, target / Math.max(vw, vh));
+  const ww = Math.round(vw * s), wh = Math.round(vh * s);
+  work.width = ww; work.height = wh;
+  wctx.drawImage(video, 0, 0, ww, wh);
+
+  /* only what the circle covers */
+  const R = ringRadius() / DPR;
+  const rect = stage.getBoundingClientRect();
+  const scale = Math.max(rect.width / vw, rect.height / vh);
+  const rWork = (R / scale) * s;
+  const cxW = ww / 2, cyW = wh / 2;
+
+  let hit = null;
+  if (detector) {
+    try {
+      const codes = await detector.detect(work);
+      for (const c of codes) {
+        const pts = c.cornerPoints || [];
+        if (!pts.length) continue;
+        const mx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+        const my = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+        if (Math.hypot(mx - cxW, my - cyW) > rWork) continue;
+        hit = { text: c.rawValue, pts: pts.map(p => [p.x, p.y]) };
+        break;
+      }
+    } catch (e) { detector = null; }
+  }
+  if (!hit) {
+    const img = wctx.getImageData(0, 0, ww, wh);
+    const gray = new Uint8Array(ww * wh);
+    for (let i = 0, j = 0; i < img.data.length; i += 4, j++)
+      gray[j] = (img.data[i] * 77 + img.data[i+1] * 151 + img.data[i+2] * 28) >> 8;
+    const res = readFrame(gray, ww, wh);
+    if (res) {
+      const { tl, tr, bl } = res.corners;
+      const br = { x: tr.x + bl.x - tl.x, y: tr.y + bl.y - tl.y };
+      const mx = (tl.x + tr.x + bl.x + br.x) / 4, my = (tl.y + tr.y + bl.y + br.y) / 4;
+      if (Math.hypot(mx - cxW, my - cyW) <= rWork)
+        hit = { text: res.text, pts: [[tl.x,tl.y],[tr.x,tr.y],[br.x,br.y],[bl.x,bl.y]] };
+    }
+  }
+  if (hit) accept(hit, ww, wh);
+}
+
+function accept(hit, ww, wh) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const s = Math.max(W / vw, H / vh);
+  const dw = vw * s, dh = vh * s;
+  const k = dw / ww;
+  const quad = hit.pts.map(([x, y]) => [(W - dw) / 2 + x * k, (H - dh) / 2 + y * k]);
+  found = { text: hit.text, quad };
+  scanning = false;
+  hintEl.style.opacity = "0";
+  resultValue.textContent = hit.text;
+  const isUrl = /^https?:\/\//i.test(hit.text);
+  resultOpen.style.display = isUrl ? "" : "none";
+  if (isUrl) resultOpen.href = hit.text;
+  resultEl.classList.add("show");
+  liveEl.textContent = "Read: " + hit.text;
+  if (navigator.vibrate && !reduceMotion) navigator.vibrate(24);
+}
+
+function again() {
+  found = null;
+  resultEl.classList.remove("show");
+  hintEl.style.opacity = "";
+  scanning = true;
+  liveEl.textContent = "Searching.";
+}
+
+/* ---- camera --------------------------------------------------------- */
+function showNote(msg, actionLabel, action) {
+  noteText.innerHTML = msg;
+  if (actionLabel) {
+    noteAction.textContent = actionLabel;
+    noteAction.style.display = "";
+    noteAction.onclick = action;
+  } else {
+    noteAction.style.display = "none";
+  }
+  noteEl.classList.add("show");
+  hintEl.style.opacity = "0";
+}
+
+async function startCamera() {
+  noteEl.classList.remove("show");
+  hintEl.style.opacity = "";
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showNote("This browser will not open a camera.<br>" +
+             "<b>The circle needs one to scry.</b>");
+    return;
+  }
+  /* getUserMedia is refused outside a secure context, and a node on a
+     LAN is reached over plain http -- so say which of the two failed
+     rather than "camera error". */
+  if (!window.isSecureContext) {
+    showNote("A camera only opens on a <b>secure origin</b>.<br>" +
+             "This page is on <b>" + location.origin + "</b>.<br>" +
+             "Serve it over https, or from localhost.");
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+    scanning = true;
+    hintText.textContent = "Hold a code in the circle";
+    liveEl.textContent = "The circle is open. Hold a code inside it.";
+  } catch (e) {
+    const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+    showNote(denied
+      ? "The camera was refused.<br><b>Allow it and the circle will open.</b>"
+      : "No camera answered.<br><b>" + (e && e.name ? e.name : "Unknown") + "</b>",
+      "Try again", startCamera);
+  }
+}
+
+/* ---- go ------------------------------------------------------------- */
+document.getElementById("result-again").addEventListener("click", again);
+document.getElementById("result-copy").addEventListener("click", () => {
+  if (!found) return;
+  const done = () => { liveEl.textContent = "Copied."; };
+  if (navigator.clipboard) navigator.clipboard.writeText(found.text).then(done, done);
+});
+noteAction.addEventListener("click", startCamera);
+
+readTheme();
+if (window.matchMedia) {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  if (mq.addEventListener) mq.addEventListener("change", readTheme);
+}
+if (window.MutationObserver) {
+  new MutationObserver(readTheme).observe(document.documentElement,
+    { attributes: true, attributeFilter: ["data-theme"] });
+}
+
+resize();
+window.addEventListener("resize", resize);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
+
+if ("BarcodeDetector" in window) {
+  BarcodeDetector.getSupportedFormats().then(f => {
+    if (f.includes("qr_code")) detector = new BarcodeDetector({ formats: ["qr_code"] });
+  }).catch(() => {});
+}
+
+setInterval(() => { scanTick().catch(() => {}); }, 60);
+requestAnimationFrame((n) => { last = n; frame(n); });
+
+/* The pipeline, exposed so it can be tested without a camera: hand it a
+   canvas and it answers exactly as it would answer a frame. */
+window.__scry = {
+  readCanvas(cv) {
+    const g = cv.getContext("2d");
+    const img = g.getImageData(0, 0, cv.width, cv.height);
+    const gray = new Uint8Array(cv.width * cv.height);
+    for (let i = 0, j = 0; i < img.data.length; i += 4, j++)
+      gray[j] = (img.data[i] * 77 + img.data[i+1] * 151 + img.data[i+2] * 28) >> 8;
+    return readFrame(gray, cv.width, cv.height);
+  },
+  decodeGrid,
+  binarize, findPatterns, orderCorners, sampleGrid, readFrame,
+  toGray(cv) {
+    const g = cv.getContext("2d");
+    const img = g.getImageData(0, 0, cv.width, cv.height);
+    const gray = new Uint8Array(cv.width * cv.height);
+    for (let i = 0, j = 0; i < img.data.length; i += 4, j++)
+      gray[j] = (img.data[i] * 77 + img.data[i+1] * 151 + img.data[i+2] * 28) >> 8;
+    return gray;
+  },
+  start: startCamera,
+  state: () => ({ scanning, found: found && found.text, detector: !!detector }),
+};
+
+startCamera();
+
+})();
+</script>

@@ -937,6 +937,8 @@ mod windows_app {
         button(hwnd, "COPY", nav::ID_COPY_ADDR, hinst);
         button(hwnd, "COPY", nav::ID_COPY_KEY, hinst);
         button(hwnd, "NEW KEY", nav::ID_NEW_KEY, hinst);
+        button(hwnd, "SHOW THE MARK", nav::ID_SHOW_MARK, hinst);
+        button(hwnd, "READ A CODE", nav::ID_READ_CODE, hinst);
         child(
             hwnd,
             "EDIT",
@@ -1669,6 +1671,44 @@ mod windows_app {
             CloseClipboard();
         }
         set_status("copied");
+    }
+
+    /// Open `/qr` or `/scan` on whichever node this machine is talking to.
+    ///
+    /// **The address is taken from the box on screen**, not rebuilt here. That
+    /// box already says the right thing for every role -- a CORE shows its LAN
+    /// address, ALONE shows loopback, a CLIENT shows the CORE it was pointed at
+    /// -- and a second derivation of the same string is a second thing to get
+    /// wrong when a role is added.
+    ///
+    /// The theme goes with it, so the page arrives in the same light or dark as
+    /// the window that opened it rather than following the operating system and
+    /// disagreeing with the app around it.
+    fn open_brand_page(which: &str) {
+        let addr = control_text(ctl(nav::ID_CORE_ADDR));
+        if addr.is_empty() {
+            set_status("no address yet -- choose a role on this page first");
+            return;
+        }
+        // A CLIENT may have been given a bare `host:port`, and a URL needs a
+        // scheme. Anything already carrying one is left alone.
+        let base = if addr.starts_with("http://") || addr.starts_with("https://") {
+            addr
+        } else {
+            format!("http://{addr}")
+        };
+        let dark = UI.with(|u| {
+            u.borrow()
+                .as_ref()
+                .map(|ui| ui.theme.mode == Mode::Dark)
+                .unwrap_or(false)
+        });
+        let theme = if dark { "dark" } else { "light" };
+        shell_open(&format!("{base}/{which}?theme={theme}"));
+        set_status(match which {
+            "scan" => "opened the reader in your browser -- point it at another node's mark",
+            _ => "opened the mark in your browser -- scan it from another device",
+        });
     }
 
     /// Put the right things in the address, key and status boxes for the role.
@@ -4873,6 +4913,13 @@ Any value a client sends is accepted.                      The server still list
                         metric::BUTTON,
                     ));
                     y += metric::BUTTON + 20;
+                    // The two ways this machine and another find each other:
+                    // show a code, or read one. Side by side because they are
+                    // the same act from the two ends.
+                    let half = w.min(360) / 2 - 5;
+                    m.push((nav::ID_SHOW_MARK, x, y, half, metric::BUTTON));
+                    m.push((nav::ID_READ_CODE, x + half + 10, y, half, metric::BUTTON));
+                    y += metric::BUTTON + 20;
                     let h = (page.bottom - metric::INSET - y).max(60);
                     m.push((nav::ID_CHAOS_STATUS, x, y, w, h));
                 }
@@ -6769,6 +6816,8 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_NEW_KEY, BN_CLICKED) => new_core_key(),
                     (nav::ID_COPY_ADDR, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_ADDR),
                     (nav::ID_COPY_KEY, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_KEY),
+                    (nav::ID_SHOW_MARK, BN_CLICKED) => open_brand_page("qr"),
+                    (nav::ID_READ_CODE, BN_CLICKED) => open_brand_page("scan"),
                     // Selecting a different model redraws its page beside the
                     // list, which is the whole point of a page per model --
                     // **and re-decides which buttons are live**, because what

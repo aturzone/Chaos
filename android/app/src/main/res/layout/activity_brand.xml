@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The mark, or the reader, full-bleed.
+
+    No padding and no chrome: both pages draw a circle sized to the viewport,
+    and a margin around it is a margin the page has already accounted for. The
+    one line of text sits over the bottom because it says which node the code
+    leads to, which is the only thing the picture cannot say for itself.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <WebView
+        android:id="@+id/brand_web"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/brand_note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:padding="14dp"
+        android:textColor="@color/fg_secondary"
+        android:textSize="13sp" />
+</FrameLayout>

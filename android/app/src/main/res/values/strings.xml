@@ -62,4 +62,11 @@
     <string name="mon_stopped">not running</string>
     <string name="mon_endpoint">ENDPOINT
 %1$s</string>
+    <!-- The mark and the reader. -->
+    <string name="the_mark">MARK</string>
+    <string name="read_code">SCAN</string>
+    <string name="brand_note_mark">Point another device at this. It leads to %1$s.</string>
+    <string name="brand_note_no_node">No node yet. Set an address on the previous screen and this will carry it.</string>
+    <string name="brand_note_scan">Hold a code inside the circle.</string>
+    <string name="brand_note_no_camera">Without the camera this screen cannot read anything. Grant it in Settings and come back.</string>
 </resources>

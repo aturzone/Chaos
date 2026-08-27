@@ -315,6 +315,20 @@ pub const ID_COPY_KEY: i32 = 767;
 pub const ID_NEW_KEY: i32 = 768;
 /// What is connected, and what this device is doing about it.
 pub const ID_CHAOS_STATUS: i32 = 769;
+/// Show the mark: the burning book whose open pages are this node's route as a
+/// QR code, for pointing another device's camera at.
+///
+/// **It opens the served page in the browser rather than drawing it here**, and
+/// that is a decision rather than a shortcut. This window is native Win32 with
+/// GDI painting and no webview -- adding one for a picture would be the largest
+/// dependency in the workspace, on a platform-specific runtime, to re-render
+/// something the server already serves. Opening the URL means the app, the
+/// phone and a stranger's browser all see the *same bytes*, which is the whole
+/// argument for keeping the art in one file.
+pub const ID_SHOW_MARK: i32 = 770;
+/// Open the reader: the same circle as a viewfinder, for pointing this device
+/// at another node's mark. Same reasoning as [`ID_SHOW_MARK`].
+pub const ID_READ_CODE: i32 = 771;
 pub const IDM_THEME_LIGHT: i32 = 524;
 pub const IDM_THEME_DARK: i32 = 525;
 pub const IDM_MANUAL: i32 = 530;
@@ -379,6 +393,8 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_COPY_ADDR,
             ID_COPY_KEY,
             ID_NEW_KEY,
+            ID_SHOW_MARK,
+            ID_READ_CODE,
             ID_CHAOS_STATUS,
         ],
         Page::Chat => &[ID_OUT, ID_IN, ID_SEND, ID_CLEAR],

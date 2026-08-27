@@ -52,3 +52,11 @@ android/local.properties
 # can review and that goes stale the moment the Rust changes. Build it with
 # `scripts/build-android-jni.ps1`; the app runs without it as a client.
 android/app/src/main/jniLibs/
+
+# Same reasoning, for the brand pages. `chaos-serve --emit-pages` writes the
+# mark and the reader into the APK's assets, wrapped in a document with the
+# fonts embedded -- about 600 KB of generated HTML whose source is
+# `assets/grimoire/`. Committing it would be committing a build product that
+# goes stale silently. Release CI regenerates it; a local `gradlew assemble`
+# without it still works, and BrandActivity falls back to the node.
+android/app/src/main/assets/brand/

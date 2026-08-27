@@ -19,6 +19,7 @@ members = [
     "core/io",        # cache-bypassing aligned reads
     "core/probe",     # hardware, and how much memory can be reclaimed
     "core/plan",      # prediction and residency policy
+    "core/qr",        # QR encoding, so a headless node can print its route
     "core/model",     # sharded resolution, partial reads, the catalogue
     "core/tokenizer", # byte-level BPE
     "core/grammar",   # constrained decoding, and the workspace's JSON parser

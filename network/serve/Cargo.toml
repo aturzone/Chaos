@@ -23,6 +23,9 @@ chaos-ggml = { path = "../../core/ggml" }
 chaos-io = { path = "../../core/io" }
 chaos-model = { path = "../../core/model" }
 chaos-probe = { path = "../../core/probe" }
+# So a headless node can draw its own route in the terminal it was
+# started from. See `print_route_code`.
+chaos-qr = { path = "../../core/qr" }
 chaos-grammar = { path = "../../core/grammar" }
 chaos-jinja = { path = "../../core/jinja" }
 chaos-tokenizer = { path = "../../core/tokenizer" }

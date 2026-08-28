@@ -1,0 +1,22 @@
+# Just enough HTTP/1.1 to talk to a Chaos node.
+#
+# Exists because the command-line tier has to report a node's status "without
+# curl" and connect to another node and use it -- and the workspace had no
+# client at all. Plain HTTP only, no TLS: that is a documented limit, since TLS
+# would mean a certificate store and a crypto dependency in a project that has
+# no dependencies.
+#
+# **No dependencies, and nothing to compile but Rust** -- one of the crates CI
+# builds without `GGML_LIB_DIR`.
+[package]
+name = "chaos-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "A minimal HTTP/1.1 client for talking to a Chaos node: status, completions and server-sent events."
+
+[dependencies]

@@ -19,7 +19,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-913%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-928%20passing-brightgreen">
 </p>
 
 ---
@@ -320,8 +320,12 @@ export GGML_LIB_DIR=$PWD/../llama.cpp/build/ggml/src
 cargo build --release
 ```
 
-Clean clone to working binaries: **23 s**. Nine of the ten crates build without
-`GGML_LIB_DIR` at all, and CI proves it.
+Clean clone to working binaries: **23 s**. Twelve of the thirteen crates CI
+checks build without `GGML_LIB_DIR` at all -- `chaos-arch` is the one that needs
+it, and it must fail with instructions rather than a wall of import errors. Both
+halves are tested. **`cargo install --path cli/chaos` therefore works on a
+machine that has never compiled a line of C**: the `chaos` front door, its
+settings reader and its HTTP client need no ggml.
 
 <details>
 <summary><strong>Windows</strong> — GNU toolchain, not MSVC</summary>

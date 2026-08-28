@@ -44,7 +44,7 @@ The project's record on reasoning ahead of measurement is **nought for four**:
 ```bash
 export GGML_LIB_DIR=/path/to/llama.cpp/build/ggml/src
 cargo build --release
-cargo test --release              # 913 tests
+cargo test --release              # 928 tests
 cargo test --release -- --ignored # 42 more, need a real model on disk
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check

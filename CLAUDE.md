@@ -25,7 +25,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 913 tests
+cargo test --release          # 928 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -39,7 +39,8 @@ cargo build --release
 Windows needs the **GNU** Rust toolchain plus MSYS2 mingw64 on PATH, and
 `.cargo/config.toml`'s `link-self-contained=no` must stay.
 
-**Ten crates build with no ggml at all, and CI enforces both halves**: every
+**Twelve of the thirteen CI-checked crates build with no ggml, and CI enforces
+both halves**: every
 crate but `chaos-arch` builds, tests and lints without `GGML_LIB_DIR`, and
 `chaos-arch` must fail with its `GGML_LIB_DIR is not set` message rather than a
 wall of unresolved imports. **A full run reports 42 ignored** — they need a
@@ -63,7 +64,15 @@ resolution, partial reads, catalogue, release checks · `tokenizer` byte-level
 BPE · `grammar` constrained decoding + the workspace's JSON parser · `jinja` chat
 templates · `arch` architectures + streaming forward pass · `image` PNG,
 safetensors, FLUX.2 VAE, the sampler · `qr` encoding, so a headless node can
-print its own route.
+print its own route · `config` the settings file **both tiers read** · `http`
+just enough HTTP/1.1 to ask a node for status and stream a completion, no curl,
+no TLS.
+
+**`chaos` is the front door**: `cli/chaos` dispatches `chaos run` to
+`chaos-run` with arguments untouched — every old binary name still works — and
+implements `start`/`stop`/`status` (a node as a background process, pid file,
+log), `connect`, `config`, `completions`, and `scan`, which is **NOT BUILT and
+says so**. `chaos start` uses `Settings::serve_args`, the window's own function.
 
 `cli/run` chaos-run · `network/serve` chaos-serve · `network/worker`
 chaos-worker, which holds experts and answers with activations · `gui/app` the
@@ -76,9 +85,12 @@ the badge at the bottom of the rail, which is also the page's only door. Leaving
 a mode (the CHANGE MODE button *or* Escape) asks first, because it unloads the
 model and clears the conversation.
 
-**Seventeen binaries, not five** — also `chaos-pull` (fetch a model),
+**Eighteen binaries, not five** — also `chaos-pull` (fetch a model),
 `chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and five benchmarks;
-`grep '^name' */*/Cargo.toml` lists them.
+`grep '^name' */*/Cargo.toml` lists them. **A binary in no ship list does not
+exist**: `chaos-qr` was absent from all three of release.yml's staging loops and
+from `make-linux-packages.sh` while the brand tier claimed it reached a bare
+terminal.
 
 **The mark and the reader have one source, served by the node.**
 `assets/grimoire/*.html` plus embedded fonts are `include_str!`d by

@@ -64,6 +64,73 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## The CLI became a tier: `chaos` is the front door (2026-08-28)
+
+Atur, twice: **the CLI must not be a lesser tier.** §3 of the plan listed seven
+items; **six are done and measured, one is declared not built.** Full account
+with the transcripts: `docs/graph/backlog/cli-first-class-tier.md`.
+
+**`chaos <subcommand>` is the front door, and every old binary name still
+works.** `chaos run` *is* `chaos-run`, arguments passed through untouched, so
+scripts, docs, the installer's file list and `asset_for_platform` all keep
+meaning what they meant. Nothing was renamed; a name was added.
+
+**The settings file is now shared, which was the plan's exact complaint** — *"the
+app has a settings file the CLI cannot read"*. `Settings` moved from `gui/app` to
+**`core/config`**, and `gui/app` re-exports it, so every `settings::` call site in
+the window is unchanged. `chaos start` builds the server's flags with
+`Settings::serve_args`, the same function the window calls, so there is no second
+list to drift.
+
+**Measured on a real node** (throwaway `USERPROFILE`, `Llama-3.2-1B`):
+
+| command | result |
+|---|---|
+| `chaos start Llama-3.2-1B` | pid 23660, reachable in ~1 s |
+| `chaos status` | model, route, context 2048, off-loopback false — **no curl** |
+| `chaos connect 127.0.0.1:8231 "Name one colour…"` | streamed `Red`, key from settings |
+| `chaos start` again | refuses: already running |
+| `chaos stop` / stale pid / no pid | stops; clears; says so. Exit codes distinct |
+
+**Two bugs the measurement caught.** `chaos start` reported success over a node
+that had already exited — it now waits 600 ms and prints the exit code and the
+log's tail. And the first liveness check was wrong on Windows in a way that looked
+right: **`OpenProcess` succeeds on an exited process while any handle is open**,
+and the parent held one, so `alive()` returned true for a dead child.
+`Child::try_wait` is authoritative; `alive()` now requires `STILL_ACTIVE`.
+
+**`chaos scan` is NOT BUILT and says so.** `core/qr` encodes only. Decoding a
+photograph is thresholding, finder detection, a perspective basis, de-masking and
+Reed-Solomon *correction*, and every stage fails by returning a plausible wrong
+string. The command is listed as `NOT BUILT` and names the two readers that work.
+
+**`chaos-qr` was in no ship list at all** — the brand tier claims it reaches a
+bare terminal and the binary was never packaged. It and `chaos` are now in the
+release workflow's three staging lists and in `make-linux-packages.sh`. **Not yet
+through a tag**, so no published archive contains them.
+
+**`cargo install --path cli/chaos` works, and needs no ggml**: the front door,
+the settings reader, the HTTP client and the JSON parser all build with
+`GGML_LIB_DIR` unset, and CI now checks all four. Completions generate for bash,
+zsh, fish and powershell from one list — **generated and asserted, never sourced
+into a real shell**, which is the honest limit.
+
+## The secure-context question is decided (2026-08-28)
+
+§1 asked for a deliberate answer and got one: **accept the limit. The mark is
+universal; the reader is a phone feature.** No code changed — the page already
+fails with the reason, which is why this costs nothing. A self-signed certificate
+would put a security warning in front of a stranger's first contact with Chaos;
+`localhost`-only would make the reader work on the machine least likely to need
+it. `docs/graph/research/secure-context-decision-2026-08-28.md` has the reasoning
+and what would reopen it (a real iOS need, which is still unanswered).
+
+**`--emit-pages` has now run** for the first time, and its output is measured
+rather than trusted: `qr.html` 362,804 bytes and `scan.html` 228,348 bytes, with
+**0 `<link>`, 0 `src=`, 0 `@import`, 0 `fetch`/XHR, and 6 `@font-face` each, all
+as `data:` URIs**. The only `http` strings in either are an SVG namespace and the
+repository link, neither of which is a fetch.
+
 ## CHAOS left the menu, and the mode moved to the rail (2026-08-28)
 
 Atur, on the fix above: *"why is the CHAOS option in the app's menu list? it is
@@ -994,7 +1061,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **913 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **928 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

@@ -570,10 +570,38 @@ jobs:
         # fetching the page from the node -- but then the reader needs a node
         # in order to find one, which is backwards.
         run: |
+          # **A host ggml, because this runs the binary rather than shipping it.**
+          # This step failed the first time it ever ran, on v0.0.22: each `run:` is
+          # its own shell, so the GGML_LIB_DIR exported for the Android build above
+          # is not set here, and a host build of chaos-serve panics with
+          # "ggml not found". The source is already cloned by the previous step, so
+          # this is a second cmake and not a second download.
+          #
+          # The better fix is smaller than it looks and is not done here:
+          # `chaos_arch::grimoire` is pure string assembly with no ggml reference at
+          # all, so it could live in its own crate and be emitted by a binary that
+          # needs no C toolchain. That would delete this whole step's cost.
+          cmake -S /tmp/llamacpp -B /tmp/ggml-host -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF -DGGML_OPENMP=OFF \
+            -DLLAMA_CURL=OFF
+          cmake --build /tmp/ggml-host --target ggml-base ggml-cpu ggml -j"$(nproc)"
+          cd /tmp/ggml-host/ggml/src
+          for l in ggml-base ggml-cpu ggml; do cp -f "lib$l.a" "$l.a"; done
+          cd - >/dev/null
+          export GGML_LIB_DIR=/tmp/ggml-host/ggml/src
+
           cargo build --release -p chaos-serve --bin chaos-serve
           mkdir -p android/app/src/main/assets/brand
           ./target/release/chaos-serve --emit-pages android/app/src/main/assets/brand
           ls -l android/app/src/main/assets/brand
+          # The pages must be self-contained: the APK has no network at first run.
+          for f in qr scan; do
+            page="android/app/src/main/assets/brand/$f.html"
+            test -s "$page" || { echo "::error::$page is empty"; exit 1; }
+            if grep -q '<link' "$page"; then echo "::error::$page fetches a stylesheet"; exit 1; fi
+            grep -q 'SIL Open Font License' "$page" || { echo "::error::$page lost the font licence"; exit 1; }
+          done
 
       - name: The Kotlin unit tests
         working-directory: android

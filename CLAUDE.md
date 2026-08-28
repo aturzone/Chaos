@@ -30,7 +30,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 930 tests
+cargo test --release          # 932 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -90,7 +90,13 @@ the badge at the bottom of the rail, which is also the page's only door. Leaving
 a mode (the CHANGE MODE button *or* Escape) asks first, because it unloads the
 model and clears the conversation.
 
-**Eighteen binaries, not five** — also `chaos-pull` (fetch a model),
+**`core/` holds a crate's own tools; `cli/` holds the front door and the
+runner.** 11 of the 19 binaries live under `core/` and that is deliberate — a
+benchmark or an inspector belongs beside the crate it measures, and `chaos probe`
+reaches it without anyone knowing where it lives. Two stated rules collide here
+and this is the resolution (§4c).
+
+**Nineteen binaries, not five** — also `chaos-pull` (fetch a model),
 `chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and five benchmarks;
 `grep '^name' */*/Cargo.toml` lists them. **A binary in no ship list does not
 exist**: `chaos-qr` was absent from all three of release.yml's staging loops and

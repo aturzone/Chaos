@@ -6,11 +6,50 @@ closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
 **Last updated**: 2026-08-28 · **Version**: **v0.0.23**, tagged 2026-08-28
-· **Branch**: `main`, verified — **942 tests re-run on `main` itself** after #147
-merged, clippy and fmt clean, and the four files only that merge added are
-present.
+· **Branch**: `main`, verified — **953 tests re-run on `main` itself** after #149
+merged, clippy and fmt clean, and the files only that merge added are present.
+No open PRs, no ticket branches.
 
-## The broken desktop app: reproduced, half fixed (2026-08-28)
+## Where a new session should start
+
+**Two releases landed on 2026-08-28.** v0.0.22 (the desktop fix, the `chaos` front
+door, the whole §4 analysis) and v0.0.23 (four decisions from that analysis).
+v0.0.22 is verified from its own published files: the APK carries
+`assets/brand/qr.html` and `scan.html` for the first time, and the archive carries
+`chaos.exe` and `chaos-qr.exe` for the first time.
+
+**Nothing is blocking.** What is open, in the order it is worth taking:
+
+1. **iOS — parked by Atur** until everything else is good. Do not start it.
+2. **No real camera has seen the mark or the reader.** Needs a phone; nothing here
+   has a camera. The largest unverified claim in the project.
+3. **The Android tier cannot be built here** — `dl.google.com` 404s this whole
+   network, so release CI is the only build. Never run on a phone.
+4. **One cheap win**: `chaos_arch::grimoire` has *zero* ggml references. Moved to
+   its own crate, the APK's brand-pages step could emit with no C toolchain, which
+   would delete the host-ggml build that step now needs.
+5. **`chaos scan` is declared NOT BUILT** and says so; the bar for building it is
+   in `backlog/cli-first-class-tier.md`.
+6. Smaller and honest: zsh and fish completions are generated but never sourced; a
+   long upgrade jump from 0.0.2 is untested; no contrast audit or screen-reader
+   story for the window; the `.deb` and AppImage have never been installed
+   anywhere.
+
+**Three habits this session paid for repeatedly**, each having cost a wrong finding
+before it was caught:
+
+- **`IsWindowVisible` is not "on screen"** — `layout` parks unreachable rail
+  buttons at `(-3200,-3200)`. Read client-rects.
+- **Cross-process `GetWindowTextW` reads a caption, never an EDIT's text.** Use
+  `WM_GETTEXT`. This produced an entire false "the CHAOS page is blank" finding.
+- **When a crude recount disagrees with a number whose source says it was
+  computed, suspect the recount.** Three of mine were wrong that way in one day.
+
+**CI logs cannot be read from this machine** — the logs endpoint redirects to an
+Azure blob host that does not resolve here. Reproduce a CI failure locally from the
+workflow's own commands; that found v0.0.22's release failure in one try.
+
+## The broken desktop app: reproduced and fixed (2026-08-28)
 
 Atur's report of 2026-08-27 — the installed app badly broken, "mode selection
 got mixed up inside the application" — **is reproduced on the installed build

@@ -190,18 +190,23 @@ item; if one is not done, say which and why.**
 
 ## Next
 
-**v0.0.21 published 2026-08-26**, verified from its own published files —
-the APK opened and the engine found inside it, install → update → uninstall
-carried end to end with models byte-identical. STATUS.md has the bytes.
+**v0.0.22 and v0.0.23 both published 2026-08-28.** v0.0.22 verified from its own
+published files: the APK carries `assets/brand/qr.html` and `scan.html` for the
+first time, and the zip carries `chaos.exe` and `chaos-qr.exe` for the first time.
 
-**The broken desktop app is reproduced and half fixed** (2026-08-28,
-`research/desktop-app-broken-2026-08-28.md`). It was two defects. Fixed: the
+**The desktop app is fixed** (`research/desktop-app-broken-2026-08-28.md`): the
 knob was painted *underneath* nine live child HWNDs at startup — 9 controls
-on-screen at open, 0 after. The mode is now **asked once then remembered**
-(`mode_chosen`), and startup opens the first page the mode can *reach* — a HELPER
-has no CHAT. **A "blank CHAOS page" was reported and retracted the same day**:
-cross-process `GetWindowTextW` reads a caption, never an EDIT's text, so the
-probe was blank and the app was not.
+on-screen at open, 0 after. The mode is **asked once then remembered**
+(`mode_chosen`), CHAOS left the rail for a mode badge at its foot, and leaving a
+mode — including **Escape** — asks first. **A "blank CHAOS page" was reported and
+retracted the same day**: cross-process `GetWindowTextW` reads a caption, never an
+EDIT's text.
+
+**§4 is complete** (`research/4a`…`4g-*-2026-08-28.md`), and four decisions from it
+are shipped in v0.0.23: `chaos verify` (nothing detected a corrupt model — 4 KiB of
+zeros loads, exits 0 and answers *differently*), `/status` gated on the **peer**
+rather than the bind address, every binary shipping, and a **pinned llama.cpp
+commit** so a green CI means something tomorrow.
 
 `STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue. Both
 are more current than this file — take a number from them, not from here.
@@ -210,10 +215,14 @@ are more current than this file — take a number from them, not from here.
 `scripts/poke-app.ps1` (one control, timed, overlap-checked),
 `scripts/run-through.ps1` (every control, every page, one transcript),
 `tools/check-logo-centred.py` (margins of the shipped `.ico`). **A screen grab is
-uniform black here** — read rectangles, never pixels. Neither script covers the
-CHAOS page, and `run-through.ps1` drives pages by `WM_COMMAND`, which bypasses
-both the rail and the launch knob: it reported a clean pass over an app that had
-never left its launch screen.
+uniform black here** — read rectangles, never pixels, and **`IsWindowVisible` is
+not "on screen"**: `layout` parks unreachable rail buttons at `(-3200,-3200)`.
+`run-through.ps1` now enters a mode first and covers the CHAOS page; it used to
+report a clean pass over an app that had never left its launch screen.
+
+**CI logs cannot be read from this machine** — the logs endpoint redirects to an
+Azure blob host that does not resolve here. Reproduce a CI failure locally from the
+workflow's own commands instead; that found v0.0.22's release failure in one try.
 
 **Retracted, do not requote** (Roadmap 7 has the standing figures;
 `where-we-stand-vs-llamacpp-2026-08-16.md` has the method): "V4-Flash prefill
@@ -226,6 +235,15 @@ why Roadmap 1 is closed: 16 GB 0.42 tok/s measured, 64 GB 0.55, 128 GB 0.93,
 2/4/8/16 confirms a floor rather than a knob left wrong. Do not quote a GPU
 V4-Flash figure: resident-in-VRAM is untested and the only measured number is
 4.3x *slower* on streaming MoE.
+
+**Open, none of it blocking**: iOS is parked until everything else is good
+(Atur's call); no real camera has seen the mark or the reader; the Android tier
+cannot be built here (`dl.google.com` 404s); `chaos scan` is declared NOT BUILT;
+zsh and fish completions are generated but never sourced; a long upgrade jump from
+0.0.2 is untested; there is no contrast audit or screen-reader story for the
+window. **One cheap idea worth taking**: `chaos_arch::grimoire` has zero ggml
+references, so moving it to its own crate would let the APK step emit the brand
+pages with no C toolchain and delete the host-ggml build that step now needs.
 
 1. **The frontier on a machine with real memory** — this laptop is the curve's
    left-hand edge, so the two numbers worth bringing back are `F` on a bigger

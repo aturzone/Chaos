@@ -25,7 +25,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 911 tests
+cargo test --release          # 913 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -69,6 +69,12 @@ print its own route.
 chaos-worker, which holds experts and answers with activations · `gui/app` the
 window · `gui/setup` the installer · `android/jni` the JNI bridge, a cdylib.
 Benchmarks stay beside the crate they measure.
+
+**`nav::RAIL_PAGES` is not `nav::PAGES`.** Six pages exist; five have a rail
+entry. CHAOS has none — the mode is answered by the launch knob and reported by
+the badge at the bottom of the rail, which is also the page's only door. Leaving
+a mode (the CHANGE MODE button *or* Escape) asks first, because it unloads the
+model and clears the conversation.
 
 **Seventeen binaries, not five** — also `chaos-pull` (fetch a model),
 `chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and five benchmarks;

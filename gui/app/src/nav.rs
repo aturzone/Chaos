@@ -16,7 +16,7 @@
 /// The four destinations.
 ///
 /// Ordered as they appear in the rail, which is also the order of their
-/// accelerators (`Ctrl+1` .. `Ctrl+4`).
+/// accelerators (`Ctrl+1` .. `Ctrl+5`). CHAOS is last and has neither.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
     /// The conversation. Hermes: *"chat is the home surface"*, and it is the
@@ -51,10 +51,37 @@ mod mode_tests {
         // Atur: "There should also be an option to change the mode to exit
         // this mode and enter other modes." If a mode could not reach CHAOS
         // the only way out would be reinstalling.
+        //
+        // **The door moved and the guarantee did not.** CHAOS left the rail on
+        // 2026-08-28, so this can no longer be expressed as "it is in
+        // pages_for": it is now that the mode block is shell chrome, present
+        // whichever page is up, for every mode.
+        for id in [ID_MODE_BADGE, ID_CHANGE_MODE] {
+            assert!(
+                SHELL_CONTROLS.contains(&id),
+                "the mode block is not shell chrome, so some mode cannot get                  back to the knob"
+            );
+        }
         for role in [Role::Alone, Role::Core, Role::Client, Role::Helper] {
             assert!(
-                pages_for(role).contains(&Page::Chaos),
-                "{role:?} cannot get back to the mode page"
+                !pages_for(role).contains(&Page::Chaos),
+                "{role:?} has CHAOS back in the rail; it is reached from the                  mode badge now"
+            );
+        }
+    }
+
+    /// **CHAOS is a page without a rail entry, and that is the only one.**
+    /// Anything else missing from the rail would be a page nobody can open.
+    #[test]
+    fn chaos_is_the_only_page_that_is_not_in_the_rail() {
+        for p in PAGES {
+            if p == Page::Chaos {
+                assert!(!RAIL_PAGES.contains(&p), "CHAOS is back in the rail");
+                continue;
+            }
+            assert!(
+                RAIL_PAGES.contains(&p),
+                "{p:?} has no rail entry and no other door, so it cannot be opened"
             );
         }
     }
@@ -68,9 +95,9 @@ mod mode_tests {
         assert!(!pages_for(Helper).contains(&Page::Image));
         // A CLIENT loads nothing here, so there is nothing to manage.
         assert!(!pages_for(Client).contains(&Page::Models));
-        // The two that run models locally get everything.
-        assert_eq!(pages_for(Alone).len(), PAGES.len());
-        assert_eq!(pages_for(Core).len(), PAGES.len());
+        // The two that run models locally get every rail page.
+        assert_eq!(pages_for(Alone).len(), RAIL_PAGES.len());
+        assert_eq!(pages_for(Core).len(), RAIL_PAGES.len());
     }
 
     #[test]
@@ -83,16 +110,44 @@ mod mode_tests {
     }
 }
 
+/// Every page there is, rail order first and CHAOS last.
+///
+/// **CHAOS is last so that `RAIL_PAGES` is a prefix of this list.** It used to
+/// sit fourth, which put its accelerator in the middle: take it out of the menu
+/// and `Ctrl+4` becomes a key that does nothing while `Ctrl+5` and `Ctrl+6`
+/// still work. Moving it to the end makes the accelerators the rail's own
+/// 1..5 with no hole.
 pub const PAGES: [Page; 6] = [
     Page::Chat,
     Page::Models,
     Page::Image,
+    Page::Monitor,
+    Page::Settings,
     Page::Chaos,
+];
+
+/// The pages with a rail entry, in rail order.
+///
+/// **CHAOS is a page and is not in here, which is the point.** Atur, 2026-08-28:
+/// *"why is the CHAOS option in the app's menu list? it is chosen the first time
+/// the app opens"*. He is right that it was in two places at once: the mode is
+/// answered by the launch knob, and the rail offered a whole destination for
+/// answering it again. The page still exists — it carries the address, the key
+/// and the two brand buttons — but it is reached from the mode block at the
+/// bottom of the rail rather than from a rail entry of its own.
+///
+/// So `PAGES` is every page there is (what `show_page` hides and reveals, what
+/// `controls` is defined over) and `RAIL_PAGES` is the subset a person navigates
+/// to. The menu and the accelerators follow this list, not `PAGES`.
+pub const RAIL_PAGES: [Page; 5] = [
+    Page::Chat,
+    Page::Models,
+    Page::Image,
     Page::Monitor,
     Page::Settings,
 ];
 
-/// Which pages a mode can reach.
+/// Which **rail** pages a mode can reach.
 ///
 /// **This is the whole point of the knob.** Atur: *"the additional options are
 /// not all messy"* -- a window that opens on six pages has not asked what the
@@ -102,6 +157,12 @@ pub const PAGES: [Page; 6] = [
 /// apply to it: those decide how a model *runs*, and belong to whichever
 /// machine runs it. A HELPER lends memory and cores and holds no conversation,
 /// so it has no chat and no image page.
+///
+/// **CHAOS is deliberately absent from every arm** and is reachable by every
+/// mode regardless, from the mode block at the bottom of the rail — see
+/// [`RAIL_PAGES`]. A mode that could not reach it could not see its own address
+/// or key, and until 2026-08-28 that was expressed by putting the page in this
+/// list, which also gave it a rail entry nobody needed.
 pub fn pages_for(role: crate::settings::Role) -> &'static [Page] {
     use crate::settings::Role;
     match role {
@@ -110,14 +171,13 @@ pub fn pages_for(role: crate::settings::Role) -> &'static [Page] {
             Page::Chat,
             Page::Models,
             Page::Image,
-            Page::Chaos,
             Page::Monitor,
             Page::Settings,
         ],
         // Talks to a CORE. No models of its own to manage.
-        Role::Client => &[Page::Chat, Page::Image, Page::Chaos, Page::Monitor],
+        Role::Client => &[Page::Chat, Page::Image, Page::Monitor],
         // Answers with activations. It has no token loop and no transcript.
-        Role::Helper => &[Page::Chaos, Page::Monitor, Page::Settings],
+        Role::Helper => &[Page::Monitor, Page::Settings],
     }
 }
 
@@ -173,14 +233,19 @@ impl Page {
     }
 
     /// `Ctrl+<n>` reaches this page.
+    /// The digit this page answers to with Ctrl.
+    ///
+    /// **CHAOS's is never registered**, because it is not in the menu or the
+    /// rail — it keeps a number only so this stays total and the ordering test
+    /// can check `PAGES` against it.
     pub fn accel(self) -> u8 {
         match self {
             Page::Chat => b'1',
             Page::Models => b'2',
             Page::Image => b'3',
-            Page::Chaos => b'4',
-            Page::Monitor => b'5',
-            Page::Settings => b'6',
+            Page::Monitor => b'4',
+            Page::Settings => b'5',
+            Page::Chaos => b'6',
         }
     }
 
@@ -325,6 +390,20 @@ pub const ID_CHAOS_STATUS: i32 = 769;
 /// something the server already serves. Opening the URL means the app, the
 /// phone and a stranger's browser all see the *same bytes*, which is the whole
 /// argument for keeping the art in one file.
+/// The mode, shown at the bottom of the rail, and the way to the CHAOS page.
+///
+/// **Replaces a rail entry, not a page.** Atur wanted the mode visible and the
+/// page reachable without either being a destination in the list: *"at the
+/// bottom left of the app we should show the mode + a CHANGE MODE button"*.
+pub const ID_MODE_BADGE: i32 = 772;
+/// Back to the launch knob, after a confirmation.
+///
+/// **The confirmation is the feature.** Atur: *"after clicking CHANGE, get
+/// accept -- if yes go to that page, if not stay in the current mode, because
+/// maybe the user already ran a model or gave it a prompt, and changing mode
+/// stops all current work"*. ESC has gone to the knob since the knob existed,
+/// with no such question, so it could drop a loaded model in one keystroke.
+pub const ID_CHANGE_MODE: i32 = 773;
 pub const ID_SHOW_MARK: i32 = 770;
 /// Open the reader: the same circle as a viewfinder, for pointing this device
 /// at another node's mark. Same reasoning as [`ID_SHOW_MARK`].
@@ -383,11 +462,11 @@ pub fn page_of_nav(id: i32) -> Option<Page> {
 /// from it is a control that never appears.
 pub fn controls(p: Page) -> &'static [i32] {
     match p {
+        // **No role buttons here any more.** The mode is answered by the launch
+        // knob and shown by `ID_MODE_BADGE`; four buttons that changed it
+        // silently, from inside a running app, were the duplication Atur asked
+        // about on 2026-08-28.
         Page::Chaos => &[
-            ID_ROLE_ALONE,
-            ID_ROLE_CORE,
-            ID_ROLE_HELPER,
-            ID_ROLE_CLIENT,
             ID_CORE_ADDR,
             ID_CORE_KEY,
             ID_COPY_ADDR,
@@ -444,7 +523,7 @@ pub fn controls(p: Page) -> &'static [i32] {
 }
 
 /// The shell's own controls, visible whichever page is showing.
-pub const SHELL_CONTROLS: [i32; 7] = [
+pub const SHELL_CONTROLS: [i32; 8] = [
     ID_NAV_CHAT,
     ID_NAV_MODELS,
     // **A page is not reachable until its rail button is shell chrome.**
@@ -452,9 +531,12 @@ pub const SHELL_CONTROLS: [i32; 7] = [
     // it is created, positioned, and never shown -- which looked like a gap in
     // the rail where IMAGE should be.
     ID_NAV_IMAGE,
-    ID_NAV_CHAOS,
     ID_NAV_MONITOR,
     ID_NAV_SETTINGS,
+    // The mode block, at the bottom of the rail. `ID_NAV_CHAOS` is gone from
+    // this list on purpose: the badge is how the CHAOS page is reached now.
+    ID_MODE_BADGE,
+    ID_CHANGE_MODE,
     ID_STRIP_STOP,
 ];
 
@@ -462,8 +544,8 @@ pub const SHELL_CONTROLS: [i32; 7] = [
 mod rail_tests {
     use super::*;
 
-    /// Every page's rail button must be shell chrome, or the page cannot be
-    /// reached.
+    /// Every **rail** page's button must be shell chrome, or the page cannot be
+    /// reached. CHAOS is not a rail page; its door is `ID_MODE_BADGE`.
     ///
     /// **This is a comment turned into a check.** `SHELL_CONTROLS` already
     /// carried a note explaining that IMAGE had been created, positioned and
@@ -472,7 +554,7 @@ mod rail_tests {
     /// and invisible in the rail. A sentence is not a mechanism.
     #[test]
     fn every_page_has_its_rail_button_in_the_shell() {
-        for p in PAGES {
+        for p in RAIL_PAGES {
             let id = nav_id(p);
             assert!(
                 SHELL_CONTROLS.contains(&id),
@@ -606,7 +688,7 @@ mod tests {
     #[test]
     fn every_page_is_reachable_three_ways() {
         let mut accels = HashSet::new();
-        for p in PAGES {
+        for p in RAIL_PAGES {
             assert_eq!(page_of_nav(nav_id(p)), Some(p));
             let menu = match p {
                 Page::Chat => IDM_PAGE_CHAT,
@@ -614,11 +696,20 @@ mod tests {
                 Page::Image => IDM_PAGE_IMAGE,
                 Page::Monitor => IDM_PAGE_MONITOR,
                 Page::Settings => IDM_PAGE_SETTINGS,
-                Page::Chaos => IDM_PAGE_CHAOS,
+                Page::Chaos => unreachable!("CHAOS is not a rail page"),
             };
             assert_eq!(page_of_menu(menu), Some(p));
             assert!(accels.insert(p.accel()), "{:?} shares an accelerator", p);
         }
+        // **CHAOS has one door, and it is the mode badge.** Its id mapping is
+        // kept so `nav_id`/`page_of_nav` stay total, but no rail button and no
+        // menu item lead to it -- so the thing to check is the door.
+        assert_eq!(page_of_nav(nav_id(Page::Chaos)), Some(Page::Chaos));
+        assert!(SHELL_CONTROLS.contains(&ID_MODE_BADGE));
+        assert!(
+            !accels.contains(&Page::Chaos.accel()),
+            "CHAOS's accelerator collides with a rail page's"
+        );
     }
 
     /// No id means two things.

@@ -22,14 +22,14 @@
 #   310  SAVE     writes settings; harmless in itself, but only meaningful
 #                 after a change, and a run-through should not leave one
 #
-# On the CHAOS page five more are listed rather than pressed, because pressing
-# them would reconfigure the machine this script is inspecting:
+# Two more are listed rather than pressed:
 #
-#   760-763  ALONE/CORE/HELPER/CLIENT  change the mode, restart the server and
-#            write settings -- the run-through would leave the app in a
-#            different mode than it found it
 #   768      NEW KEY   throws the current key away, so every device that had it
 #            has to be told the new one
+#   773      CHANGE MODE  opens a MODAL Yes/No, so the next SendMessageW never
+#            returns and the script hangs rather than failing. The four role
+#            buttons it replaced (760-763) no longer exist: the mode is answered
+#            by the launch knob and shown by the badge, 772.
 #
 # Two more open a browser and are opt-in with -Brand:
 #
@@ -123,11 +123,8 @@ $skip = @{
     310 = 'skipped: writes settings, and there is no change to write'
     311 = 'DESTRUCTIVE: discards the saved settings'
     312 = 'BLOCKS: opens a modal folder dialog, which stops the message loop'
-    760 = 'RECONFIGURES: changes the mode and restarts the server'
-    761 = 'RECONFIGURES: changes the mode and restarts the server'
-    762 = 'RECONFIGURES: changes the mode and restarts the server'
-    763 = 'RECONFIGURES: changes the mode and restarts the server'
     768 = 'DESTRUCTIVE: throws the key away, so every device must be told again'
+    773 = 'BLOCKS: CHANGE MODE opens a MODAL confirmation, which stops the message loop'
 }
 if (-not $Slow) {
     $skip[204] = 'slow: starts a model, minutes. Pass -Slow to include it'
@@ -146,7 +143,10 @@ $pages = @(
     @{ Id = 406; Name = 'IMAGE';    Controls = @(708, 702, 703, 709, 706, 705, 704) }
     # **The page the run-through never covered**, which is where the mode lives
     # and where the two brand buttons were added and never clicked.
-    @{ Id = 407; Name = 'CHAOS';    Controls = @(760, 761, 762, 763, 764, 765, 766, 767, 768, 770, 771, 769) }
+    # **CHAOS has no rail entry any more** -- 407 is still its id and still
+    # opens it, which is what the mode badge does. Reached that way here so the
+    # transcript covers the page a person can still get to.
+    @{ Id = 407; Name = 'CHAOS';    Controls = @(764, 765, 766, 767, 768, 770, 771, 769) }
 )
 
 $worst = 0.0
@@ -175,7 +175,7 @@ Start-Sleep -Milliseconds 700
 # pages this mode cannot reach at -3200, so a coordinate test is the honest one:
 # `IsWindowVisible` is true for a parked button as well as a shown one.
 $onScreen = 0
-foreach ($id in 401, 402, 403, 404, 406, 407) {
+foreach ($id in 401, 402, 403, 404, 406, 772) {
     $c = [Run]::GetDlgItem($hwnd, $id)
     if ($c -eq [IntPtr]::Zero) { continue }
     if (-not [Run]::IsWindowVisible($c)) { continue }
@@ -193,6 +193,7 @@ if ($onScreen -eq 0) {
 
 "Chaos run-through  --  window $hwnd"
 "entered a mode: $onScreen rail buttons on screen"
+"mode badge (772) says: '$([Run]::TextOf([Run]::GetDlgItem($hwnd, 772)))'"
 "".PadRight(78, '=')
 
 foreach ($page in $pages) {

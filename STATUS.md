@@ -64,6 +64,48 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## CHAOS left the menu, and the mode moved to the rail (2026-08-28)
+
+Atur, on the fix above: *"why is the CHAOS option in the app's menu list? it is
+chosen the first time the app opens, and after that at the bottom left of the app
+we should show the mode + a CHANGE MODE button ... get accept after clicking
+CHANGE ... if not, stay in the current mode, because maybe the user already ran a
+model or gave it a prompt, and changing mode stops all current work"*.
+
+He was pointing at a real duplication: the mode was answered by the launch knob
+**and** offered again as a whole destination in the rail.
+
+- **CHAOS is no longer a rail page.** `nav::RAIL_PAGES` is the five a person
+  navigates to; `nav::PAGES` is still all six, because CHAOS still exists and
+  still owns controls. It is reached from the mode badge.
+- **The four ALONE/CORE/HELPER/CLIENT buttons are gone from the page.** The knob
+  answers the mode; the badge reports it. `Weight::Radio` went with them, since a
+  never-constructed variant is a `-D warnings` failure.
+- **The mode block sits at the bottom of the rail**: `ALONE` (the badge, which
+  opens the CHAOS page) over `CHANGE MODE`.
+- **Leaving a mode asks first, and so does Escape.** Escape has gone straight to
+  the knob since the knob existed, so one keystroke could unload a model and
+  clear a conversation with nothing asked. Both doors now call
+  `confirm_leaving_mode`, which names what will be lost — the loaded model, the
+  number of exchanges, an unsent prompt — and defaults to staying.
+- **CHAOS was fourth in `PAGES`, so removing it from the menu would have left
+  `Ctrl+4` dead while `Ctrl+5` and `Ctrl+6` worked.** It is last now, and the
+  rail's accelerators are a contiguous `Ctrl+1..5`.
+
+Measured on the real window, not reasoned about:
+
+| step | result |
+|---|---|
+| badge label | `ALONE` — upper case at the point of display, `alone` still in settings.txt |
+| press the badge | CHAT controls 4 → 0, CHAOS controls 0 → **5** |
+| CHANGE MODE | modal appears: *"Leave ALONE mode? … You will be taken back to the mode dial."* |
+| answer **No** | **5 controls still on-screen** — still in the mode, nothing stopped |
+| answer **Yes** | 8 → **0** on-screen: the knob owns the window |
+| RETURN | 8 back |
+
+`run-through.ps1` covers the new block and lists CHANGE MODE as blocking, since a
+modal stops the message loop the script drives.
+
 **The run-through reported a clean pass over the broken app**: 22 controls, worst
 blocking call 48.5 ms. It drives pages by `WM_COMMAND`, so it walked an app that
 had never left its launch screen. It now presses RETURN first and *stops* if no
@@ -952,7 +994,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **911 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **913 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

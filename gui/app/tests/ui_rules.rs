@@ -322,6 +322,80 @@ fn the_knob_owns_the_screen_before_a_mode_is_chosen() {
     );
 }
 
+/// **The mode is shown in the rail and left only after a question.**
+///
+/// Atur, 2026-08-28: *"why is the CHAOS option in the app's menu list? it is
+/// chosen the first time the app opens, and after that at the bottom left of the
+/// app we should show the mode + a CHANGE MODE button ... get accept after
+/// clicking CHANGE ... if not, stay in the current mode, because maybe the user
+/// already ran a model or gave it a prompt, and changing mode stops all current
+/// work"*.
+///
+/// Three claims, each checkable: the badge is the CHAOS page's door, CHANGE MODE
+/// asks before leaving, and **Escape asks too** — it went straight to the knob
+/// from the day the knob existed, so one keystroke could unload a model with
+/// nothing asked.
+#[test]
+fn leaving_a_mode_asks_first_and_the_rail_says_which_mode() {
+    let src = main_rs();
+    let code = code_only(&src);
+
+    assert!(
+        code.contains("(nav::ID_MODE_BADGE, BN_CLICKED) => show_page(Page::Chaos)"),
+        "the mode badge is not the door to the CHAOS page, which now has no other"
+    );
+    assert!(
+        code.contains("fn confirm_leaving_mode()"),
+        "there is no confirmation before leaving a mode"
+    );
+
+    // Both doors out of a mode must go through the question. A bare
+    // `back_to_knob` reachable from either would be the bug this closes.
+    for door in ["(nav::ID_CHANGE_MODE, BN_CLICKED)", "VK_ESCAPE"] {
+        let at = code
+            .find(door)
+            .unwrap_or_else(|| panic!("{door} is no longer a way back to the knob"));
+        let after = &code[at..(at + 400).min(code.len())];
+        let asks = after.find("confirm_leaving_mode()");
+        let goes = after.find("back_to_knob");
+        assert!(
+            asks.is_some() && goes.is_some() && asks < goes,
+            "{door} reaches back_to_knob without asking first"
+        );
+    }
+
+    // The badge has to say something, and it has to be kept current.
+    assert!(
+        code.contains("fn sync_mode_badge()"),
+        "nothing keeps the mode badge's label current"
+    );
+    // Definition plus at least two call sites: once at startup and once where
+    // the role changes. A badge synced in only one of those goes stale on the
+    // other path.
+    assert!(
+        code.matches("sync_mode_badge()").count() >= 3,
+        "the mode badge is defined but not synced from both startup and pick_role"
+    );
+
+    // **The spelling in settings.txt is not the spelling in the rail.**
+    // `as_str` is what `Role::parse` reads back, so upper case belongs at the
+    // point of display and nowhere else.
+    for role in [
+        chaos_app::settings::Role::Alone,
+        chaos_app::settings::Role::Core,
+        chaos_app::settings::Role::Client,
+        chaos_app::settings::Role::Helper,
+    ] {
+        let f = role.as_str();
+        assert_eq!(f, f.to_lowercase(), "{role:?} is stored in mixed case");
+        assert_eq!(
+            chaos_app::settings::Role::parse(f),
+            Some(role),
+            "{role:?} does not round-trip through the file spelling"
+        );
+    }
+}
+
 /// Every command the window routes must exist as a function, or a button does
 /// nothing and says nothing.
 #[test]
@@ -590,13 +664,28 @@ fn the_window_opens_on_the_first_page_the_mode_can_reach() {
             "{role:?} no longer opens on Chat"
         );
     }
+    // **A HELPER has no CHAT and, since CHAOS left the rail, no CHAOS either.**
+    // Its first rail page is MONITOR, and the startup page follows this rather
+    // than naming a page of its own.
     assert_eq!(
         nav::pages_for(chaos_app::settings::Role::Helper)
             .first()
             .copied(),
-        Some(Page::Chaos),
+        Some(Page::Monitor),
         "a HELPER's first reachable page changed; the startup page follows it"
     );
+    // And no mode may reach CHAOS through the rail: the mode badge is its door.
+    for role in [
+        chaos_app::settings::Role::Alone,
+        chaos_app::settings::Role::Core,
+        chaos_app::settings::Role::Client,
+        chaos_app::settings::Role::Helper,
+    ] {
+        assert!(
+            !nav::pages_for(role).contains(&Page::Chaos),
+            "{role:?} can reach CHAOS from the rail again"
+        );
+    }
 }
 
 /// **Asked once, then remembered**, which is what Atur chose on 2026-08-28 over

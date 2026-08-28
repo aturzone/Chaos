@@ -534,6 +534,7 @@ mod windows_app {
             sync_titlebar();
             fill_settings_page();
             fill_image_page();
+            sync_mode_badge();
             // **Chat is home, but not every mode has one.** `pages_for(Helper)`
             // is CHAOS/MONITOR/SETTINGS, so opening a remembered HELPER on
             // `Page::Chat` would put a page's controls up that the rail cannot
@@ -602,7 +603,9 @@ mod windows_app {
         popup(bar, model, "&Model");
 
         let view = CreatePopupMenu();
-        for p in nav::PAGES {
+        // **The rail's pages, not every page.** CHAOS is reached from the mode
+        // badge; a menu entry for it is the duplication Atur asked about.
+        for p in nav::RAIL_PAGES {
             let id = menu_of_page(p);
             add(
                 view,
@@ -659,7 +662,7 @@ mod windows_app {
     /// and visible affordances, but they invoke the same action"*. These post
     /// the same `WM_COMMAND` a menu pick does.
     unsafe fn accelerators() -> HACCEL {
-        let mut a: Vec<ACCEL> = nav::PAGES
+        let mut a: Vec<ACCEL> = nav::RAIL_PAGES
             .iter()
             .map(|&p| ACCEL {
                 fVirt: FVIRTKEY | FCONTROL,
@@ -923,19 +926,23 @@ mod windows_app {
             nav::ID_IMG_PROMPT,
             hinst,
         );
+        // ---- the mode block, at the bottom of the rail ---------------------
+        //
+        // **Shell chrome, not a page.** Atur, 2026-08-28: *"why is the CHAOS
+        // option in the app's menu list? it is chosen the first time the app
+        // opens, and after that at the bottom left of the app we should show the
+        // mode + a CHANGE MODE button"*. The four role buttons that used to sit
+        // on the CHAOS page are gone with it: the knob answers the mode, the
+        // badge says what the answer was, and CHANGE MODE is the way to ask
+        // again.
+        button(hwnd, "", nav::ID_MODE_BADGE, hinst);
+        button(hwnd, "CHANGE MODE", nav::ID_CHANGE_MODE, hinst);
+
         // ---- the CHAOS page ------------------------------------------------
         //
         // Atur: *"we need a page name it choas this page show core devices"*.
-        // Four exclusive roles, an address, a key, and a place to say what is
-        // actually connected.
-        for (id, label) in [
-            (nav::ID_ROLE_ALONE, "ALONE"),
-            (nav::ID_ROLE_CORE, "CORE"),
-            (nav::ID_ROLE_HELPER, "HELPER"),
-            (nav::ID_ROLE_CLIENT, "CLIENT"),
-        ] {
-            button(hwnd, label, id, hinst);
-        }
+        // An address, a key, and a place to say what is actually connected. The
+        // mode itself is no longer chosen here.
         for id in [nav::ID_CORE_ADDR, nav::ID_CORE_KEY] {
             child(
                 hwnd,
@@ -1671,6 +1678,7 @@ mod windows_app {
             set_status(&format!("this machine is {}", role.as_str()));
         }
         fill_chaos_fields();
+        sync_mode_badge();
         repaint();
     }
 
@@ -3575,6 +3583,87 @@ Any value a client sends is accepted.                      The server still list
         InvalidateRect(hwnd, std::ptr::null(), 1);
     }
 
+    /// What this machine is, in the rail, so it is never a question.
+    ///
+    /// Set as window text rather than painted, so the badge is an ordinary
+    /// owner-draw button like the rail entries it sits under.
+    fn sync_mode_badge() {
+        let role = UI.with(|u| {
+            u.borrow()
+                .as_ref()
+                .map(|ui| ui.cfg.role)
+                .unwrap_or(settings::Role::Alone)
+        });
+        let c = ctl(nav::ID_MODE_BADGE);
+        if !c.is_null() {
+            // **Upper case here, not in `as_str`.** That spelling is what goes
+            // into settings.txt and what `Role::parse` reads back, so the rail's
+            // house style is applied at the point of display.
+            let label = role.as_str().to_uppercase();
+            unsafe {
+                SetWindowTextW(c, wide(&label).as_ptr());
+                InvalidateRect(c, std::ptr::null(), 1);
+            }
+        }
+    }
+
+    /// Ask before leaving the mode, because leaving it stops the work.
+    ///
+    /// **Atur asked for this and gave the reason**: *"maybe the user already ran
+    /// a model or gave it a prompt, and changing mode stops all current work"*.
+    /// So the question names what will be lost when there is something to lose,
+    /// and the default is to stay.
+    ///
+    /// Used by CHANGE MODE *and* by Escape. Escape has gone straight to the knob
+    /// since the knob existed, which meant one keystroke could drop a loaded
+    /// model with no question asked -- the same door, and it needed the same
+    /// lock.
+    fn confirm_leaving_mode() -> bool {
+        let (role, loaded, turns) = UI.with(|u| {
+            let b = u.borrow();
+            match b.as_ref() {
+                Some(ui) => (ui.cfg.role, ui.loaded.clone(), ui.history.len()),
+                None => (settings::Role::Alone, None, 0),
+            }
+        });
+        // "or gave it a prompt" -- an unsent composer is work too, and it is the
+        // cheapest kind to lose by accident.
+        let typed = !control_text(ctl(nav::ID_IN)).trim().is_empty();
+
+        let mut losses: Vec<String> = Vec::new();
+        if let Some(m) = &loaded {
+            losses.push(format!("{m} is loaded, and will be unloaded"));
+        }
+        if turns > 0 {
+            losses.push(format!(
+                "{turns} exchange(s) of this conversation will be cleared"
+            ));
+        }
+        if typed {
+            losses.push("the prompt you have typed will be lost".to_string());
+        }
+        // No trailing full stop: the message adds one. Two was what shipped for
+        // about ten minutes.
+        let what = if losses.is_empty() {
+            "Nothing is loaded and nothing is typed, so nothing is lost".to_string()
+        } else {
+            losses.join(",\r\n")
+        };
+        let msg = format!(
+            "Leave {} mode?\r\n\r\n{what}.\r\n\r\nYou will be taken back to the mode dial.",
+            role.as_str().to_uppercase()
+        );
+        let answer = unsafe {
+            MessageBoxW(
+                main_hwnd(),
+                wide(&msg).as_ptr(),
+                wide("Chaos").as_ptr(),
+                MB_YESNO | MB_ICONWARNING,
+            )
+        };
+        answer == IDYES
+    }
+
     /// Put the knob back up, without restarting.
     ///
     /// Atur: *"There should also be an option to change the mode to exit this
@@ -4814,11 +4903,24 @@ Any value a client sends is accepted.                      The server still list
                     q.bottom - q.top,
                 ));
             }
+            // Every rail button this mode does not offer goes off-screen.
+            // CHAOS is not a rail page at all, so its button is always parked --
+            // it is kept only so `nav_id` stays total.
             for p in nav::PAGES {
                 if !reachable.contains(&p) {
                     m.push((nav::nav_id(p), -4000, -4000, 1, 1));
                 }
             }
+            // **The mode block sits at the bottom of the rail**, which is
+            // where Atur asked for it and also the one place in the rail that
+            // does not move when a mode offers fewer pages. Two rows: what this
+            // machine is, and the way to change it.
+            let mode_w = metric::RAIL - 20;
+            let change_y = r.bottom - metric::STRIP - metric::BUTTON - 12;
+            let badge_y = change_y - metric::BUTTON - 6;
+            m.push((nav::ID_MODE_BADGE, 10, badge_y, mode_w, metric::BUTTON));
+            m.push((nav::ID_CHANGE_MODE, 10, change_y, mode_w, metric::BUTTON));
+
             m.push((
                 nav::ID_STRIP_STOP,
                 r.right - metric::INSET - 84,
@@ -4949,18 +5051,10 @@ Any value a client sends is accepted.                      The server still list
                 // a CORE reads them out, a CLIENT types them in -- so they sit
                 // in one place and the labels change rather than the layout.
                 Page::Chaos => {
+                    // The four role rows used to be here. The mode is answered
+                    // by the knob and shown in the rail, so the page starts at
+                    // what a person actually came here to copy.
                     let mut y = top + 30;
-                    for id in [
-                        nav::ID_ROLE_ALONE,
-                        nav::ID_ROLE_CORE,
-                        nav::ID_ROLE_HELPER,
-                        nav::ID_ROLE_CLIENT,
-                    ] {
-                        m.push((id, x, y, w.min(520), 22));
-                        // Room for the one-line description under each.
-                        y += 44;
-                    }
-                    y += 18;
                     let field = w.min(360);
                     let bw = 92;
                     m.push((nav::ID_CORE_ADDR, x, y, field, metric::BUTTON));
@@ -5054,12 +5148,6 @@ Any value a client sends is accepted.                      The server still list
         Tab,
         /// A checkbox and a label.
         Toggle,
-        /// One of a set of exclusive choices: a filled circle and a label.
-        ///
-        /// **A circle rather than a tick**, because the four roles on the CHAOS
-        /// page are one-at-a-time and a row of checkboxes would say they are
-        /// not. Same idiom as `Toggle` otherwise.
-        Radio,
     }
 
     /// **The primary action follows the page**, and on MODELS the tab: loading
@@ -5073,14 +5161,15 @@ Any value a client sends is accepted.                      The server still list
             nav::ID_NAV_CHAT
             | nav::ID_NAV_MODELS
             | nav::ID_NAV_IMAGE
-            | nav::ID_NAV_CHAOS
             | nav::ID_NAV_MONITOR
             | nav::ID_NAV_SETTINGS => Weight::Nav,
+            // The badge reads as a rail entry because that is what it is: the
+            // door to the CHAOS page. CHANGE MODE is quiet, because it throws
+            // away whatever is running and should not invite a stray click.
+            nav::ID_MODE_BADGE => Weight::Nav,
+            nav::ID_CHANGE_MODE => Weight::Quiet,
             nav::ID_TAB_INSTALLED | nav::ID_TAB_AVAILABLE => Weight::Tab,
             nav::ID_AUTO | nav::ID_FORCE => Weight::Toggle,
-            nav::ID_ROLE_ALONE | nav::ID_ROLE_CORE | nav::ID_ROLE_HELPER | nav::ID_ROLE_CLIENT => {
-                Weight::Radio
-            }
             nav::ID_DELETE => Weight::Destructive,
             nav::ID_CLEAR | nav::ID_RESET | nav::ID_REFRESH => Weight::Quiet,
             nav::ID_SEND if page == Page::Chat => Weight::Primary,
@@ -5115,11 +5204,13 @@ Any value a client sends is accepted.                      The server still list
                     ui.cfg.auto,
                     ui.cfg.force,
                     ui.loaded.clone(),
-                    ui.cfg.role,
                 )
             })
         });
-        let Some((t, page, tab, font, font_bold, auto, force, loaded, role)) = snapshot else {
+        // The role used to be read here to draw the four exclusive role buttons.
+        // They are gone; the mode badge carries its label as window text like
+        // every other button, so nothing role-shaped is painted any more.
+        let Some((t, page, tab, font, font_bold, auto, force, loaded)) = snapshot else {
             return;
         };
 
@@ -5221,57 +5312,6 @@ Any value a client sends is accepted.                      The server still list
                     },
                     &text_s,
                     font,
-                    t.fg,
-                    DT_LEFT | DT_SINGLELINE | DT_VCENTER,
-                );
-                if focused {
-                    frame(di.hDC, inset(b, -3), t.stroke_1);
-                }
-            }
-            Weight::Radio => {
-                fill(di.hDC, r, t.bg);
-                let on = match id {
-                    nav::ID_ROLE_ALONE => role == settings::Role::Alone,
-                    nav::ID_ROLE_CORE => role == settings::Role::Core,
-                    nav::ID_ROLE_HELPER => role == settings::Role::Helper,
-                    _ => role == settings::Role::Client,
-                };
-                let b = RECT {
-                    left: r.left,
-                    top: r.top + 3,
-                    right: r.left + 16,
-                    bottom: r.top + 19,
-                };
-                // An ellipse rather than a rectangle: the shape is the whole
-                // signal that these four are exclusive.
-                let pen = CreatePen(0, 1, if on { t.accent } else { t.stroke_1 });
-                let brush = CreateSolidBrush(if on { t.accent } else { t.bg });
-                let op = SelectObject(di.hDC, pen);
-                let ob = SelectObject(di.hDC, brush);
-                Ellipse(di.hDC, b.left, b.top, b.right, b.bottom);
-                if on {
-                    let ip = CreatePen(0, 1, t.on_accent);
-                    let ibr = CreateSolidBrush(t.on_accent);
-                    let ip_old = SelectObject(di.hDC, ip);
-                    let ib_old = SelectObject(di.hDC, ibr);
-                    Ellipse(di.hDC, b.left + 5, b.top + 5, b.right - 5, b.bottom - 5);
-                    SelectObject(di.hDC, ip_old);
-                    SelectObject(di.hDC, ib_old);
-                    DeleteObject(ip);
-                    DeleteObject(ibr);
-                }
-                SelectObject(di.hDC, op);
-                SelectObject(di.hDC, ob);
-                DeleteObject(pen);
-                DeleteObject(brush);
-                text(
-                    di.hDC,
-                    RECT {
-                        left: r.left + 26,
-                        ..r
-                    },
-                    &text_s,
-                    if on { font_bold } else { font },
                     t.fg,
                     DT_LEFT | DT_SINGLELINE | DT_VCENTER,
                 );
@@ -6564,7 +6604,15 @@ Any value a client sends is accepted.                      The server still list
             // **The way back.** Atur: "There should also be an option to
             // change the mode to exit this mode and enter other modes."
             WM_KEYDOWN if launched() && wp as u16 == VK_ESCAPE => {
-                back_to_knob(hwnd);
+                // **Escape asks now.** It has gone straight to the knob since
+                // the knob existed, so one keystroke could unload a model and
+                // clear a conversation with nothing asked. Same door as CHANGE
+                // MODE, so the same question.
+                if confirm_leaving_mode() {
+                    back_to_knob(hwnd);
+                } else {
+                    set_status("still in this mode -- nothing stopped");
+                }
                 0
             }
 
@@ -6872,10 +6920,16 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_IMG_OPEN, BN_CLICKED) => open_drawn(),
                     (nav::ID_RESET, BN_CLICKED) => reset_settings(),
                     (nav::ID_AUTO, BN_CLICKED) | (nav::ID_FORCE, BN_CLICKED) => toggle(id),
-                    (nav::ID_ROLE_ALONE, BN_CLICKED)
-                    | (nav::ID_ROLE_CORE, BN_CLICKED)
-                    | (nav::ID_ROLE_HELPER, BN_CLICKED)
-                    | (nav::ID_ROLE_CLIENT, BN_CLICKED) => pick_role(id),
+                    // The badge is the CHAOS page's only door now.
+                    (nav::ID_MODE_BADGE, BN_CLICKED) => show_page(Page::Chaos),
+                    // And this is the only way back to the knob by mouse.
+                    (nav::ID_CHANGE_MODE, BN_CLICKED) => {
+                        if confirm_leaving_mode() {
+                            back_to_knob(hwnd);
+                        } else {
+                            set_status("still in this mode -- nothing stopped");
+                        }
+                    }
                     (nav::ID_NEW_KEY, BN_CLICKED) => new_core_key(),
                     (nav::ID_COPY_ADDR, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_ADDR),
                     (nav::ID_COPY_KEY, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_KEY),

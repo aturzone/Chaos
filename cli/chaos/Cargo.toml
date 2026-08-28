@@ -24,6 +24,9 @@ chaos-http = { path = "../../core/http" }
 # The workspace's JSON parser: /status and the streamed chunks are JSON, and a
 # second reader in the tree would be one too many.
 chaos-grammar = { path = "../../core/grammar" }
+# To resolve a model by name and to hash it: `chaos verify` answers the worst
+# finding of the audit, which is that nothing detected a corrupt container.
+chaos-model = { path = "../../core/model" }
 
 [[bin]]
 name = "chaos"

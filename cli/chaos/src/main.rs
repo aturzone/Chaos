@@ -109,6 +109,7 @@ fn main() {
         "status" => status(rest),
         "connect" => connect(rest),
         "config" => config(),
+        "verify" => verify(rest),
         "scan" => {
             // Not a failure of this invocation -- it is a feature that does not
             // exist, and the message is the deliverable.
@@ -515,6 +516,113 @@ fn connect(args: &[String]) -> i32 {
         Err(e) => {
             eprintln!("chaos: {e}");
             2
+        }
+    }
+}
+
+/// Hash a container and compare it with what it was when it arrived.
+///
+/// **This is the answer to the worst finding of the whole audit.** 4e wrote 4 KiB
+/// of zeros into a container's tensor data: it loaded, exited 0, and answered
+/// "The capital of France is" with *" Paris. The capital of Germany is Berlin"*
+/// where the intact model says *" Paris. The capital of France is Paris"*. Both
+/// fluent, neither flagged, and nothing anywhere could tell them apart.
+///
+/// `--expect <sha256>` compares against a publisher's digest, which is stronger
+/// than trust-on-first-use: it says "this is the file they published", not merely
+/// "this is the file I saw last time".
+fn verify(args: &[String]) -> i32 {
+    let mut expect: Option<String> = None;
+    let mut which: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--expect" => expect = it.next().cloned(),
+            other => which = Some(other.to_string()),
+        }
+    }
+    let Some(which) = which else {
+        eprintln!("chaos verify <model|path> [--expect <sha256>]");
+        eprintln!();
+        eprintln!("Hashes the container and compares it with `.chaos-sha256` beside it.");
+        eprintln!("With nothing recorded, this reading becomes the record -- which then");
+        eprintln!("means \"unchanged since then\", not \"what the publisher shipped\".");
+        eprintln!("Pass --expect with a published digest for the stronger answer.");
+        return 2;
+    };
+
+    let path = match chaos_model::find::resolve(&which) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}", chaos_model::find::explain(&which, &e));
+            return 1;
+        }
+    };
+
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    println!("verifying {}", path.display());
+    println!("  {} bytes", size);
+    if size > 8 * 1024 * 1024 * 1024 {
+        // Honest about the cost rather than looking hung: hashing is a full read.
+        println!("  this is a full read of the file; expect minutes");
+    }
+
+    let mut last = 0u64;
+    let mut out = std::io::stdout();
+    let verdict = chaos_model::integrity::verify(&path, expect.as_deref(), &mut |done, total| {
+        // A line per 10%, so a long hash shows progress without a spinner.
+        if let Some(pct) = (done * 100).checked_div(total) {
+            if pct >= last + 10 {
+                last = pct - (pct % 10);
+                let _ = write!(out, "\r  {last}% ");
+                let _ = out.flush();
+            }
+        }
+    });
+    println!();
+
+    match verdict {
+        Ok(v) => {
+            use chaos_model::integrity::Verdict::*;
+            match v {
+                Matches { sha256, bytes } => {
+                    println!("MATCHES");
+                    println!("  sha256 {sha256}");
+                    println!("  bytes  {bytes}");
+                    0
+                }
+                Recorded { sha256, bytes } => {
+                    println!("RECORDED (nothing was on file, so this reading is now the record)");
+                    println!("  sha256 {sha256}");
+                    println!("  bytes  {bytes}");
+                    println!();
+                    println!("This proves the file has not changed since now. To prove it is what");
+                    println!("the publisher shipped, re-run with --expect <their sha256>.");
+                    0
+                }
+                WrongSize { expected, found } => {
+                    eprintln!("WRONG SIZE -- this is not the same file");
+                    eprintln!("  expected {expected} bytes");
+                    eprintln!("  found    {found} bytes");
+                    eprintln!();
+                    eprintln!("A resumed download can end up larger than the original and pass");
+                    eprintln!("every other check. Delete it and fetch it again.");
+                    1
+                }
+                WrongHash { expected, found } => {
+                    eprintln!("WRONG CONTENTS -- same length, different bytes");
+                    eprintln!("  expected {expected}");
+                    eprintln!("  found    {found}");
+                    eprintln!();
+                    eprintln!("The model will still load and still answer. It will answer");
+                    eprintln!("differently, fluently, with no error. Do not use it.");
+                    1
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("chaos: {e}");
+            1
         }
     }
 }

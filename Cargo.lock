@@ -48,6 +48,7 @@ dependencies = [
  "chaos-config",
  "chaos-grammar",
  "chaos-http",
+ "chaos-model",
 ]
 
 [[package]]

@@ -447,6 +447,24 @@ fn fetch(
                 )
                 .into());
             }
+
+            // **Record what arrived, while we are certain of it.** 4e showed that
+            // nothing detects corruption inside a container: 4 KiB of zeros written
+            // into the weights loads, exits 0 and answers fluently and wrongly. A
+            // digest taken now is what lets `chaos verify` say later that the file
+            // has not changed. It costs one full read of a file just written, so it
+            // is cheap here and impossible afterwards.
+            match chaos_model::integrity::verify(&out, None, &mut |_, _| {}) {
+                Ok(chaos_model::integrity::Verdict::Recorded { sha256, .. }) => {
+                    println!("  sha256 {sha256}");
+                }
+                Ok(v) if v.ok() => {}
+                Ok(v) => eprintln!(
+                    "  warning: {} disagrees with its record: {v:?}",
+                    out.display()
+                ),
+                Err(e) => eprintln!("  warning: cannot record a digest: {e}"),
+            }
         }
     }
     Ok(())

@@ -44,10 +44,10 @@ The project's record on reasoning ahead of measurement is **nought for four**:
 ```bash
 export GGML_LIB_DIR=/path/to/llama.cpp/build/ggml/src
 cargo build --release
-cargo test --release              # 157 tests
-cargo test --release -- --ignored # 16 more, need a real model on disk
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
+cargo test --release              # 910 tests
+cargo test --release -- --ignored # 42 more, need a real model on disk
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 ```
 
 The `--ignored` tests read from real GGUF containers and are skipped silently

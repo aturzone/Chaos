@@ -265,6 +265,63 @@ fn controls_are_created_hidden_so_one_page_owns_the_screen() {
     );
 }
 
+/// **The knob owns the child windows, not just the paint.**
+///
+/// `WM_PAINT` returns after `paint_launch` while a mode is unchosen, but the
+/// controls are real HWNDs and painting the knob does not cover them. `WM_CREATE`
+/// calls `show_page(Page::Chat)` for the state it sets, so without a guard the
+/// window opens with the chat transcript, its composer, SEND, CLEAR, the whole
+/// rail and STOP floating over the launch screen -- which is what the installed
+/// v0.0.21 did, and what Atur reported on 2026-08-27.
+///
+/// Measured on 2026-08-28 against the installed build: 9 controls on-screen at
+/// open while ESC still did nothing, and ESC does nothing only when `launched`
+/// is false. `back_to_knob` hid them correctly on the way out; only the way in
+/// was wrong, so this asserts the guard is on the way in and that both routes
+/// hide through the same function.
+#[test]
+fn the_knob_owns_the_screen_before_a_mode_is_chosen() {
+    let src = main_rs();
+    let show = code_only(function_body(&src, "fn show_page("));
+
+    let guard = show
+        .find("!launched()")
+        .expect("show_page has no `!launched()` guard: the launch screen gets the page's controls on top of it");
+    let hide = show
+        .find("hide_every_control()")
+        .expect("show_page's guard does not hide the controls");
+    let first_show = show
+        .find("SW_SHOW")
+        .expect("show_page no longer shows anything");
+
+    assert!(
+        guard < first_show && hide < first_show,
+        "show_page reveals controls before checking whether a mode has been          chosen: guard at {guard}, hide at {hide}, first SW_SHOW at {first_show}"
+    );
+
+    // The guard has to leave, or it hides the controls and then shows them.
+    let ret = show[guard..]
+        .find("return")
+        .map(|i| i + guard)
+        .expect("show_page's guard does not return, so it falls through and shows the page anyway");
+    assert!(
+        ret < first_show,
+        "show_page's guard does not return before revealing the page"
+    );
+
+    // **One hider, not two.** These two disagreed once, and the route that was
+    // missing it was the one that ran at startup.
+    let back = code_only(function_body(&src, "unsafe fn back_to_knob("));
+    assert!(
+        back.contains("hide_every_control()"),
+        "back_to_knob hides controls its own way again; the two routes will drift"
+    );
+    assert!(
+        !back.contains("SW_HIDE"),
+        "back_to_knob still hides controls inline instead of through hide_every_control"
+    );
+}
+
 /// Every command the window routes must exist as a function, or a button does
 /// nothing and says nothing.
 #[test]

@@ -1184,6 +1184,31 @@ mod windows_app {
             }
         });
 
+        // **The knob owns the child windows, not just the paint.** `WM_PAINT`
+        // stops at `paint_launch` while a mode is unchosen -- but these are real
+        // HWNDs, and painting the knob does not cover them. `WM_CREATE` called
+        // this before a mode was picked, so the installed v0.0.21 opened with
+        // the chat transcript, its composer, SEND, CLEAR, the whole rail and
+        // STOP floating over the launch screen. That is what Atur reported on
+        // 2026-08-27 -- *"mode selection got mixed up inside the application"* --
+        // and it was measured on 2026-08-28: 9 controls on-screen while ESC
+        // still did nothing, which only happens when `launched` is false.
+        //
+        // The guard is here rather than at the call site because every route in
+        // has to be covered: startup, the rail, the menu, Ctrl+1..6, and a
+        // `WM_COMMAND` from a script. `back_to_knob` hid them correctly on the
+        // way out, which is why only the way *in* was wrong.
+        if !launched() {
+            hide_every_control();
+            let h = main_hwnd();
+            if !h.is_null() {
+                unsafe {
+                    InvalidateRect(h, std::ptr::null(), 1);
+                }
+            }
+            return;
+        }
+
         // Borrow is closed. `ShowWindow` repaints, which asks the parent for
         // colours, which borrows -- doing this inside would abort the process.
         for q in nav::PAGES {
@@ -3535,17 +3560,29 @@ Any value a client sends is accepted.                      The server still list
                 ui.knob_angle = chaos_app::knob::angle_of(ui.cfg.role);
             }
         });
-        // **Every child window must go, or they float over the knob.** These
-        // are real HWNDs, not painted controls: hiding the page is not enough.
+        hide_every_control();
+        InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+
+    /// Every child window down, so the knob has the screen to itself.
+    ///
+    /// **These are real HWNDs, not painted controls**, so hiding the page is not
+    /// enough and painting over them does nothing. Shared by the way back to the
+    /// knob and by `show_page`'s guard: the two used to disagree, and the one
+    /// that was missing it was the one that ran at startup.
+    fn hide_every_control() {
         for id in nav::SHELL_CONTROLS {
-            ShowWindow(ctl(id), SW_HIDE);
-        }
-        for p in nav::PAGES {
-            for &id in nav::controls(p) {
+            unsafe {
                 ShowWindow(ctl(id), SW_HIDE);
             }
         }
-        InvalidateRect(hwnd, std::ptr::null(), 1);
+        for p in nav::PAGES {
+            for &id in nav::controls(p) {
+                unsafe {
+                    ShowWindow(ctl(id), SW_HIDE);
+                }
+            }
+        }
     }
 
     /// The launch screen: the knob, its four detents, and nothing else.

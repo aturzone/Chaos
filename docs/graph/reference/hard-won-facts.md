@@ -427,6 +427,23 @@ are the measurement that killed one.
 Every entry here cost a rebuild and a screenshot. **A GUI is not verified by
 compiling**, and three of these were believed fixed before a pixel was measured.
 
+- **Painting a screen does not cover a child window, and a green run-through is
+  not a working window.** `WM_PAINT` returning early — `if !ui.launched {
+  paint_launch(...); return; }` — paints the launch screen and nothing else, but
+  the controls are real HWNDs and go on showing. `WM_CREATE` ended with
+  `show_page(Page::Chat)`, so the installed v0.0.21 opened with the mode knob
+  painted *underneath* the chat transcript, its composer, SEND, CLEAR, the four
+  rail buttons and STOP: **9 controls on-screen, measured, 0 after the fix.**
+  `back_to_knob` hid them correctly on the way out, which is the tell — when one
+  of two routes does the hiding, the other one is a bug waiting for a report.
+  Two measurement lessons came with it. **`IsWindowVisible` is not "the user can
+  see it"**: `layout` parks the pages a mode cannot reach at `(-3200,-3200)` and
+  leaves them visible, so read client-rects or you will call correct gating a
+  bug, as happened here first time round. And **`scripts/run-through.ps1`
+  reported 22 controls exercised and "nothing blocked the window" for an app that
+  had never left its launch screen**, because it drives pages by `WM_COMMAND`,
+  which goes through neither the rail nor the knob. An instrument that bypasses
+  the thing under test will certify it.
 - **Never hold a `RefCell` borrow across a call Windows can re-enter.**
   `SendMessageW`, `EnableWindow`, `SetWindowTextW`, `MoveWindow`, `ShowWindow`
   and `SetFocus` can all dispatch `WM_CTLCOLOR*` synchronously, which borrows

@@ -5,14 +5,48 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-27 · **Version**: **v0.0.21**, published 2026-08-26
-· **Branch**: `main`, verified — 909 tests re-run on `main` itself after #146
-merged, and the four files only that merge added are present.
+**Last updated**: 2026-08-28 · **Version**: **v0.0.21**, published 2026-08-26
+· **Branch**: `claude/init-000c20` — 910 tests, 0 failed, clippy and fmt clean.
 
-**Open, and ahead of everything else**: Atur opened the installed desktop app
-on 2026-08-27 and found it badly broken, with mode selection tangled into the
-running application. Unreproduced by anyone else. See §0b of
-`docs/graph/backlog/v0-0-3-the-complete-version.md`.
+## The broken desktop app: reproduced, half fixed (2026-08-28)
+
+Atur's report of 2026-08-27 — the installed app badly broken, "mode selection
+got mixed up inside the application" — **is reproduced on the installed build
+and was two defects, not one.** Full account:
+`docs/graph/research/desktop-app-broken-2026-08-28.md`.
+
+**Fixed and measured.** `WM_CREATE` called `show_page(Page::Chat)` while
+`ui.launched` was still `false`, so the window opened with the mode knob painted
+*underneath* nine real child HWNDs — the chat transcript, its composer, SEND,
+CLEAR, the four rail buttons and STOP. `WM_PAINT` stops at `paint_launch`, but
+painting the knob cannot cover a child window. On-screen controls at open, by
+client-rect: **9 before, 0 after**; RETURN still brings all 9 up, and ESC still
+returns to the knob. ESC doing nothing at open is what proves `launched` was
+false. Guard added inside `show_page` so every route in is covered, hiding shared
+with `back_to_knob`, and a regression test asserts the guard precedes the first
+`SW_SHOW`.
+
+**The plan's §0b description was stale**, and this is the answer to its third
+deliverable: the desktop already asks the mode once, on a launch screen
+(`paint_launch`, `knob.rs`), exactly like the phone. It just did not own the
+window. What is left is a *decision* for Atur, not a defect: the knob is shown on
+**every** launch, because `launched` starts `false` and nothing consults the
+already-saved `role`.
+
+**OPEN, and not caused by the fix — the installed v0.0.21 does it too.** The
+CHAOS page arrives **blank**: `ID_CORE_ADDR`, `ID_CORE_KEY` and
+`ID_CHAOS_STATUS` are all empty for `role = client` and `role = alone` alike,
+though `fill_chaos_fields` writes all three unconditionally. A marker written
+into those fields from outside **survived** navigating away and back, which
+proves the fill never runs. This is the page whose whole job is telling you what
+to type into your phone. **Cause not identified — instrument it, do not guess.**
+
+**The run-through reported a clean pass over the broken app**: 22 controls, worst
+blocking call 48.5 ms. It drives pages by `WM_COMMAND`, so it walked an app that
+had never left its launch screen. It now presses RETURN first and *stops* if no
+rail button is on-screen, and it covers the **CHAOS page**, which it never did.
+The two brand buttons have now been clicked for the first time — with no address
+set they correctly open nothing, 3.8 ms and 0.5 ms.
 
 **v0.0.21 verified from its own published files.** The APK was downloaded from
 the release and opened: `lib/arm64-v8a/libchaos_serve.so` (3,245,872 bytes — the
@@ -895,8 +929,10 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **909 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
-needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
+**Current**: **910 tests** (0 failed, 42 ignored — the V4-Flash set
+needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
+measured 2026-08-28, and the ignored count was recorded as 33 while a run
+reported 42),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by
 reading, which is the only way that number has ever been right.

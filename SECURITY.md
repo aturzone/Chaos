@@ -69,22 +69,37 @@ JSON file on GitHub Releases to see whether a newer version exists — which
 packages and every one of them is a `chaos-*` crate in this repository**, plus a
 statically linked ggml. There is nothing else to audit.
 
-**What a node does expose, measured.** With `--api-key` set, an unauthenticated
-caller is refused `/v1/*` (401) and still served:
+**What a node does expose, measured.** With `--api-key` set, the rule is the
+**peer**, not the bind address: this machine is always allowed, and the network
+needs the key.
+
+From the network (measured from `192.168.1.105` against a node bound to that
+address, with a key set):
 
 ```
-GET /status  200  {"model":"...","context_limit":2048,"route":"http://...","uptime_seconds":1,...}
-GET /health  200  {"status":"ok","model":"...","context_limit":2048}
-GET /qr      200  the page, which encodes this node's route
+GET /status      401      GET /qr    200   the mark, so a phone can scan it
+GET /health      401      GET /scan  200   the reader
+GET /v1/models   401      GET /      200   the browser page
+GET /status  with the key 200
 ```
 
-So on a node bound to `0.0.0.0` — which is what choosing CORE does — anyone who
-can reach the port learns **which model you are running, its context size and the
-node's address**, without the key. That is deliberate: `/status` is how another
-device discovers and describes a node, and it is what `chaos status` and the
-browser page read. **It is also an exposure, and it is stated here rather than
-discovered.** If that trade is wrong for you, bind loopback (the default) and
-reach the node over SSH.
+**`/status` and `/health` name the model, so they are behind the key too.** That
+changed in v0.0.23: before it, anyone who could reach the port learned which model
+you were running, its context size and the node's route without any key at all.
+
+**The machine itself is never gated**, whatever the key. The window probes
+`/health` on `127.0.0.1` to learn whether the server it just started is answering,
+and `chaos status` reads `/status` the same way; gating by the bind address would
+have broken both. `chaos status` sends the key as well, so it works against a
+remote node.
+
+**The mark and the reader stay open deliberately.** A stranger's phone has no key,
+and pointing its camera at `/qr` is the entire point of them. `/qr` encodes the
+route of a node whose address the caller already had in order to ask.
+
+With **no** key configured nothing is gated at all — which is safe only because
+the server binds `127.0.0.1` unless told otherwise. Choosing CORE is what opens
+the route, and CORE generates a key rather than asking for one.
 
 ## Known and deliberate
 

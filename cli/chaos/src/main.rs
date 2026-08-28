@@ -404,8 +404,13 @@ fn status(args: &[String]) -> i32 {
     }
 
     let url = format!("http://{}/status", route.trim_start_matches("http://"));
+    // **The key goes with it now.** `/status` is gated when it arrives from off
+    // the machine and a key is set, so asking a *remote* node for its status
+    // needs one. A local node never needs it -- the server allows loopback -- but
+    // sending it costs nothing and one code path is better than two.
+    let key = cfg.core_key.clone().or_else(|| cfg.api_key.clone());
     // **No curl.** `chaos_http` is why this crate exists at all.
-    match chaos_http::get(&url, Duration::from_secs(4)) {
+    match chaos_http::get_with_key(&url, key.as_deref(), Duration::from_secs(4)) {
         Ok(r) if r.status == 200 => {
             let json = r.text();
             println!("reachable    {route}");

@@ -249,8 +249,22 @@ fn io(e: std::io::Error) -> String {
 
 /// GET a URL and read the whole answer.
 pub fn get(url: &str, timeout: Duration) -> Result<Response, String> {
+    get_with_key(url, None, timeout)
+}
+
+/// GET a URL, offering a bearer key.
+///
+/// **`/status` is gated when the request comes from off the machine and the node
+/// has a key**, so asking a remote node for its status needs one. A local node
+/// allows loopback without it; sending it anyway keeps one code path instead of
+/// two.
+pub fn get_with_key(
+    url: &str,
+    bearer: Option<&str>,
+    timeout: Duration,
+) -> Result<Response, String> {
     let u = Url::parse(url)?;
-    let mut r = send(&u, "GET", None, None, "application/json", timeout)?;
+    let mut r = send(&u, "GET", None, bearer, "application/json", timeout)?;
     let (status, chunked, length) = read_head(&mut r)?;
     let body = read_body(&mut r, chunked, length)?;
     Ok(Response { status, body })

@@ -505,9 +505,27 @@ fn read_request(stream: &TcpStream) -> Result<Request, Box<dyn std::error::Error
 ///
 /// The key is compared in full rather than by prefix, and a missing header is
 /// the same failure as a wrong one.
-fn authorised(req: &Request, key: Option<&str>) -> bool {
+fn authorised(req: &Request, key: Option<&str>, from_loopback: bool) -> bool {
     let Some(key) = key else { return true };
-    if !req.target.starts_with("/v1/") {
+    // **The machine itself is always allowed.** The window probes `/health` on
+    // 127.0.0.1 with no key to find out whether the server it just started is
+    // answering, and `chaos status` reads `/status` the same way. Gating by the
+    // *bind* address would break both; gating by the *peer* is the question
+    // actually being asked -- is this request from here, or from the network?
+    if from_loopback {
+        return true;
+    }
+    // **`/status` and `/health` name the model, off-loopback.** §4g measured what
+    // a stranger on the LAN could read without the key: the model, its context
+    // size and the node's route. Atur's decision, 2026-08-28: when a key is set,
+    // that is behind it too. The mark and the reader stay open, because a
+    // stranger's phone pointing a camera at `/qr` is the entire point of them.
+    let gated = req.target.starts_with("/v1/")
+        || req.target == "/status"
+        || req.target.starts_with("/status?")
+        || req.target == "/health"
+        || req.target.starts_with("/health?");
+    if !gated {
         return true;
     }
     let Some(header) = req.auth.as_deref() else {
@@ -544,7 +562,12 @@ fn handle(
     // whatever tool is calling rather than as an unexplained failure. Produced
     // here rather than by an early return, so it goes out through the one
     // response writer below and cannot drift from it.
-    let unauthorised = !authorised(&req, api_key);
+    // The peer, not the bind address: see `authorised`.
+    let from_loopback = stream
+        .peer_addr()
+        .map(|a| a.ip().is_loopback())
+        .unwrap_or(false);
+    let unauthorised = !authorised(&req, api_key, from_loopback);
     let (status, body) = if unauthorised {
         (
             401,
@@ -1865,24 +1888,18 @@ mod tests {
         // and safe only because the server binds loopback unless told otherwise.
         for target in ["/", "/status", "/v1/models", "/v1/chat/completions"] {
             assert!(
-                authorised(&req(target, None), None),
+                authorised(&req(target, None), None, false),
                 "{target} was refused with no key configured"
             );
         }
 
-        // A key is configured. Everything outside /v1/ stays open on purpose:
-        // the browser page, the mark and the reader are not the API.
-        for target in [
-            "/",
-            "/favicon.ico",
-            "/qr",
-            "/mark",
-            "/scan",
-            "/status",
-            "/health",
-        ] {
+        // A key is configured. The page, the mark and the reader stay open on
+        // purpose: a stranger's phone pointing a camera at /qr is the point of
+        // them. **/status and /health are no longer here** -- they have their own
+        // test below, because they are open locally and gated from the network.
+        for target in ["/", "/favicon.ico", "/qr", "/mark", "/scan"] {
             assert!(
-                authorised(&req(target, None), Some("secret")),
+                authorised(&req(target, None), Some("secret"), false),
                 "{target} started requiring a key; the page and the mark must not"
             );
         }
@@ -1895,19 +1912,64 @@ mod tests {
             "/v1/embeddings",
         ] {
             assert!(
-                !authorised(&req(target, None), Some("secret")),
+                !authorised(&req(target, None), Some("secret"), false),
                 "{target} is not gated, so the key protects nothing"
             );
             assert!(
-                !authorised(&req(target, Some("Bearer wrong")), Some("secret")),
+                !authorised(&req(target, Some("Bearer wrong")), Some("secret"), false),
                 "{target} accepted the wrong key"
             );
             // A query string must not slip past the prefix check.
             let with_query = format!("{target}?stream=true");
             assert!(
-                !authorised(&req(&with_query, None), Some("secret")),
+                !authorised(&req(&with_query, None), Some("secret"), false),
                 "{with_query} escaped the gate via its query string"
             );
+        }
+    }
+
+    /// **What a stranger on the network may read, and what this machine may.**
+    ///
+    /// 4g measured it: with a key set, an unauthenticated caller was still served
+    /// `/status` and `/health` — the model name, its context size and the node's
+    /// route. Atur's decision, 2026-08-28: put those behind the key too, and gate
+    /// on the **peer** rather than the bind address. The window probes `/health`
+    /// on 127.0.0.1 with no key to learn whether the server it just started is
+    /// answering, and `chaos status` reads `/status` the same way; gating by the
+    /// bind address would have broken both.
+    #[test]
+    fn status_and_health_are_open_locally_and_gated_from_the_network() {
+        let key = Some("secret");
+        for target in ["/status", "/health", "/status?x=1", "/v1/models"] {
+            assert!(
+                authorised(&req(target, None), key, true),
+                "{target} was refused to the machine itself"
+            );
+            assert!(
+                !authorised(&req(target, None), key, false),
+                "{target} is readable from the network without the key"
+            );
+            assert!(
+                authorised(&req(target, Some("Bearer secret")), key, false),
+                "{target} refused a correct key from the network"
+            );
+        }
+        // The mark and the reader stay open from anywhere: a stranger's phone has
+        // no key, and pointing it at the code is what they are for.
+        for target in ["/", "/qr", "/mark", "/scan", "/favicon.ico"] {
+            assert!(
+                authorised(&req(target, None), key, false),
+                "{target} is gated from the network; the mark must not be"
+            );
+        }
+        // With no key configured, nothing is gated wherever it comes from.
+        for local in [true, false] {
+            for target in ["/status", "/health", "/v1/models"] {
+                assert!(
+                    authorised(&req(target, None), None, local),
+                    "{target} refused with no key configured"
+                );
+            }
         }
     }
 
@@ -1917,7 +1979,7 @@ mod tests {
         let key = Some("s3cr3t");
         for header in ["Bearer s3cr3t", "bearer s3cr3t", "s3cr3t", "  s3cr3t  "] {
             assert!(
-                authorised(&req("/v1/models", Some(header)), key),
+                authorised(&req("/v1/models", Some(header)), key, false),
                 "{header:?} was refused, and some client sends exactly that"
             );
         }
@@ -1933,7 +1995,7 @@ mod tests {
             "Basic s3cr3t",
         ] {
             assert!(
-                !authorised(&req("/v1/models", Some(header)), key),
+                !authorised(&req("/v1/models", Some(header)), key, false),
                 "{header:?} was accepted as the key"
             );
         }

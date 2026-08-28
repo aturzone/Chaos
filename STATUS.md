@@ -5,7 +5,7 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-28 · **Version**: **v0.0.22**, tagged 2026-08-28
+**Last updated**: 2026-08-28 · **Version**: **v0.0.23**, tagged 2026-08-28
 · **Branch**: `main`, verified — **942 tests re-run on `main` itself** after #147
 merged, clippy and fmt clean, and the four files only that merge added are
 present.

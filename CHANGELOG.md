@@ -8,6 +8,145 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.22] — 2026-08-28
+
+### The window opened onto its own launch screen
+
+Atur, on the installed v0.0.21: *"the latest version was very broken — even mode
+selection got mixed up inside the application … everything was falling apart."*
+Reproduced on the installed build, and it was one defect with a second one hiding
+behind a bad probe.
+
+`WM_CREATE` ended with `show_page(Page::Chat)` while `ui.launched` was still
+`false`. `WM_PAINT` stops at `paint_launch` — but **the controls are real HWNDs and
+painting the knob cannot cover them**, so the window opened with the mode dial
+painted *underneath* the chat transcript, its composer, SEND, CLEAR, the four rail
+buttons and STOP.
+
+```
+on open        installed v0.0.21        after
+controls       9 on-screen              0 on-screen
+ESC            no effect                no effect
+RETURN         9                        9
+```
+
+ESC doing nothing at open is the proof `launched` was false: it is the only caller
+of `back_to_knob`. Measured by client-rect, not `IsWindowVisible` — `layout` parks
+unreachable rail buttons at `(-3200,-3200)` and leaves them "visible".
+
+**A "blank CHAOS page" was reported and retracted the same day.** Cross-process
+`GetWindowTextW` reads a window's *caption*, never an EDIT's text, so the probe was
+blank and the app was not.
+
+### The mode is asked once, then remembered
+
+Atur's call. `role` cannot carry "has this been asked" — its default is a real
+role — so a new `mode_chosen` setting does. First launch shows the dial and writes
+the key; later launches go straight in; ESC still returns. An existing
+`settings.txt` has no such key, so everyone upgrading is asked exactly once more.
+
+### CHAOS left the menu; the mode lives in the rail
+
+Atur: *"why is the CHAOS option in the app's menu list? it is chosen the first
+time the app opens … at the bottom left we should show the mode + a CHANGE MODE
+button"*. CHAOS is no longer a rail page; the badge at the bottom of the rail shows
+the mode and is the page's only door. **Leaving a mode asks first — and so does
+Escape**, which had gone straight to the dial since the dial existed, so one
+keystroke could unload a model and clear a conversation unasked.
+
+### The command line became a tier
+
+*"someone may run Chaos on a headless server and connect from their own machine,
+and the CLI must not be a lesser tier."* Six of the plan's seven items are done.
+
+**`chaos <subcommand>` is the front door, and every old binary name still works** —
+`chaos run` *is* `chaos-run`, arguments untouched. New: `chaos start` / `stop` /
+`status` manage a node as a background process with a pid file and a log, and
+`chaos connect <route> "prompt"` streams from another machine's node.
+
+**One settings file, read by both tiers.** `Settings` moved from `gui/app` to
+`core/config`, which is what fixed *"the app has a settings file the CLI cannot
+read"*. `chaos start` builds the server's flags with `Settings::serve_args` — the
+window's own function, so there is no second list to drift.
+
+**New `core/http`**, because `/status` had to be reported *without curl* and the
+workspace had no client at all. Plain HTTP, no TLS, documented as a limit.
+
+```
+chaos start Llama-3.2-1B   pid 23660, reachable in ~1 s
+chaos status               model / route / context / off-loopback  — no curl
+chaos connect …            streamed "Red", key from the shared settings
+```
+
+`chaos scan` is **listed as NOT BUILT and says so**: `core/qr` encodes only, and
+decoding a photograph is Reed-Solomon *correction* whose every stage fails by
+returning a plausible wrong string.
+
+**`chaos-qr` was in no ship list at all** while the brand tier claimed it reached a
+bare terminal. It and `chaos` now ship on every platform.
+
+### Fixed
+
+- **An SSE stream that ends without `[DONE]` is a truncation, not a short
+  answer.** `[DONE]` is the only evidence an answer is whole; a gracefully closed
+  connection looks exactly like a finished one. Both that and a mid-stream read
+  error now say how many chunks arrived and that what was printed is incomplete.
+- **Two working endpoints were missing from `chaos-serve --help`**: `POST
+  /v1/completions` and `POST /v1/embeddings`, both implemented *and* unit-tested.
+  Found by a new test the first time it ran.
+- **The embedded fonts were attributed nowhere a user receives.** Cinzel, IBM Plex
+  Mono and UnifrakturMaguntia are OFL 1.1 and embedded in every build; the shipped
+  `NOTICE` had zero mentions and the served page zero occurrences of "Copyright".
+  Both fixed, with a test.
+- **"No telemetry" was true and stated nowhere** — the only occurrence of the word
+  in the repository was the plan asking for it. Now in the README and `SECURITY.md`.
+- The README's headline **31 tok/s on Qwen2-0.5B was the best of three runs**, not
+  the median. Now 28, with the old figures shown. Falcon3-1B's 20 was conservative
+  against a 20.72 median.
+- `crates/chaos-ggml` in `NOTICE` and `SECURITY.md` — a directory that does not
+  exist, in the two documents whose job is accuracy.
+
+### Retracted
+
+- **"Proven: Qwen3-30B-A3B generates correct text on a 15.7 GiB machine."** The
+  model needs `--force`: `qwen3moe` is not in `VERIFIED_ARCHITECTURES`, because its
+  eight-prompt diff returns 1 FAIL — a demonstrated near-tie where llama.cpp
+  produces our exact answer under `-b 1`. The engine is probably right and the
+  claim is not earned. **V4-Flash is verified and carries the headline now.**
+
+### Measured
+
+- **The dense gap against llama.cpp is entirely the FFN.** Hand-tuned against
+  hand-tuned on Llama-3.2-1B: llama.cpp is **1.30x ahead on prefill (382.26 v
+  294.29) and 1.30x ahead on generation (27.14 v 20.80)**, and `chaos-run`'s own
+  breakdown puts **1.9 s of 3.1 s of compute in the FFN** with 0.0 s disk. The
+  thread count is a bigger lever than the engine: llama.cpp's generation is 1.84x
+  faster at `-t 4` than at `-t 20`.
+- **Load time and tokenization are immaterial**, with numbers: a 17 GiB model's
+  always-read set arrives in **0.38 s** and saturates at four threads; tokenization
+  costs **0.76 ms against 2,100 ms of prefill — 0.036%**. New `chaos-tokbench`.
+- **Nothing detects a corrupt model.** 4 KiB of zeros in the weights loads, exits
+  0 and answers *"the capital of Germany is Berlin"* where the intact model says
+  *"France is Paris"*. There is no checksum: `download` verifies the magic bytes.
+- **14 GPU tests run and pass on an RTX 3050** via Vulkan — the first time the
+  suite has actually executed. `CHAOS_REQUIRE_GPU=1` turns a skip into a failure,
+  because a skip had been reporting as a pass.
+- **The SBOM is one fact**: `Cargo.lock` holds 22 packages and all 22 are crates in
+  this repository. Zero third-party dependencies.
+
+### Added
+
+- `core/config`, `core/http`, `cli/chaos`, `chaos-tokbench`.
+- `core/arch/tests/documented_counts.rs`, which enforces the architecture count,
+  the binary count and the consistency of `release.yml`'s three ship lists — three
+  documented counts drifted in a single day.
+- `network/serve/tests/`, which it never had, holding two cross-file contracts.
+- Shell completions for bash, zsh, fish and powershell; **bash and powershell are
+  sourced into their real shell and driven**, zsh and fish are generated only.
+
+**942 tests**, 0 failed, clippy and fmt clean.
+
+
 ## [0.0.21] — 2026-08-26
 
 ### A model runs on the phone

@@ -50,10 +50,16 @@ badly, or a file that bit-rotted, keeps a valid header and produces confident
 wrong answers forever. `chaos-pull-corrupt-resume` already records the adjacent
 version of this: a resumed download can end up *too large* and pass every check.
 
-**Recommended, not done here**: record each container's size and a hash at pull
-time in `~/.chaos/models`, and check it on load behind a flag. That is a real
-feature with a real cost (hashing 144 GB is minutes), so it is Atur's call — but
-the current state should be stated in the README rather than discovered.
+**Recommended here, and done in v0.0.23.** `chaos verify <model> [--expect
+<sha256>]` hashes a container and compares it with `.chaos-sha256` beside it;
+`chaos pull` records a digest as each file finishes. Size is checked before the
+hash because it is free and conclusive. Measured on this exact corruption: **WRONG
+CONTENTS — same length, different bytes, exit 1**, and the wrong-size case is
+caught in a millisecond. SHA-256 was chosen over something faster because
+publishers publish SHA-256, so a file can be checked against *their* value; the
+implementation agrees byte-for-byte with Python's `hashlib` on a real 807 MB model.
+330 MB/s puts a 144 GB container at roughly seven minutes, which is why it is a
+command and not something every load pays for.
 
 ## 2. Two instances at once — it pays for the model before it checks the port
 

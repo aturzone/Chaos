@@ -8,6 +8,91 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.23] — 2026-08-28
+
+Four decisions the v0.0.22 audit left open, taken and implemented.
+
+### A corrupt model can now be told from an intact one
+
+**The worst finding of the audit.** Four kilobytes of zeros written into a
+container's tensor data loaded, exited 0, and answered *"The capital of France
+is"* with *" Paris. The capital of Germany is Berlin"* where the intact model says
+*" Paris. The capital of France is Paris"*. Both fluent, neither flagged. There
+was no checksum: `download` verified the four magic bytes and nothing else.
+
+```
+chaos verify <model> [--expect <sha256>]
+```
+
+Hashes the container and compares it with `.chaos-sha256` beside it. With nothing
+on file the reading becomes the record — and says so, because trust-on-first-use
+means *"unchanged since then"*, not *"what the publisher shipped"*. `--expect`
+takes a publisher's digest for the stronger answer. `chaos pull` records a digest
+as each file finishes, which is when it is cheap and certain.
+
+**Size is checked before the hash**, because it is free and conclusive: a file of
+the wrong length cannot be the right file, and saying so takes a millisecond
+rather than minutes. That is the corrupt-resume case, where a resume ends up
+*larger* and passes every other check.
+
+Measured on the exact corruption above:
+
+```
+intact          RECORDED  3f5a2242…  807,694,368 bytes in 2.44 s (~330 MB/s)
+4 KiB zeroed    WRONG CONTENTS — same length, different bytes, exit 1
+5 bytes longer  WRONG SIZE — expected 807694368, found 807694373, exit 1
+```
+
+**SHA-256, written out** — the workspace still has zero third-party crates. Chosen
+over a faster non-cryptographic hash for one practical reason: publishers,
+Hugging Face included, publish SHA-256, so a file can be checked against *their*
+value. Verified against the published FIPS 180-4 vectors, the million-character
+vector that catches a broken length field, every chunk size and length across the
+padding boundary, and **byte-for-byte against Python's `hashlib` on a real 807 MB
+model**. 330 MB/s puts a 144 GB container at roughly seven minutes, which is why
+it is a command rather than something every load pays for.
+
+### `/status` and `/health` are behind the key, from the network
+
+With a key set, an unauthenticated caller used to be served both — the model
+name, its context size and the node's route. Now the rule is the **peer**, not the
+bind address: **this machine is never gated**, and the network needs the key.
+
+Gating by the bind address would have broken two things that ask locally with no
+key: the window probes `/health` on `127.0.0.1` to learn whether the server it
+just started is answering, and `chaos status` reads `/status` the same way.
+`chaos status` now sends the key as well, so it still works against a remote node.
+
+**The mark and the reader stay open from anywhere.** A stranger's phone has no
+key, and pointing its camera at `/qr` is the entire point of them.
+
+Measured from this machine's own LAN address against a node bound to it, which
+makes the peer non-loopback:
+
+```
+no key    /status 401   /health 401   /v1/models 401   /qr 200
+with key  /status 200   /v1/models 200
+loopback  chaos status works with no key, as before
+```
+
+### Every binary ships, and the rule is written down
+
+Three of six benchmarks shipped, for no stated reason — the same failure that hid
+`chaos-qr` from every list. All six ship now: additive, so nobody loses a binary
+they were using. The rule is a comment at the staging loop rather than something
+to infer.
+
+### The ggml source is pinned
+
+Both workflows did `git clone --depth 1` of llama.cpp, so *"CI was green"* was a
+statement about whatever `master` was that day, and a build that broke overnight
+was indistinguishable from one we broke. Five clone sites now fetch one pinned
+commit held in each workflow's `env` block. Tried for real: the fetch lands the
+exact SHA and stays shallow.
+
+**953 tests**, 0 failed, clippy and fmt clean.
+
+
 ## [0.0.22] — 2026-08-28
 
 ### The window opened onto its own launch screen

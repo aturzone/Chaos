@@ -134,7 +134,8 @@ byte-for-byte afterwards. An untested test is a sentence with a `#[test]` on it.
   down** rather than by churn: `core/` holds a crate's own tools, `cli/` holds the
   front door and the runner.
 - Two more counts became **mechanisms** instead of sentences.
-- One **open decision for Atur**: ship all six benchmarks, or none. Currently
-  three, for no stated reason.
+- ~~One open decision for Atur: ship all six benchmarks, or none.~~ **Decided
+  2026-08-28: all six ship**, additively, and the rule is now a comment at the
+  staging loop rather than something to infer. Shipped in v0.0.23.
 - The **ship lists became a mechanism**: the three staging loops must name real
   binaries and must agree with each other. Verified by breaking it on purpose.

@@ -118,6 +118,10 @@ pub const OWN: &[(&str, &str)] = &[
         "scan",
         "read a QR code from an image -- NOT BUILT, says what to use",
     ),
+    (
+        "verify",
+        "hash a model and check it is the file it was when it arrived",
+    ),
 ];
 
 /// Why `chaos scan` does not decode, and what does.

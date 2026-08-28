@@ -427,6 +427,30 @@ are the measurement that killed one.
 Every entry here cost a rebuild and a screenshot. **A GUI is not verified by
 compiling**, and three of these were believed fixed before a pixel was measured.
 
+- **Each `run:` in a workflow is its own shell, and a step that emits files
+  without checking them will emit nothing for a year.** v0.0.22 was tagged, CI went
+  green, and the Release run **failed** — five desktop platforms built, the android
+  job died, and the publish job was skipped, so a tag existed with no release
+  behind it. The step was "The brand pages, into the APK", running for the first
+  time ever (`STATUS.md` had said so: *"--emit-pages is wired into release CI but
+  has never run there"*). It does a **host** build of `chaos-serve` because it
+  *runs* the binary rather than shipping it, and the `GGML_LIB_DIR` exported for the
+  Android cross-build in the previous step **is not set in the next one** — so
+  `chaos-arch`'s build.rs panicked with "ggml not found". Two lasting lessons.
+  **One**: an `export` does not survive a step boundary, and a job that
+  cross-compiles and then wants a host binary needs two ggml builds. **Two**: that
+  step wrote two files and never looked at them, which is why nobody noticed it had
+  never worked — it now asserts each page is non-empty, contains no `<link>`, and
+  carries the font licence. **A tag with no release is worse than no tag**: it
+  reads as a shipped version. It was safe to move only because the publish job had
+  been skipped, so no asset had ever existed to download — check that before ever
+  moving one.
+- **CI logs cannot be read from this machine.** `actions/jobs/<id>/logs` redirects
+  to `productionresultssa*.blob.core.windows.net`, which does not resolve on this
+  network — the same class of restriction as `dl.google.com` 404ing here. So a CI
+  failure has to be diagnosed by *reproducing it locally from the workflow's own
+  commands*, which is what found the missing `GGML_LIB_DIR` in one try:
+  `env -u GGML_LIB_DIR cargo build --release -p chaos-serve --bin chaos-serve`.
 - **A corrupt model is indistinguishable from a working one, and nothing checks.**
   Four kinds of broken container were tried. Zero bytes, random bytes and a
   truncated file all fail precisely and exit 1 — they name the byte counts and the

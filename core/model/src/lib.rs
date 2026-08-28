@@ -38,9 +38,13 @@ pub mod download;
 pub mod find;
 /// Which image models are installed: four files grouped into one choice.
 pub mod image;
+/// Whether a container is the file it was when it arrived.
+pub mod integrity;
 /// Which Chaos release is newest, and which installer this platform needs.
 pub mod release;
 mod resident;
+/// SHA-256, so a corrupt container can be told from an intact one.
+pub mod sha256;
 pub mod validate;
 
 pub use discover::discover_shards;

@@ -123,6 +123,13 @@ and it would still have to agree with the nine grids.
   so a subcommand added to `ALIASES` or `OWN` appears in all four; an unknown
   shell is refused with the four named. A test asserts every verb appears in every
   shell's script.
+- **Two of the four are sourced into their real shell and driven**, which is the
+  difference between a script that exists and a completion that works:
+
+  | shell | how it was checked | result |
+  |---|---|---|
+  | bash | sourced in `bash --noprofile --norc`, `_chaos` called directly | `complete -F _chaos chaos` registered; `st` → `start stop status`; `co` → `connect config completions`; **17 verbs** |
+  | powershell | dot-sourced, then asked `TabExpansion2` | `chaos st` → `start stop status`; **17 verbs** |
 - `chaos` and `chaos-qr` are now in the release workflow's three staging lists and
   in `make-linux-packages.sh`. **`chaos-qr` was missing from all of them** — the
   brand tier claims it "reaches a bare terminal" and the binary that does it was
@@ -130,8 +137,9 @@ and it would still have to agree with the nine grids.
 
 **Plausible, and NOT tested — do not claim these:**
 
-- The completion scripts have been *generated* and their content asserted. **None
-  has been sourced into a real shell**, and bash/zsh/fish are not installed here.
+- **zsh and fish completions have never been sourced** — neither shell is
+  installed here. Their scripts are generated and their content asserted, and
+  that is all. bash and powershell are tested; see the table above.
 - winget, scoop and homebrew manifests **do not exist**.
 - `make-linux-packages.sh` exists and now names the new binaries, but has not been
   run in this round, and no `.deb` or tarball it produces has been installed

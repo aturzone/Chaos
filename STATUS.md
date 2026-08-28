@@ -112,8 +112,10 @@ through a tag**, so no published archive contains them.
 **`cargo install --path cli/chaos` works, and needs no ggml**: the front door,
 the settings reader, the HTTP client and the JSON parser all build with
 `GGML_LIB_DIR` unset, and CI now checks all four. Completions generate for bash,
-zsh, fish and powershell from one list — **generated and asserted, never sourced
-into a real shell**, which is the honest limit.
+zsh, fish and powershell from one list. **bash and powershell are sourced into
+their real shell and driven** — `chaos st` offers exactly `start stop status` in
+both, 17 verbs each. **zsh and fish are generated and never sourced**, because
+neither is installed here; that is the honest limit.
 
 ## The secure-context question is decided (2026-08-28)
 

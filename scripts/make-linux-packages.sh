@@ -22,7 +22,7 @@ SRC="${2:?usage: make-linux-packages.sh <version> <staging-dir>}"
 DEBVER="${VER#v}"
 ARCH=amd64
 
-BINS="chaos chaos-app chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench"
+BINS="chaos chaos-app chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench"
 
 # `chaos-app` is the Windows window; on Linux it is a stub that prints a line
 # and exits, so it is packaged but never made the desktop entry's Exec.

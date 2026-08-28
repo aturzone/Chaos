@@ -12,11 +12,21 @@ No open PRs, no ticket branches.
 
 ## Where a new session should start
 
-**Two releases landed on 2026-08-28.** v0.0.22 (the desktop fix, the `chaos` front
-door, the whole §4 analysis) and v0.0.23 (four decisions from that analysis).
-v0.0.22 is verified from its own published files: the APK carries
-`assets/brand/qr.html` and `scan.html` for the first time, and the archive carries
-`chaos.exe` and `chaos-qr.exe` for the first time.
+**Two releases landed on 2026-08-28, both verified from their own published
+files.** v0.0.22 (the desktop fix, the `chaos` front door, the whole §4 analysis)
+and v0.0.23 (four decisions from that analysis).
+
+- **v0.0.22**, 9 assets: the APK carries `assets/brand/qr.html` (363,144 bytes) and
+  `scan.html` (228,688) for the **first time** — that is the step whose failure
+  held the release — and the archive carries `chaos.exe` and `chaos-qr.exe` for the
+  first time.
+- **v0.0.23**, 9 assets, 27 entries in the Windows archive against v0.0.22's 24:
+  **all six benchmarks now ship**, which was decision one. Release notes on both
+  came from the annotated tag, not the commit message.
+
+**v0.0.22 failed its first release run** and the tag was moved rather than a
+version burned — safe only because the publish job had been skipped, so no asset
+had ever existed to download. Check that before ever moving a tag.
 
 **Nothing is blocking.** What is open, in the order it is worth taking:
 

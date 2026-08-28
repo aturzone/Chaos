@@ -44,11 +44,22 @@ The project's record on reasoning ahead of measurement is **nought for four**:
 ```bash
 export GGML_LIB_DIR=/path/to/llama.cpp/build/ggml/src
 cargo build --release
-cargo test --release              # 932 tests
+cargo test --release              # 936 tests
 cargo test --release -- --ignored # 42 more, need a real model on disk
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
+
+**A GPU test with no GPU reports as a pass.** Cargo has no third verdict, and a
+green "6 passed" was once reported for a file whose two GPU tests never ran. Run
+
+```bash
+CHAOS_REQUIRE_GPU=1 cargo test --release -p chaos-ggml
+```
+
+to turn every such skip into a failure. With `GGML_LIB_DIR` pointed at a
+Vulkan-enabled ggml build, all 14 of them run: 6 in `device_arithmetic`, 6 in
+`scheduler`, plus 2 that must be run alone (their own note says why).
 
 The `--ignored` tests read from real GGUF containers and are skipped silently
 when the file is absent, so they are safe to run without the model. If you have

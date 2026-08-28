@@ -29,8 +29,10 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # GPU work needs build-vulkan/ggml/src instead: THE LINE ABOVE has no Vulkan
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
-# was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 932 tests
+# was once reported for a file whose two GPU tests never ran once. Fixed:
+# CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
+# build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
+cargo test --release          # 936 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors

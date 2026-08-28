@@ -18,6 +18,28 @@
 
 use chaos_ggml::{backend, devices, Backend, Context, DeviceKind};
 
+/// A GPU test with no GPU: say so loudly, and fail if the caller demanded one.
+///
+/// **A skipped test reports as a passed one, and that has already misled us.**
+/// `CLAUDE.md` records a green "6 passed" for a file whose two GPU tests never
+/// ran once. Cargo has no third verdict, so the only honest options are to shout
+/// and to offer a way to insist:
+///
+/// ```text
+/// CHAOS_REQUIRE_GPU=1 cargo test --release -p chaos-ggml
+/// ```
+///
+/// turns every skip below into a failure, which is what to run on a machine that
+/// has a card and a Vulkan-enabled ggml. Without it the behaviour is unchanged,
+/// because every CI runner has no GPU and must stay green.
+#[track_caller]
+fn skip_or_fail(reason: &str) {
+    if std::env::var_os("CHAOS_REQUIRE_GPU").is_some() {
+        panic!("CHAOS_REQUIRE_GPU is set and this test cannot run: {reason}");
+    }
+    eprintln!("SKIPPED (no GPU): {reason} -- set CHAOS_REQUIRE_GPU=1 to make this a failure");
+}
+
 /// Serialise everything that opens a device.
 ///
 /// **The Vulkan backend's device is process-global state, and dropping one
@@ -77,11 +99,11 @@ fn reference_mul_mat(a: &[f32], b: &[f32], k: usize, m: usize, n: usize) -> Vec<
 fn device_matmul_matches_the_cpu_elementwise() {
     let _guard = one_at_a_time();
     let Some(index) = discrete_gpu() else {
-        eprintln!("skipping: no discrete GPU");
+        skip_or_fail("no discrete GPU");
         return;
     };
     let Ok(backend_handle) = Backend::open(index) else {
-        eprintln!("skipping: device {index} would not initialise");
+        skip_or_fail(&format!("device {index} would not initialise"));
         return;
     };
 
@@ -126,11 +148,11 @@ fn device_matmul_matches_the_cpu_elementwise() {
 fn a_round_trip_through_the_device_preserves_the_bytes() {
     let _guard = one_at_a_time();
     let Some(index) = discrete_gpu() else {
-        eprintln!("skipping: no discrete GPU");
+        skip_or_fail("no discrete GPU");
         return;
     };
     let Ok(backend_handle) = Backend::open(index) else {
-        eprintln!("skipping: device {index} would not initialise");
+        skip_or_fail(&format!("device {index} would not initialise"));
         return;
     };
 
@@ -192,11 +214,11 @@ fn opening_a_device_that_does_not_exist_is_an_error() {
 fn a_mixed_context_uploads_only_the_device_half() {
     let _guard = one_at_a_time();
     let Some(index) = discrete_gpu() else {
-        eprintln!("skipping: no discrete GPU");
+        skip_or_fail("no discrete GPU");
         return;
     };
     let Ok(backend_handle) = Backend::open(index) else {
-        eprintln!("skipping: device {index} would not initialise");
+        skip_or_fail(&format!("device {index} would not initialise"));
         return;
     };
 
@@ -322,11 +344,11 @@ fn one_graph_body_gives_the_same_answer_on_cpu_and_device() {
 fn the_graph_allocator_reuses_storage_between_stages() {
     let _guard = one_at_a_time();
     let Some(index) = discrete_gpu() else {
-        eprintln!("skipping: no discrete GPU");
+        skip_or_fail("no discrete GPU");
         return;
     };
     let Ok(backend_handle) = Backend::open(index) else {
-        eprintln!("skipping: device {index} would not initialise");
+        skip_or_fail(&format!("device {index} would not initialise"));
         return;
     };
 

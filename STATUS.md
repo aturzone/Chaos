@@ -64,6 +64,51 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## §4c and §4d of the analysis are done (2026-08-28)
+
+**§4c — folder structure** (`research/4c-folder-structure-2026-08-28.md`). The
+buckets hold and nothing needs moving. No untracked `crates/` here — the check is
+`git ls-files`, not `ls`. **11 of the 19 binaries live under `core/`** because two
+good rules collide there; resolved by writing the rule down rather than moving
+seven binaries through three staging loops and an installer file list: **`core/`
+holds a crate's own tools, `cli/` holds the front door and the runner.**
+
+**Three documented counts went stale in one day** — tests, architectures (13
+against a list of 14), binaries (seventeen, then eighteen, against nineteen). So
+`core/arch/tests/documented_counts.rs` now enforces the architecture count, the
+binary count, and the consistency of `release.yml`'s three staging loops. **That
+last test was tested**: deleting `chaos-qr` from one Windows list fails it with
+*"windows list 1 is missing"*, and the workflow was restored byte-for-byte.
+**Open decision for Atur: 3 of 6 benchmarks ship, for no stated reason.**
+
+**§4d — tests** (`research/4d-tests-2026-08-28.md`). Both named thin spots
+addressed, and one the plan did not name mattered more than either.
+
+**The key gate had no test at all.** `authorised()` is the whole of the server's
+access control and nothing asserted it — a wrong answer there is a `/v1/*`
+endpoint that quietly stops requiring the key, silent, and on a `0.0.0.0` binding
+it is the entire security model gone. Now exhaustive: every route class, a query
+string that must not slip past the prefix check, every header shape a real client
+sends, and a **full rather than prefix** comparison.
+
+**`network/serve` now has the `tests/` directory it never had**, holding two
+contracts that span two files each — the usage block against the route table, and
+`/status`'s keys against the keys `chaos status` parses. **The first caught a real
+defect on its first run: `POST /v1/completions` and `POST /v1/embeddings` are
+implemented *and* unit-tested and were missing from the server's own help.** Both
+now documented.
+
+**A skip can no longer masquerade as a pass.** `CHAOS_REQUIRE_GPU=1` turns every
+GPU skip into a failure; CI stays green without it.
+
+**And the GPU suite ran for the first time.** Against `build-vulkan` on this
+laptop's RTX 3050: **14 GPU tests run and pass** — 6 in `device_arithmetic`
+(0.84 s, against 0.00 s when skipping), 6 in `scheduler`, plus the 2 its own note
+says to run alone, which do not reproduce the abort. **This verifies the FFI, the
+device buffers, the mixed host/device graphs and the scheduler on a real card. It
+says nothing about forward-pass parity** — "the device path fails 1 of 8 parity
+prompts" is arithmetic in `chaos-arch` and remains open.
+
 ## §4a and §4b of the analysis are done (2026-08-28)
 
 **§4a — where the time goes** (`research/4a-where-the-time-goes-2026-08-28.md`).
@@ -1105,7 +1150,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **932 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **936 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

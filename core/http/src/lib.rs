@@ -294,9 +294,23 @@ pub fn post_sse(
     // **Read lines, not chunks.** A chunk boundary falls wherever the server
     // flushed, which is not where an event ends, so framing on chunks drops or
     // splits events. `BufRead::read_line` re-assembles across them.
+    let mut finished = false;
+    let mut cancelled = false;
+    let mut events = 0usize;
     loop {
         let mut line = String::new();
-        let n = r.read_line(&mut line).map_err(io)?;
+        // **A read that fails mid-stream is a truncation too.** A node killed
+        // outright sends RST rather than FIN, and the OS message for that
+        // ("forcibly closed by the remote host") says nothing about the answer
+        // being half-delivered. Both shapes end up at the same verdict below.
+        let n = match r.read_line(&mut line) {
+            Ok(n) => n,
+            Err(e) => {
+                return Err(format!(
+                    "the connection broke after {events} chunk(s): {e}. What you have above is incomplete."
+                ))
+            }
+        };
         if n == 0 {
             break;
         }
@@ -306,11 +320,19 @@ pub fn post_sse(
         };
         let data = data.trim();
         if data == "[DONE]" {
+            finished = true;
             break;
         }
+        events += 1;
         if !on(data) {
+            cancelled = true;
             break;
         }
+    }
+    if !finished && !cancelled {
+        return Err(format!(
+            "the node closed the connection after {events} chunk(s) without finishing the answer. What you have above is incomplete."
+        ));
     }
     Ok(status)
 }

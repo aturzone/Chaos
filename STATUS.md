@@ -64,6 +64,44 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## §4e of the analysis is done (2026-08-28)
+
+**§4e — production readiness** (`research/4e-production-readiness-2026-08-28.md`).
+Five failure modes exercised on a real node, one declared untestable, **one real
+bug fixed, and one thing I reported as a bug was my own probe.**
+
+**The result that matters: nothing detects a corrupt model.** Zero bytes, random
+bytes and a truncated file all fail precisely and exit 1. **Four kilobytes of
+zeros written into the weights loads, exits 0 and answers fluently** — *"Paris.
+The capital of Germany is Berlin"* where the intact model says *"Paris. The
+capital of France is Paris"*. Both plausible, neither flagged, and **there is no
+checksum**: `download` verifies the magic bytes, not a hash. A badly resumed or
+bit-rotted file is confidently wrong forever.
+
+**Two instances**: the second exits non-zero, but **binds the port last** — it
+loaded the whole model first (0.7 s here, minutes for V4-Flash) before finding the
+address taken, and reports the raw OS string rather than naming the port or
+`chaos stop`.
+
+**A dropped stream — and a correction.** I killed a node mid-answer, saw text stop
+mid-word and the client exit 0, and called it a bug. Then I ran the same prompt
+and **killed nothing**: it stopped at the same word, exit 0. The node had hit its
+default `max_tokens` and sent `[DONE]`; the answer was complete. Identical
+truncation in two runs was the tell. **Third time today a probe was wrong and the
+code was right.**
+
+**The bug was real, just not the one I saw**: `post_sse` returned `Ok` on a clean
+EOF without `[DONE]`, which is what a *gracefully* closed connection gives. A
+killed process sends RST and already errored, so the live test could not reach the
+broken path. Both paths now report truncation, verified live (*"the connection
+broke after 15 chunk(s) … What you have above is incomplete"*, exit 2) and by
+**five new socket tests** against a fake node on an ephemeral port.
+
+**Declared rather than faked**: full-disk behaviour is **unmeasured** — filling
+the drive on a working machine is not a test to run. And **install/update/uninstall
+is verified on Windows only**; the published `.deb` and AppImage have never been
+installed anywhere, and macOS ships tarballs with no installer.
+
 ## §4c and §4d of the analysis are done (2026-08-28)
 
 **§4c — folder structure** (`research/4c-folder-structure-2026-08-28.md`). The
@@ -1150,7 +1188,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **936 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **941 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

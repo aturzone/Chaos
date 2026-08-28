@@ -427,6 +427,26 @@ are the measurement that killed one.
 Every entry here cost a rebuild and a screenshot. **A GUI is not verified by
 compiling**, and three of these were believed fixed before a pixel was measured.
 
+- **A corrupt model is indistinguishable from a working one, and nothing checks.**
+  Four kinds of broken container were tried. Zero bytes, random bytes and a
+  truncated file all fail precisely and exit 1 — they name the byte counts and the
+  expected magic. **Four kilobytes of zeros written into the tensor data loads,
+  runs, exits 0 and answers fluently**, and differently: "The capital of France
+  is" gives *" Paris. The capital of France is Paris"* intact and *" Paris. The
+  capital of Germany is Berlin"* corrupt. Both plausible, neither flagged. There is
+  **no checksum anywhere** — `chaos_model::download` verifies `looks_like_gguf`,
+  which is the magic bytes — so a badly resumed or bit-rotted file keeps a valid
+  header and is confidently wrong forever. This is the wrong-forward-pass trap
+  arriving through the container instead of the code.
+- **A clean EOF and a killed process are different failures, and only one of them
+  looked like one.** An SSE reader that returns `Ok` at EOF cannot tell a finished
+  answer from a connection that stopped: `[DONE]` is the only evidence the answer
+  is whole. A *killed* process sends RST, which surfaces as a read error, so the
+  broken path is reachable only by a **graceful** close — which is why the live
+  test could not reproduce it and a fake node could. Related, and it cost a wrong
+  test twice: **dropping a socket with unread data in its receive queue makes
+  Windows send RST rather than FIN**, so a fake server must `shutdown(Write)` and
+  then drain if it wants to produce a clean EOF at all.
 - **`GetWindowText` on another process's control reads a CAPTION, not its text —
   and an EDIT's text is not its caption.** Called across a process boundary it
   does not send `WM_GETTEXT`; that is documented and deliberate, so a hung target

@@ -64,6 +64,48 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## §4a and §4b of the analysis are done (2026-08-28)
+
+**§4a — where the time goes** (`research/4a-where-the-time-goes-2026-08-28.md`).
+Two of the four areas the plan named are **closed as immaterial, with numbers**:
+a 17 GiB model's always-read set loads in **0.38 s** and load parallelism is done
+at four threads; tokenization costs **0.76 ms against 2,100 ms of prefill —
+0.036%**, measured by a new `chaos-tokbench`, round trip exact. The GUI's worst
+blocking call is 74.1 ms against a 200 ms threshold.
+
+**The dense gap is entirely the FFN.** Against llama.cpp on Llama-3.2-1B,
+alternating, both command lines in the node: hand-tuned against hand-tuned,
+**llama.cpp is 1.30x ahead on prefill (382.26 v 294.29) and 1.30x ahead on
+generation (27.14 v 20.80)**. `chaos-run`'s own breakdown puts **1.9 s of 3.1 s of
+compute in the FFN (61%)** with 0.0 s disk — so it is a matmul gap, and nothing
+that leaves the FFN alone can close it. **The thread count is a bigger lever than
+the engine**: llama.cpp's own generation is 1.84x faster at `-t 4` than at
+`-t 20`, more than the entire engine difference.
+
+**§4b — claimed versus works** (`research/4b-claimed-versus-works-2026-08-28.md`).
+Eight checkable claims: four survive, three corrected, **one retracted**.
+
+**RETRACTED — "Proven: Qwen3-30B-A3B generates correct text".** `qwen3moe` is not
+in `VERIFIED_ARCHITECTURES` and the model needs `--force`: its eight-prompt diff
+came back **1 FAIL**, a demonstrated near-tie where llama.cpp produces our exact
+answer under `-b 1`. The engine is probably right; the claim is not earned, in the
+same file that says only a diff counts. V4-Flash **is** verified and now carries
+that headline.
+
+**Corrected**: README said *13* architectures where the list has **14** (a test
+now enforces it — `core/arch/tests/documented_counts.rs`); the headline **31 tok/s
+on Qwen2-0.5B was the best of three, not the median** (28.33/27.30/31.32 → now 28,
+with the old numbers shown); and the install table had **no row for Intel Mac or
+ARM Linux** though both are published assets.
+
+**Survives, recomputed**: *165 of llama.cpp's 182 long flags implemented, 17
+declined, 0 unrecognised* is exactly right on build `daef2b3`. What was stale was
+the audit *node* (158/24), now fixed. **Three of my own recounts were wrong before
+they were right**, and every one disagreed with a documented number that turned
+out to be correct — the REFUSED table's line range, a regex that dropped
+multi-line tuples, and the tokenizer's BOS. When a crude recount disagrees with a
+number whose source says it was computed, suspect the recount.
+
 ## The CLI became a tier: `chaos` is the front door (2026-08-28)
 
 Atur, twice: **the CLI must not be a lesser tier.** §3 of the plan listed seven
@@ -1063,7 +1105,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **928 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **930 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

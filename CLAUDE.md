@@ -7,8 +7,13 @@
 A Rust inference runner whose job is running models that do *not* fit in memory:
 the always-read weights stay resident, routed experts stream from disk per token.
 Borrows `ggml` for arithmetic; owns memory, residency, streaming and the token
-loop. **Proven**: Qwen3-30B-A3B (17.28 GiB) generates correct text on a 15.7 GiB
-machine, and DeepSeek-V4-Flash (144 GB) does too.
+loop. **Runs models far past RAM**: Qwen3-30B-A3B (17.28 GiB) and
+DeepSeek-V4-Flash (144 GB) both generate on a 15.7 GiB machine. **"Proven" was
+too strong for the first of those** — `qwen3moe` is *not* in
+`VERIFIED_ARCHITECTURES` and needs `--force`: its eight-prompt diff came back
+1 FAIL, a demonstrated near-tie where llama.cpp produces our exact answer under
+`-b 1`. V4-Flash *is* verified. Do not write "proven" for a model the diff has
+not passed.
 
 Graph docs live in `/docs/graph/`; read `INDEX.md` first, then only the 2–3 nodes
 a task links to.
@@ -25,7 +30,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 928 tests
+cargo test --release          # 930 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors

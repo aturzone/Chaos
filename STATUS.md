@@ -49,13 +49,20 @@ The window also now opens on the first page the mode can *reach*, not on CHAT
 unconditionally — `pages_for(Helper)` has no CHAT, so a remembered HELPER would
 otherwise have raised a page its own rail cannot reach.
 
-**OPEN, and not caused by the fix — the installed v0.0.21 does it too.** The
-CHAOS page arrives **blank**: `ID_CORE_ADDR`, `ID_CORE_KEY` and
-`ID_CHAOS_STATUS` are all empty for `role = client` and `role = alone` alike,
-though `fill_chaos_fields` writes all three unconditionally. A marker written
-into those fields from outside **survived** navigating away and back, which
-proves the fill never runs. This is the page whose whole job is telling you what
-to type into your phone. **Cause not identified — instrument it, do not guess.**
+**RETRACTED, same day: "the CHAOS page arrives blank" was my probe, not the
+app.** The page works. `GetWindowTextW` called from another process does not send
+`WM_GETTEXT` — documented and deliberate, so a hung target cannot hang the
+caller — so it returns only a window's *caption*. A BUTTON's label **is** its
+caption, which is why every earlier transcript looked fine; an EDIT's text is
+not, so every EDIT read as empty however full it was. Read with `WM_GETTEXT`,
+764/765/769 hold `127.0.0.1:8231`, the key, and 105 characters of guidance. The
+marker that "survived" was a field only the probe had ever written: a
+cross-process `SetWindowTextW` sets the caption, so the probe read back its own
+write while the app's in-process write went to the edit buffer where the probe
+could not see it. A file trace inside `fill_chaos_fields` settled it. Two
+candidates were eliminated first and cheaply: exactly one top-level
+`ChaosAppWindow`, and no duplicate control ids among 56 children.
+`run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
 **The run-through reported a clean pass over the broken app**: 22 controls, worst
 blocking call 48.5 ms. It drives pages by `WM_COMMAND`, so it walked an app that

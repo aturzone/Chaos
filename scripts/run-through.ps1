@@ -86,8 +86,21 @@ public static class Run {
     public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
     public static extern int GetWindowTextW(IntPtr hwnd, StringBuilder buf, int max);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr wp, StringBuilder buf);
+    // **`GetWindowText` reads a CAPTION, and cross-process it reads only that.**
+    // Called from another process it does not send `WM_GETTEXT` -- by design, so
+    // a hung target cannot hang the caller -- so an EDIT owned by the app comes
+    // back as the empty string however much text is in it. A whole defect was
+    // reported against this app on the strength of that empty string: the CHAOS
+    // page looked blank from outside while the app had filled it correctly.
+    // `WM_GETTEXT` is the honest read; the caption is the fallback, because a
+    // BUTTON's label really is its caption.
     public static string TextOf(IntPtr h) {
-        var sb = new StringBuilder(512); GetWindowTextW(h, sb, 512); return sb.ToString();
+        var sb = new StringBuilder(4096);
+        SendMessageW(h, 0x000D /* WM_GETTEXT */, (IntPtr)4096, sb);
+        if (sb.Length > 0) { return sb.ToString(); }
+        var cap = new StringBuilder(512); GetWindowTextW(h, cap, 512); return cap.ToString();
     }
 }
 '@

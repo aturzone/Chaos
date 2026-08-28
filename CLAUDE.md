@@ -166,11 +166,11 @@ carried end to end with models byte-identical. STATUS.md has the bytes.
 **The broken desktop app is reproduced and half fixed** (2026-08-28,
 `research/desktop-app-broken-2026-08-28.md`). It was two defects. Fixed: the
 knob was painted *underneath* nine live child HWNDs at startup — 9 controls
-on-screen at open, 0 after. **Still open**: the CHAOS page arrives blank
-(address, key and guidance all empty, in the installed v0.0.21 too), proven by a
-marker that survived navigation, **cause not identified**. Atur decided the mode
-is **asked once then remembered** (`mode_chosen`), and startup now opens the
-first page the mode can *reach* — a HELPER has no CHAT.
+on-screen at open, 0 after. The mode is now **asked once then remembered**
+(`mode_chosen`), and startup opens the first page the mode can *reach* — a HELPER
+has no CHAT. **A "blank CHAOS page" was reported and retracted the same day**:
+cross-process `GetWindowTextW` reads a caption, never an EDIT's text, so the
+probe was blank and the app was not.
 
 `STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue. Both
 are more current than this file — take a number from them, not from here.

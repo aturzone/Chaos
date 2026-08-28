@@ -1,6 +1,6 @@
 ---
 topic: the installed desktop app, reported broken by Atur on 2026-08-27
-status: partly resolved — defect 1 fixed and verified, defect 2 measured and open
+status: resolved — one real defect, fixed and verified; the "second defect" was my own instrument and is retracted
 links:
   - ../backlog/v0-0-3-the-complete-version.md
   - ../reference/hard-won-facts.md
@@ -14,9 +14,12 @@ Atur, 2026-08-27, on the installed v0.0.21:
 > the application, even though mode selection happens once and you enter that
 > mode. Everything was falling apart.
 
-**Reproduced 2026-08-28 on the installed build, not on a `cargo run`.** Two
-defects, one fixed, one open. Neither was found by the existing tests, and one
-of them was actively hidden by the instrument that was supposed to find it.
+**Reproduced 2026-08-28 on the installed build, not on a `cargo run`.** **One
+real defect**, fixed and verified. A second was reported here and is now
+**retracted**: it was a mistake in the probe, not in the app. Both halves of that
+are the same lesson — the existing instrument hid the real defect by bypassing
+the launch screen, and my new probe invented a false one by reading a control the
+wrong way.
 
 ## First: the plan's own description of the shape was wrong
 
@@ -93,45 +96,67 @@ Regression test: `the_knob_owns_the_screen_before_a_mode_is_chosen` in
 `gui/app/tests/ui_rules.rs`, which asserts the guard and its `return` both come
 before the first `SW_SHOW`, and that both routes hide through one function.
 
-## Defect 2 — the CHAOS page arrives blank. OPEN
+## RETRACTED — "the CHAOS page arrives blank" was my probe, not the app
 
-**Not caused by the fix above: the installed v0.0.21 does it too.**
+**There is no second defect. The CHAOS page works.** This section is kept rather
+than deleted because the mistake is more instructive than the non-bug.
 
-On arriving at the CHAOS page, `ID_CORE_ADDR` (764), `ID_CORE_KEY` (765) and
-`ID_CHAOS_STATUS` (769) are all **empty**, for `role = client` and for
-`role = alone` alike. `fill_chaos_fields` writes all three unconditionally and
-has no early return, and for `Alone` it should put `127.0.0.1:8231` in 764 and a
-paragraph of guidance in 769.
+What was reported: arriving at the CHAOS page, `ID_CORE_ADDR` (764),
+`ID_CORE_KEY` (765) and `ID_CHAOS_STATUS` (769) all read empty, for
+`role = client` and `role = alone` alike, in the installed v0.0.21 as well as in
+a fresh build. A marker written into those fields from outside the process
+**survived** navigating CHAOS → CHAT → CHAOS, which was taken as proof that
+`fill_chaos_fields` never ran.
 
-**This is the page that exists to tell you what to type into your phone, and it
-says nothing.**
+Every one of those observations was real. The conclusion was wrong.
 
-Proved rather than inferred. A marker was written into 764 and 769 from outside
-the process, then the app navigated CHAOS → CHAT → CHAOS:
+### What the instrumentation said
+
+A file trace in `fill_chaos_fields` and at `show_page`'s call to it, run against
+an isolated profile (`USERPROFILE` pointed at a throwaway `.chaos`, so nothing of
+Atur's was touched):
 
 ```
-marker written : 764='CLAUDE-PROBE-764'  769='CLAUDE-PROBE-769'
-after away+back: 764='CLAUDE-PROBE-764'  769='CLAUDE-PROBE-769'
+show_page: p=Chat is_chaos=false
+show_page: p=Chaos is_chaos=true
+fill_chaos_fields: entered
+fill_chaos_fields: role=Alone addr="127.0.0.1:8231" status_len=105 main_hwnd=0x708f0 ctl769=0x208ba ctl764=0x208ac
+fill_chaos_fields: after write, 769 reads "Nothing outside this machine can reach it. Choose CORE to let a phone or another computer use this model."
 ```
 
-For `role = client` the fill would have written `""` into 764 and wiped the
-marker. **The marker survived, so `fill_chaos_fields` never ran** — and nothing
-on the tick timer writes those controls either, or the marker would have gone.
+It runs, it computes the right strings, and **it reads its own write back
+correctly from inside the process**. Two candidates from the earlier version of
+this node were eliminated first, and cheaply, from outside: there is exactly
+**one** top-level `ChaosAppWindow` (so `main_hwnd()` cannot be a different
+window), and among 56 child windows there are **no duplicate control ids**.
 
-What makes this puzzling, and what the next session should start from: the page
-*was* current when this was measured — 9 of 9 CHAOS controls on-screen, 0 of 4
-CHAT controls — and only `show_page`'s `for q in nav::PAGES` loop reveals them.
-The very same function body then runs `if p == Page::Chaos { fill_chaos_fields();
-}` twenty lines later (main.rs:1231). Both cannot be true as written, so one of
-the assumptions behind them is wrong. Candidates not yet eliminated:
+### The actual cause: `GetWindowText` cross-process reads a caption
 
-- `main_hwnd()` inside the process is not the `ChaosAppWindow` a probe finds, so
-  `ctl(id)` is null while `GetDlgItem` from outside is not — but then
-  `ShowWindow(ctl(id))` could not have revealed the page either;
-- a second control carries one of these ids;
-- the running binary is not built from the source being read.
+**`GetWindowTextW` called from another process does not send `WM_GETTEXT`.** That
+is documented and deliberate — it stops a hung target from hanging the caller —
+and the consequence is that it returns only the window's *caption*. A BUTTON's
+label **is** its caption, so every button in every earlier transcript read
+correctly and nothing looked wrong. An EDIT's text is not its caption, so every
+EDIT in another process reads as the empty string no matter what is in it.
 
-The cause is **not** identified. Do not fix it by guessing; instrument it.
+Read the same three controls with `WM_GETTEXT` and they were never blank:
+
+| id | `GetWindowTextW` cross-process | `SendMessageW(WM_GETTEXT)` |
+|---|---|---|
+| 764 | len 0 | `127.0.0.1:8231` |
+| 765 | len 0 | the 48-character key |
+| 769 | len 0 | 105 characters of guidance |
+
+And the marker "surviving" has the same explanation: a cross-process
+`SetWindowTextW` marshals through USER32 and *does* set the caption, so the probe
+could read back its own write — while the app's in-process write went to the edit
+buffer, where the probe could never see it. The probe was reading a field only
+the probe had ever written.
+
+`scripts/run-through.ps1` had the same bug in its `TextOf`, which is why 764, 765
+and 769 printed as blank labels in its CHAOS transcript. It now sends
+`WM_GETTEXT` and falls back to the caption, and the transcript shows the real
+address, key and guidance.
 
 ## What this says about the instruments
 

@@ -427,6 +427,23 @@ are the measurement that killed one.
 Every entry here cost a rebuild and a screenshot. **A GUI is not verified by
 compiling**, and three of these were believed fixed before a pixel was measured.
 
+- **`GetWindowText` on another process's control reads a CAPTION, not its text —
+  and an EDIT's text is not its caption.** Called across a process boundary it
+  does not send `WM_GETTEXT`; that is documented and deliberate, so a hung target
+  cannot hang the caller. The consequence is that every EDIT in the app reads as
+  the empty string from any external probe, however full it is, while every
+  BUTTON reads correctly — a button's label *is* its caption. **A whole defect was
+  reported against this app on the strength of those empty strings** ("the CHAOS
+  page arrives blank") and retracted the same day: under `WM_GETTEXT` the same
+  three fields held the address, the key and 105 characters of guidance. The
+  cruellest part is the confirmation that came with it — a marker written into
+  those fields *from outside* survived navigating away and back, which looked
+  like proof the app never wrote them. It was not: a cross-process
+  `SetWindowTextW` marshals through USER32 and sets the caption, so the probe was
+  reading back its own write, on a field the app had filled somewhere the probe
+  could not see. **Send `WM_GETTEXT` and fall back to the caption**, which is what
+  `run-through.ps1` does now. When an external probe and the source disagree,
+  instrument the source before believing the probe.
 - **Painting a screen does not cover a child window, and a green run-through is
   not a working window.** `WM_PAINT` returning early — `if !ui.launched {
   paint_launch(...); return; }` — paints the launch screen and nothing else, but

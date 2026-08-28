@@ -38,12 +38,14 @@ sends no key on that request today. The exposure is now written down in
 surprise, and the mitigation is named: bind loopback (the default) and reach the
 node over SSH.
 
-**What would change the decision, and what it would cost.** If Atur wants
-`/status` and `/health` gated whenever a key is set *and* the bind is off-loopback,
-that is a small change in `authorised()` — but `chaos status` must then send the
-key on its `GET`, which is one argument in `cli/chaos/src/main.rs`. Both are
-minutes of work; the reason not to do it unilaterally is that it changes what
-existing clients see.
+**Reversed by Atur, 2026-08-28, and done in v0.0.23.** `/status` and `/health`
+are now behind the key — but gated on the **peer** rather than the bind address,
+which is the better rule and the one that keeps the window's own `/health` probe
+on `127.0.0.1` working. This machine is never gated; the network needs the key;
+`chaos status` sends it. Measured from this machine's LAN address against a node
+bound to it: **`/status` 401, `/health` 401, `/v1/models` 401, `/qr` 200** without
+the key, and 200 with it. The mark stays open because a stranger's phone has no
+key and scanning it is the point.
 
 ## 2. No telemetry — was true and was stated nowhere
 
@@ -86,10 +88,11 @@ Reproducibility: CI builds ggml from llama.cpp source and points `GGML_LIB_DIR` 
 the result — its own comment says this is *"the same steps a contributor follows
 by hand, so a green CI means the documented steps work."* What is **not** pinned is
 the llama.cpp commit: `git clone --depth 1` takes whatever `master` is that day.
-**That is the one thing standing between "builds" and "reproducible", and it is a
-one-line change nobody has made.** Named here, not done, because pinning it
-changes what CI tests against and that is a call about how closely to track
-upstream.
+**That was the one thing standing between "builds" and "reproducible", and it is
+now done** (v0.0.23): five clone sites across the two workflows fetch one pinned
+commit held in each workflow's `env` block, tried for real before committing. It
+first appeared to fail with `Filename too long` — that was this machine's
+150-character scratchpad path, not the technique.
 
 ## 4. Accessibility
 
@@ -164,8 +167,9 @@ names the two specific fixes.
 - **The node's exposure is documented with its exact payloads**, and the decision
   to leave `/status` open is written down with what would reverse it.
 - **The SBOM question is answered by a fact**: 22 packages, all first-party.
-- **Two decisions left with Atur**: gate `/status` off-loopback when a key is set,
-  and pin the llama.cpp commit CI builds against.
+- ~~Two decisions left with Atur~~ — **both taken and shipped in v0.0.23**: the
+  `/status` gate (on the peer, not the bind address) and the pinned llama.cpp
+  commit.
 - **Two limitations stated rather than discovered**: no contrast audit and no
   screen-reader story for the window; and no tested upgrade path from a distant
   version.

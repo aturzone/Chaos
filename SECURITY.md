@@ -59,10 +59,37 @@ look.
 - Anything requiring an attacker to already have local code execution as the
   user running Chaos.
 
+## No telemetry, and what the node does expose
+
+**Chaos sends nothing anywhere.** There is no telemetry, no analytics, no crash
+reporting and no update ping beyond the one request `chaos-app` makes to a static
+JSON file on GitHub Releases to see whether a newer version exists — which
+`CHAOS_NO_UPDATE_CHECK` turns off. Model downloads go to the host the user names.
+**The dependency list is the whole of the supply chain: `Cargo.lock` holds 22
+packages and every one of them is a `chaos-*` crate in this repository**, plus a
+statically linked ggml. There is nothing else to audit.
+
+**What a node does expose, measured.** With `--api-key` set, an unauthenticated
+caller is refused `/v1/*` (401) and still served:
+
+```
+GET /status  200  {"model":"...","context_limit":2048,"route":"http://...","uptime_seconds":1,...}
+GET /health  200  {"status":"ok","model":"...","context_limit":2048}
+GET /qr      200  the page, which encodes this node's route
+```
+
+So on a node bound to `0.0.0.0` — which is what choosing CORE does — anyone who
+can reach the port learns **which model you are running, its context size and the
+node's address**, without the key. That is deliberate: `/status` is how another
+device discovers and describes a node, and it is what `chaos status` and the
+browser page read. **It is also an exposure, and it is stated here rather than
+discovered.** If that trade is wrong for you, bind loopback (the default) and
+reach the node over SSH.
+
 ## Known and deliberate
 
 Chaos binds weights **zero-copy**: `ggml` tensors point directly into buffers
 Chaos owns, and the safety of that arrangement rests on `WeightSet` outliving
 every tensor that points into it. This is enforced by the borrow checker and
-documented in `crates/chaos-ggml/src/weights.rs`. If you find a way to defeat
+documented in `core/ggml/src/weights.rs`. If you find a way to defeat
 it from safe code, that is a genuine finding and I want to hear about it.

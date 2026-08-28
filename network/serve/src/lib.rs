@@ -50,6 +50,8 @@ pub fn usage() {
     println!("  GET  /scan                  the reader, for pointing this device at");
     println!("                              another node's mark");
     println!("  POST /v1/chat/completions   the one an agent calls");
+    println!("  POST /v1/completions        the older, prompt-shaped one");
+    println!("  POST /v1/embeddings         vectors for a string or an array");
     println!("  GET  /v1/models             what is loaded");
     println!("  GET  /health                readiness, and what the engine is doing");
     println!("  GET  /status                the same, plus the route and the last");
@@ -1839,6 +1841,104 @@ fn escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{authorised, Request};
+
+    fn req(target: &str, auth: Option<&str>) -> Request {
+        Request {
+            method: "POST".into(),
+            target: target.into(),
+            body: String::new(),
+            auth: auth.map(str::to_string),
+        }
+    }
+
+    /// **The key gate, exhaustively, because nothing was checking it.**
+    ///
+    /// §4d asks of each area: what would a wrong answer look like, and would
+    /// anything catch it? Here a wrong answer is a `/v1/*` endpoint that stops
+    /// requiring the key — silent, invisible in any log, and on a machine bound
+    /// to `0.0.0.0` it is the whole of the security model gone. Nothing was
+    /// catching it: `authorised` had no test at all.
+    #[test]
+    fn the_key_gate_covers_v1_and_only_v1() {
+        // No key configured: everything is open, which is the documented default
+        // and safe only because the server binds loopback unless told otherwise.
+        for target in ["/", "/status", "/v1/models", "/v1/chat/completions"] {
+            assert!(
+                authorised(&req(target, None), None),
+                "{target} was refused with no key configured"
+            );
+        }
+
+        // A key is configured. Everything outside /v1/ stays open on purpose:
+        // the browser page, the mark and the reader are not the API.
+        for target in [
+            "/",
+            "/favicon.ico",
+            "/qr",
+            "/mark",
+            "/scan",
+            "/status",
+            "/health",
+        ] {
+            assert!(
+                authorised(&req(target, None), Some("secret")),
+                "{target} started requiring a key; the page and the mark must not"
+            );
+        }
+
+        // And everything under /v1/ is gated.
+        for target in [
+            "/v1/models",
+            "/v1/chat/completions",
+            "/v1/completions",
+            "/v1/embeddings",
+        ] {
+            assert!(
+                !authorised(&req(target, None), Some("secret")),
+                "{target} is not gated, so the key protects nothing"
+            );
+            assert!(
+                !authorised(&req(target, Some("Bearer wrong")), Some("secret")),
+                "{target} accepted the wrong key"
+            );
+            // A query string must not slip past the prefix check.
+            let with_query = format!("{target}?stream=true");
+            assert!(
+                !authorised(&req(&with_query, None), Some("secret")),
+                "{with_query} escaped the gate via its query string"
+            );
+        }
+    }
+
+    /// Every header shape a real client sends, and none that it does not.
+    #[test]
+    fn a_key_is_accepted_however_the_client_spells_the_header() {
+        let key = Some("s3cr3t");
+        for header in ["Bearer s3cr3t", "bearer s3cr3t", "s3cr3t", "  s3cr3t  "] {
+            assert!(
+                authorised(&req("/v1/models", Some(header)), key),
+                "{header:?} was refused, and some client sends exactly that"
+            );
+        }
+        // **Compared in full, not by prefix.** A prefix comparison would accept
+        // any key beginning with the right characters, which is the difference
+        // between a check and a formality.
+        for header in [
+            "Bearer s3cr3",
+            "Bearer s3cr3t-extra",
+            "Bearer S3CR3T",
+            "Bearer ",
+            "",
+            "Basic s3cr3t",
+        ] {
+            assert!(
+                !authorised(&req("/v1/models", Some(header)), key),
+                "{header:?} was accepted as the key"
+            );
+        }
+    }
+
     /// **What counts as "only this machine".**
     ///
     /// `0.0.0.0` is the trap: it reads like "no address" and means *every*

@@ -13,14 +13,36 @@ Copyright (c) 2023-2024 The ggml authors
 Licensed under the MIT License.
 
   Chaos links against a prebuilt ggml as a static library and does not vendor,
-  redistribute or modify its source. `crates/chaos-ggml` contains only Rust FFI
+  redistribute or modify its source. `core/ggml` contains only Rust FFI
   declarations written against ggml's public C API.
 
   Quantized matmul kernels are years of specialist SIMD work. Chaos does not
   reimplement them; it owns memory, residency, streaming and the token loop, and
-  borrows the arithmetic. See crates/chaos-ggml/build.rs.
+  borrows the arithmetic. See core/ggml/build.rs.
 
   MIT License text: https://github.com/ggml-org/ggml/blob/master/LICENSE
+
+--------------------------------------------------------------------------------
+
+Cinzel, IBM Plex Mono, UnifrakturMaguntia
+Licensed under the SIL Open Font License, Version 1.1.
+
+  Cinzel — Copyright 2020 The Cinzel Project Authors
+           (https://github.com/NDISCOVER/Cinzel)
+  IBM Plex Mono — Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex"
+  UnifrakturMaguntia — Copyright (c) 2010, j. 'mach' wust, with Reserved Font
+           Name UnifrakturMaguntia. Copyright (c) 2009, Peter Wiegel.
+
+  **These are embedded in the binary, not linked.** `assets/grimoire/fonts.css`
+  carries all three as base64 WOFF2, latin subsets, and `chaos_arch::grimoire`
+  compiles that file into every build — so a Chaos binary and the pages it serves
+  at /qr and /scan contain the fonts themselves. They are Google Fonts' own
+  subsets, byte-for-byte, re-encoded and otherwise unmodified; no Reserved Font
+  Name is used for a modified version.
+
+  The OFL requires these notices to be preserved with the fonts, which is why
+  they are here rather than only in the repository. Full licence text and the
+  regeneration command: assets/grimoire/fonts/NOTICE.
 
 --------------------------------------------------------------------------------
 

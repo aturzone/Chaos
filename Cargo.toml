@@ -14,6 +14,8 @@ members = [
 
     # The engine, roughly bottom to top.
     "core/build",     # build-script helpers: the icon, and nothing at runtime
+    "core/config",    # the settings file, read by the window and the CLI alike
+    "core/http",      # just enough HTTP/1.1 to talk to a node, so the CLI needs no curl
     "core/gguf",      # container parsing
     "core/ggml",      # the FFI: graphs, zero-copy weight binding
     "core/io",        # cache-bypassing aligned reads
@@ -28,6 +30,7 @@ members = [
     "core/image",     # PNG, safetensors, the FLUX.2 autoencoder, the sampler
 
     # What a person types.
+    "cli/chaos",      # chaos: the front door over every binary, plus start/stop/status
     "cli/run",        # chaos-run: a model, a prompt, a terminal
 
     # What an agent talks to, and what another machine talks to.

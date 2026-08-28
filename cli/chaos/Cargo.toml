@@ -1,0 +1,30 @@
+# `chaos` -- the one command a person types.
+#
+# Seventeen binaries ship. This adds a front door over them and implements the
+# four things that were missing: a node as a background process (start/stop/
+# status) and a way to use another machine's node (connect). Every old binary
+# name still works and still means the same thing.
+[package]
+name = "chaos-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "The chaos command: run a model, start a node, ask another machine's node."
+
+[dependencies]
+# The settings file the window writes, so a node started from a terminal uses
+# the same port, key, cache and threads.
+chaos-config = { path = "../../core/config" }
+# Enough HTTP to ask a node for its status and stream a completion, with no curl.
+chaos-http = { path = "../../core/http" }
+# The workspace's JSON parser: /status and the streamed chunks are JSON, and a
+# second reader in the tree would be one too many.
+chaos-grammar = { path = "../../core/grammar" }
+
+[[bin]]
+name = "chaos"
+path = "src/main.rs"

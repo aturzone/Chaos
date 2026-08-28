@@ -7,8 +7,13 @@
 A Rust inference runner whose job is running models that do *not* fit in memory:
 the always-read weights stay resident, routed experts stream from disk per token.
 Borrows `ggml` for arithmetic; owns memory, residency, streaming and the token
-loop. **Proven**: Qwen3-30B-A3B (17.28 GiB) generates correct text on a 15.7 GiB
-machine, and DeepSeek-V4-Flash (144 GB) does too.
+loop. **Runs models far past RAM**: Qwen3-30B-A3B (17.28 GiB) and
+DeepSeek-V4-Flash (144 GB) both generate on a 15.7 GiB machine. **"Proven" was
+too strong for the first of those** — `qwen3moe` is *not* in
+`VERIFIED_ARCHITECTURES` and needs `--force`: its eight-prompt diff came back
+1 FAIL, a demonstrated near-tie where llama.cpp produces our exact answer under
+`-b 1`. V4-Flash *is* verified. Do not write "proven" for a model the diff has
+not passed.
 
 Graph docs live in `/docs/graph/`; read `INDEX.md` first, then only the 2–3 nodes
 a task links to.
@@ -24,9 +29,14 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # GPU work needs build-vulkan/ggml/src instead: THE LINE ABOVE has no Vulkan
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
-# was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 909 tests
+# was once reported for a file whose two GPU tests never ran once. Fixed:
+# CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
+# build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
+cargo test --release          # 942 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
+cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
+cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
+cargo fmt --all --check                                 # CI gate
 cargo build --release
 ./target/release/chaos-run <name-or-path> "prompt" -n 16   # bare `chaos-run` lists models
 ./target/release/chaos-probe --quick          # RAM/disk/GPU + what to close
@@ -35,6 +45,19 @@ cargo build --release
 
 Windows needs the **GNU** Rust toolchain plus MSYS2 mingw64 on PATH, and
 `.cargo/config.toml`'s `link-self-contained=no` must stay.
+
+**Twelve of the thirteen CI-checked crates build with no ggml, and CI enforces
+both halves**: every
+crate but `chaos-arch` builds, tests and lints without `GGML_LIB_DIR`, and
+`chaos-arch` must fail with its `GGML_LIB_DIR is not set` message rather than a
+wall of unresolved imports. **A full run reports 42 ignored** — they need a
+real container on disk and skip silently without one, so a green run is not a
+full run. **The test-count comment above is machine-checked**:
+`scripts/check-test-count.sh` compares it with STATUS.md, CONTRIBUTING.md and
+the README badge,
+so keep exactly *one* `# <N> tests` comment in this file, written with real
+digits only there — a second occurrence of that pattern anywhere in this file
+makes the check compare a two-line string and fail forever.
 
 ## Layout — `core/` `cli/` `network/` `gui/`, per the Rust book
 
@@ -47,10 +70,47 @@ hardware + RAM reclaim · `plan` prediction + residency policy · `model` sharde
 resolution, partial reads, catalogue, release checks · `tokenizer` byte-level
 BPE · `grammar` constrained decoding + the workspace's JSON parser · `jinja` chat
 templates · `arch` architectures + streaming forward pass · `image` PNG,
-safetensors, FLUX.2 VAE, the sampler.
+safetensors, FLUX.2 VAE, the sampler · `qr` encoding, so a headless node can
+print its own route · `config` the settings file **both tiers read** · `http`
+just enough HTTP/1.1 to ask a node for status and stream a completion, no curl,
+no TLS.
 
-`cli/run` chaos-run · `network/serve` chaos-serve · `gui/app` the window ·
-`gui/setup` the installer. Benchmarks stay beside the crate they measure.
+**`chaos` is the front door**: `cli/chaos` dispatches `chaos run` to
+`chaos-run` with arguments untouched — every old binary name still works — and
+implements `start`/`stop`/`status` (a node as a background process, pid file,
+log), `connect`, `config`, `completions`, and `scan`, which is **NOT BUILT and
+says so**. `chaos start` uses `Settings::serve_args`, the window's own function.
+
+`cli/run` chaos-run · `network/serve` chaos-serve · `network/worker`
+chaos-worker, which holds experts and answers with activations · `gui/app` the
+window · `gui/setup` the installer · `android/jni` the JNI bridge, a cdylib.
+Benchmarks stay beside the crate they measure.
+
+**`nav::RAIL_PAGES` is not `nav::PAGES`.** Six pages exist; five have a rail
+entry. CHAOS has none — the mode is answered by the launch knob and reported by
+the badge at the bottom of the rail, which is also the page's only door. Leaving
+a mode (the CHANGE MODE button *or* Escape) asks first, because it unloads the
+model and clears the conversation.
+
+**`core/` holds a crate's own tools; `cli/` holds the front door and the
+runner.** 11 of the 19 binaries live under `core/` and that is deliberate — a
+benchmark or an inspector belongs beside the crate it measures, and `chaos probe`
+reaches it without anyone knowing where it lives. Two stated rules collide here
+and this is the resolution (§4c).
+
+**Nineteen binaries, not five** — also `chaos-pull` (fetch a model),
+`chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and five benchmarks;
+`grep '^name' */*/Cargo.toml` lists them. **A binary in no ship list does not
+exist**: `chaos-qr` was absent from all three of release.yml's staging loops and
+from `make-linux-packages.sh` while the brand tier claimed it reached a bare
+terminal.
+
+**The mark and the reader have one source, served by the node.**
+`assets/grimoire/*.html` plus embedded fonts are `include_str!`d by
+`chaos_arch::grimoire` and served at `/qr` and `/scan`; desktop and Android open
+that route rather than re-drawing it, and `core/qr` prints the same code in a
+bare terminal. **Edit the HTML, never a copy**, and keep it fetch-free — a test
+asserts 0 external references in the assembled page.
 
 ## Traps — **read `docs/graph/reference/hard-won-facts.md` before proposing any
 optimisation.** About half its entries are the measurement that killed an
@@ -130,59 +190,54 @@ item; if one is not done, say which and why.**
 
 ## Next
 
-**v0.0.17 released 2026-08-24**: nine assets. The **Android app has been run**
-— on an emulator, against a real `chaos-serve` — and running it found four
-defects a build never would. `chaos-worker` holds experts and answers with
-activations, measured at 38x in favour of sending the work to the weights.
-1024x1024 encodes. Two claims retracted: the JSON prompt shape (0.9x, it is the
-sentences) and "4 steps is five times faster" (a 56-level grey band).
-**Install → update → uninstall verified on this machine from the published
-files, models byte-identical** — `scripts/install-update-uninstall.ps1`.
-`STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue.
+**v0.0.21 published 2026-08-26**, verified from its own published files —
+the APK opened and the engine found inside it, install → update → uninstall
+carried end to end with models byte-identical. STATUS.md has the bytes.
 
-**Three instruments, kept because they are how the above was measured**:
-`scripts/poke-app.ps1` (click a control, time the UI thread, check a layout for
-overlaps), `scripts/run-through.ps1` (every control, every page, one
-transcript), `tools/check-logo-centred.py` (decode the shipped `.ico`, report
-the margins). A screen grab is uniform black in a session with no composited
-display, which is why these read rectangles rather than pixels.
+**The broken desktop app is reproduced and half fixed** (2026-08-28,
+`research/desktop-app-broken-2026-08-28.md`). It was two defects. Fixed: the
+knob was painted *underneath* nine live child HWNDs at startup — 9 controls
+on-screen at open, 0 after. The mode is now **asked once then remembered**
+(`mode_chosen`), and startup opens the first page the mode can *reach* — a HELPER
+has no CHAT. **A "blank CHAOS page" was reported and retracted the same day**:
+cross-process `GetWindowTextW` reads a caption, never an EDIT's text, so the
+probe was blank and the app was not.
 
-**Against llama.cpp, measured 2026-08-16 with both engines alternating**
-(`where-we-stand-vs-llamacpp-2026-08-16.md`): **parity on everything that
-streams** — V4-Flash prefill 1640 against 1679 ms/prompt token and generation
-0.394 against 0.39, Qwen3-30B parity on both phases. Behind 1.20-1.27x on the
-dense path when both sides are hand-tuned; ahead 1.23x out of the box, because we
-measure the machine and llama.cpp uses a fixed default. **The old "V4-Flash
-prefill 1.62x behind, generation 3-4x behind" is retracted**, and so is
-"generation ~2x behind" on Qwen3-30B. Do not replace either with a claimed lead:
-the ranges overlap.
+`STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue. Both
+are more current than this file — take a number from them, not from here.
 
-**20 tok/s on V4-Flash is closed from both sides, with numbers**
-(`v4flash-ram-frontier-2026-08-16.md`). Bytes: 20 tok/s needs 79 MB/token and it
-reads 3288 (`v4flash-has-no-slack-2026-08-10.md`). Time: **a token is 1.56 s of
-expert read plus 0.84 s that never touches the disk, so with EVERY expert
-resident this CPU tops out at 1.19 tok/s** — the fixed cost alone is 17x over a
-50 ms budget, and `-t` 2/4/8/16 confirms it is a floor, not a knob left wrong.
-**The measured frontier**: 16 GB 0.42 (measured), 64 GB 0.55, 128 GB 0.93,
-160 GB 1.19 — **holding the whole 144 GB model in RAM is worth 2.9x, not 48x.**
-20 tok/s also needs 67.7 GB/s to the experts, so it is a GPU-memory
-specification. Do not quote a GPU V4-Flash figure: resident-in-VRAM is untested
-and the only measured number is 4.3x *slower* on streaming MoE.
+**Three instruments, because they are how the GUI is measured at all**:
+`scripts/poke-app.ps1` (one control, timed, overlap-checked),
+`scripts/run-through.ps1` (every control, every page, one transcript),
+`tools/check-logo-centred.py` (margins of the shipped `.ico`). **A screen grab is
+uniform black here** — read rectangles, never pixels. Neither script covers the
+CHAOS page, and `run-through.ps1` drives pages by `WM_COMMAND`, which bypasses
+both the rail and the launch knob: it reported a clean pass over an app that had
+never left its launch screen.
 
-1. **The frontier on a machine with real memory.** The curve above is this
-   laptop's left-hand edge; the two numbers worth bringing back are `F` on a
-   bigger CPU and `F` with the model resident on a real GPU, because the whole
-   question reduces to them. Prompt ready: `backlog/bigger-machine-prompt.md`.
-2. **A bigger machine**, measured rather than predicted. The 5090 box is 32 GiB
-   VRAM + 64 GiB RAM, where Qwen3-30B-A3B (17.3 GiB) fits **entirely in VRAM** —
-   that is the demo, not V4-Flash. 96 GiB of fast memory against 144 GiB of model
-   is ~67% resident there against ~11% here. Check `--auto` picks sensibly
-   without the user knowing any flags.
-3. **Verify the GPU tier.** `--device`, `-ngl`, `-ot`, `--op-offload` and
+**Retracted, do not requote** (Roadmap 7 has the standing figures;
+`where-we-stand-vs-llamacpp-2026-08-16.md` has the method): "V4-Flash prefill
+1.62x behind, generation 3-4x behind" and "generation ~2x behind" on Qwen3-30B.
+Do not replace them with a claimed lead either — the ranges overlap.
+
+**The measured RAM frontier** (`v4flash-ram-frontier-2026-08-16.md`), which is
+why Roadmap 1 is closed: 16 GB 0.42 tok/s measured, 64 GB 0.55, 128 GB 0.93,
+160 GB 1.19 — **the whole 144 GB model in RAM is worth 2.9x, not 48x**, and `-t`
+2/4/8/16 confirms a floor rather than a knob left wrong. Do not quote a GPU
+V4-Flash figure: resident-in-VRAM is untested and the only measured number is
+4.3x *slower* on streaming MoE.
+
+1. **The frontier on a machine with real memory** — this laptop is the curve's
+   left-hand edge, so the two numbers worth bringing back are `F` on a bigger
+   CPU and `F` with the model resident on a real GPU. Prompt ready:
+   `backlog/bigger-machine-prompt.md`. The 5090 box (32 GiB VRAM + 64 GiB RAM)
+   fits Qwen3-30B-A3B **entirely in VRAM** — that is the demo, not V4-Flash —
+   and it tests whether `--auto` picks sensibly for someone who knows no flags.
+2. **Verify the GPU tier.** `--device`, `-ngl`, `-ot`, `--op-offload` and
    `ggml_backend_sched` are all bound on Vulkan; what is *not* done is
    verification — the device path fails 1 of 8 parity prompts where the CPU path
    fails none, which is arithmetic rather than wiring.
-4. Finish R5/T1-T5 of `lts-0-0-0.md`: quant selection, self-configuration.
+3. Finish R5/T1-T5 of `lts-0-0-0.md`: quant selection, self-configuration.
 
 **Dead ends, measured, do not re-propose**: expert factorisation, contextual
 sparsity, a pinned hot set, expert-read/compute overlap (1.03x), `--op-offload`

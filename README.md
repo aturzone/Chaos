@@ -10,16 +10,18 @@
 </p>
 
 <p align="center">
-  <em>On one 15.7 GiB laptop, CPU only: <strong>31 tok/s</strong> on Qwen2-0.5B,
-  <strong>20 tok/s</strong> on Falcon3-1B,<br>and a <strong>144 GB</strong>
-  model generating at 0.43 tok/s in 15.7 GiB of RAM.</em>
+  <em>On one 15.7 GiB laptop, CPU only: <strong>28 tok/s</strong> on Qwen2-0.5B,
+  <strong>21 tok/s</strong> on Falcon3-1B,<br>and a <strong>144 GB</strong>
+  model generating at 0.43 tok/s in 15.7 GiB of RAM.<br>
+  <sub>Medians of three, re-measured 2026-08-28. The first two were 31 and 20,
+  which were the best and the worst of their runs.</sub></em>
 </p>
 
 <p align="center">
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-909%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-942%20passing-brightgreen">
 </p>
 
 ---
@@ -36,7 +38,9 @@ Every platform gets a file from
 | **Windows** | `Chaos-vX.Y.Z-windows-x86_64-Setup.exe` | double-click; per-user, no admin rights |
 | **Debian / Ubuntu** | `chaos_X.Y.Z_amd64.deb` | `sudo apt install ./chaos_*.deb` |
 | **any Linux** | `Chaos-vX.Y.Z-linux-x86_64.AppImage` | one file, `chmod +x` and run |
+| **Linux on ARM** | `Chaos-vX.Y.Z-linux-arm64.tar.gz` | a Pi or an Ampere box; unpack, then the copy below |
 | **macOS (Apple silicon)** | `Chaos-vX.Y.Z-macos-arm64.tar.gz` | unpack, then the copy below |
+| **macOS (Intel)** | `Chaos-vX.Y.Z-macos-x86_64.tar.gz` | unpack, then the copy below |
 | **Windows / Linux, no installer** | the `.zip` / `.tar.gz` | unpack it yourself |
 
 The Windows installer carries every binary inside it: no archive to unpack, no
@@ -49,6 +53,13 @@ From an archive, copy the binaries yourself:
 ```bash
 sudo install -m 755 Chaos-*/chaos-* /usr/local/bin/ && mkdir -p ~/.chaos/models
 ```
+
+**No telemetry.** Chaos sends nothing anywhere: no analytics, no crash
+reporting, and no phoning home. The one request it makes on its own is the
+window's update check against a static JSON file, which `CHAOS_NO_UPDATE_CHECK`
+turns off. `Cargo.lock` has **22 packages and all 22 are crates in this
+repository** — there is no third-party dependency to audit. `SECURITY.md` records
+what a running node *does* expose, measured.
 
 **The window is Windows-only.** `chaos-app` is written against Win32, so the
 Linux and macOS builds are the command-line tools -- `chaos-run`, `chaos-serve`,
@@ -219,7 +230,7 @@ V4-Flash speed     8%  [#...................]  0.43 of 5 tok/s
 Where those numbers come from, in the same order: 17 flags are declined with a
 written reason and **0 are unrecognised**; the two missing templates are Hunyuan
 variants; the tokenizer families are BPE, SPM, WordPiece, Unigram and RWKV; the
-sampler audit was 2026-08-11; **every one of the 13 architectures was diffed
+sampler audit was 2026-08-11; **every one of the 14 architectures was diffed
 against llama.cpp at 8 prompts**, which is what counts as verified here; the
 Vulkan device path is bound but **not** verified — it fails 1 of those 8 prompts
 where the CPU path fails none; and the UI **sends and streams**, with no model
@@ -320,8 +331,12 @@ export GGML_LIB_DIR=$PWD/../llama.cpp/build/ggml/src
 cargo build --release
 ```
 
-Clean clone to working binaries: **23 s**. Nine of the ten crates build without
-`GGML_LIB_DIR` at all, and CI proves it.
+Clean clone to working binaries: **23 s**. Twelve of the thirteen crates CI
+checks build without `GGML_LIB_DIR` at all -- `chaos-arch` is the one that needs
+it, and it must fail with instructions rather than a wall of import errors. Both
+halves are tested. **`cargo install --path cli/chaos` therefore works on a
+machine that has never compiled a line of C**: the `chaos` front door, its
+settings reader and its HTTP client need no ggml.
 
 <details>
 <summary><strong>Windows</strong> — GNU toolchain, not MSVC</summary>

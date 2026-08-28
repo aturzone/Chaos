@@ -22,6 +22,20 @@
 #   310  SAVE     writes settings; harmless in itself, but only meaningful
 #                 after a change, and a run-through should not leave one
 #
+# Two more are listed rather than pressed:
+#
+#   768      NEW KEY   throws the current key away, so every device that had it
+#            has to be told the new one
+#   773      CHANGE MODE  opens a MODAL Yes/No, so the next SendMessageW never
+#            returns and the script hangs rather than failing. The four role
+#            buttons it replaced (760-763) no longer exist: the mode is answered
+#            by the launch knob and shown by the badge, 772.
+#
+# Two more open a browser and are opt-in with -Brand:
+#
+#   770  SHOW THE MARK   shell_open of the node's /qr
+#   771  READ A CODE     shell_open of the node's /scan
+#
 # Two more are *slow* rather than dangerous and are opt-in with -Slow:
 #
 #   204  LOAD     starts a model; minutes
@@ -30,9 +44,20 @@
 # Everything else is pressed. `SendMessageW` is synchronous, so the time each
 # takes is the time the UI thread was blocked -- anything over 200 ms is a
 # window that looks frozen to the person using it.
+#
+# # It enters a mode first, and that is not optional
+#
+# **The knob owns the window until a mode is chosen, and it owns the child
+# windows too.** This script drives pages with `WM_COMMAND`, which does not go
+# through the rail -- so before the guard in `show_page` existed it walked an app
+# that had never left its launch screen and reported a clean pass over controls
+# that were stacked on top of the knob. Now the same run would report every
+# control HIDDEN, which is just as misleading. So it presses RETURN first, the
+# knob's own "enter this mode", and stops if that did not take.
 
 param(
     [switch] $Slow,
+    [switch] $Brand,
     [int] $SettleMs = 350
 )
 
@@ -50,13 +75,32 @@ public static class Run {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
     public static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
     [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
+    [DllImport("user32.dll")]
+    public static extern bool ScreenToClient(IntPtr hwnd, ref POINT p);
+    public struct RECT { public int left, top, right, bottom; }
+    public struct POINT { public int x, y; }
+    [DllImport("user32.dll")]
     public static extern bool IsWindowEnabled(IntPtr hwnd);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
     public static extern int GetWindowTextW(IntPtr hwnd, StringBuilder buf, int max);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr wp, StringBuilder buf);
+    // **`GetWindowText` reads a CAPTION, and cross-process it reads only that.**
+    // Called from another process it does not send `WM_GETTEXT` -- by design, so
+    // a hung target cannot hang the caller -- so an EDIT owned by the app comes
+    // back as the empty string however much text is in it. A whole defect was
+    // reported against this app on the strength of that empty string: the CHAOS
+    // page looked blank from outside while the app had filled it correctly.
+    // `WM_GETTEXT` is the honest read; the caption is the fallback, because a
+    // BUTTON's label really is its caption.
     public static string TextOf(IntPtr h) {
-        var sb = new StringBuilder(512); GetWindowTextW(h, sb, 512); return sb.ToString();
+        var sb = new StringBuilder(4096);
+        SendMessageW(h, 0x000D /* WM_GETTEXT */, (IntPtr)4096, sb);
+        if (sb.Length > 0) { return sb.ToString(); }
+        var cap = new StringBuilder(512); GetWindowTextW(h, cap, 512); return cap.ToString();
     }
 }
 '@
@@ -79,10 +123,16 @@ $skip = @{
     310 = 'skipped: writes settings, and there is no change to write'
     311 = 'DESTRUCTIVE: discards the saved settings'
     312 = 'BLOCKS: opens a modal folder dialog, which stops the message loop'
+    768 = 'DESTRUCTIVE: throws the key away, so every device must be told again'
+    773 = 'BLOCKS: CHANGE MODE opens a MODAL confirmation, which stops the message loop'
 }
 if (-not $Slow) {
     $skip[204] = 'slow: starts a model, minutes. Pass -Slow to include it'
     $skip[704] = 'slow: starts a render, hours. Pass -Slow to include it'
+}
+if (-not $Brand) {
+    $skip[770] = 'opens a browser: pass -Brand to include it'
+    $skip[771] = 'opens a browser: pass -Brand to include it'
 }
 
 $pages = @(
@@ -91,6 +141,12 @@ $pages = @(
     @{ Id = 403; Name = 'MONITOR';  Controls = @() }
     @{ Id = 404; Name = 'SETTINGS'; Controls = @(301, 302, 303, 305, 306, 308, 309, 310, 311, 312) }
     @{ Id = 406; Name = 'IMAGE';    Controls = @(708, 702, 703, 709, 706, 705, 704) }
+    # **The page the run-through never covered**, which is where the mode lives
+    # and where the two brand buttons were added and never clicked.
+    # **CHAOS has no rail entry any more** -- 407 is still its id and still
+    # opens it, which is what the mode badge does. Reached that way here so the
+    # transcript covers the page a person can still get to.
+    @{ Id = 407; Name = 'CHAOS';    Controls = @(764, 765, 766, 767, 768, 770, 771, 769) }
 )
 
 $worst = 0.0
@@ -106,7 +162,38 @@ function Press($id, $label) {
     return $t.TotalMilliseconds
 }
 
+# **Leave the launch screen first.** RETURN is the knob's own "enter this
+# mode", and it is a no-op once a mode is entered, so this is safe to send
+# either way. Without it every control below reads HIDDEN and the transcript
+# says nothing.
+$WM_KEYDOWN = 0x0100
+$VK_RETURN = 0x0D
+[Run]::SendMessageW($hwnd, $WM_KEYDOWN, [IntPtr]$VK_RETURN, [IntPtr]0) | Out-Null
+Start-Sleep -Milliseconds 700
+
+# Did it take? A rail button on-screen means the shell is up. `layout` parks the
+# pages this mode cannot reach at -3200, so a coordinate test is the honest one:
+# `IsWindowVisible` is true for a parked button as well as a shown one.
+$onScreen = 0
+foreach ($id in 401, 402, 403, 404, 406, 772) {
+    $c = [Run]::GetDlgItem($hwnd, $id)
+    if ($c -eq [IntPtr]::Zero) { continue }
+    if (-not [Run]::IsWindowVisible($c)) { continue }
+    $r = New-Object Run+RECT
+    [Run]::GetWindowRect($c, [ref]$r) | Out-Null
+    $pt = New-Object Run+POINT
+    $pt.x = $r.left; $pt.y = $r.top
+    [Run]::ScreenToClient($hwnd, [ref]$pt) | Out-Null
+    if ($pt.x -gt -1000 -and $pt.y -gt -1000) { $onScreen++ }
+}
+if ($onScreen -eq 0) {
+    Write-Error 'The window is still on its launch screen: no rail button is on screen after RETURN. Everything below would read HIDDEN, so nothing is reported.'
+    exit 1
+}
+
 "Chaos run-through  --  window $hwnd"
+"entered a mode: $onScreen rail buttons on screen"
+"mode badge (772) says: '$([Run]::TextOf([Run]::GetDlgItem($hwnd, 772)))'"
 "".PadRight(78, '=')
 
 foreach ($page in $pages) {

@@ -24,6 +24,9 @@ description = "Native Windows app for Chaos: pick a model, run it, watch it work
 
 [dependencies]
 chaos-model = { path = "../../core/model" }
+# The settings file, shared with the command line rather than owned by the
+# window: `~/.chaos/settings.txt` used to be a file only this crate could read.
+chaos-config = { path = "../../core/config" }
 # For the settings page: core count, memory and whether a GPU exists, so the
 # options offered are the ones that make sense on *this* machine. Zero external
 # dependencies of its own, like everything else here.

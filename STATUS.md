@@ -5,14 +5,379 @@ true today. Update it in the same commit as any change that moves a number or
 closes a task; if it disagrees with a doc, this file is wrong and the doc is
 right, so fix this file.
 
-**Last updated**: 2026-08-27 · **Version**: **v0.0.21**, published 2026-08-26
-· **Branch**: `main`, verified — 909 tests re-run on `main` itself after #146
-merged, and the four files only that merge added are present.
+**Last updated**: 2026-08-28 · **Version**: **v0.0.21**, published 2026-08-26
+· **Branch**: `claude/init-000c20` — 910 tests, 0 failed, clippy and fmt clean.
 
-**Open, and ahead of everything else**: Atur opened the installed desktop app
-on 2026-08-27 and found it badly broken, with mode selection tangled into the
-running application. Unreproduced by anyone else. See §0b of
-`docs/graph/backlog/v0-0-3-the-complete-version.md`.
+## The broken desktop app: reproduced, half fixed (2026-08-28)
+
+Atur's report of 2026-08-27 — the installed app badly broken, "mode selection
+got mixed up inside the application" — **is reproduced on the installed build
+and was two defects, not one.** Full account:
+`docs/graph/research/desktop-app-broken-2026-08-28.md`.
+
+**Fixed and measured.** `WM_CREATE` called `show_page(Page::Chat)` while
+`ui.launched` was still `false`, so the window opened with the mode knob painted
+*underneath* nine real child HWNDs — the chat transcript, its composer, SEND,
+CLEAR, the four rail buttons and STOP. `WM_PAINT` stops at `paint_launch`, but
+painting the knob cannot cover a child window. On-screen controls at open, by
+client-rect: **9 before, 0 after**; RETURN still brings all 9 up, and ESC still
+returns to the knob. ESC doing nothing at open is what proves `launched` was
+false. Guard added inside `show_page` so every route in is covered, hiding shared
+with `back_to_knob`, and a regression test asserts the guard precedes the first
+`SW_SHOW`.
+
+**The plan's §0b description was stale**, and this answers its third
+deliverable: the desktop already asks the mode once, on a launch screen
+(`paint_launch`, `knob.rs`), exactly like the phone. It just did not own the
+window.
+
+**Decided by Atur on 2026-08-28: asked once, then remembered.** The knob showed
+on every launch because `launched` started `false` and nothing consulted the
+saved `role`. It now starts from a new `mode_chosen` setting — `role` cannot
+carry that answer, because its default is a real role and a machine nobody asked
+reads the same as one whose owner chose ALONE. ESC still returns to the knob, so
+remembering is not a trap. Measured on the real window:
+
+| launch | `mode_chosen` | controls on-screen at open | |
+|---|---|---|---|
+| first | absent | **0** — the knob has the window | RETURN enters, and the file gains `mode_chosen = true` |
+| second | `true` | **9** — straight into the saved mode | ESC still goes back to the knob |
+
+**An existing settings.txt has no `mode_chosen` key, so everyone upgrading is
+asked exactly once more and then remembered.** That is the intended migration.
+The window also now opens on the first page the mode can *reach*, not on CHAT
+unconditionally — `pages_for(Helper)` has no CHAT, so a remembered HELPER would
+otherwise have raised a page its own rail cannot reach.
+
+**RETRACTED, same day: "the CHAOS page arrives blank" was my probe, not the
+app.** The page works. `GetWindowTextW` called from another process does not send
+`WM_GETTEXT` — documented and deliberate, so a hung target cannot hang the
+caller — so it returns only a window's *caption*. A BUTTON's label **is** its
+caption, which is why every earlier transcript looked fine; an EDIT's text is
+not, so every EDIT read as empty however full it was. Read with `WM_GETTEXT`,
+764/765/769 hold `127.0.0.1:8231`, the key, and 105 characters of guidance. The
+marker that "survived" was a field only the probe had ever written: a
+cross-process `SetWindowTextW` sets the caption, so the probe read back its own
+write while the app's in-process write went to the edit buffer where the probe
+could not see it. A file trace inside `fill_chaos_fields` settled it. Two
+candidates were eliminated first and cheaply: exactly one top-level
+`ChaosAppWindow`, and no duplicate control ids among 56 children.
+`run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
+
+## §4 IS COMPLETE: §4g done (2026-08-28)
+
+**§4g — the seven things nobody asked for**
+(`research/4g-not-asked-for-2026-08-28.md`). Two real gaps fixed, three already
+sound and now measured, two decisions left with Atur.
+
+**"No telemetry" was true and stated nowhere.** The only occurrence of the word in
+the entire repository was the plan asking for it — in the one project whose
+headline property is that it downloads nothing. Now in the README and a new
+`SECURITY.md` section, along with the single exception: the window's update check
+against a static JSON file, which `CHAOS_NO_UPDATE_CHECK` disables.
+
+**The node's exposure, measured and documented.** With a key set, an
+unauthenticated caller gets **401 on `/v1/*`** and **200 on `/status`, `/health`
+and `/qr`** — so on a `0.0.0.0` binding anyone reachable learns the model name,
+its context size and the node's route. **Decision: leave them open, and say so** —
+they are how a device discovers a node, and gating `/status` would break
+`chaos status` against a remote node, which sends no key on that request.
+`SECURITY.md` now carries the exact payloads.
+
+**The SBOM question is answered by a fact**: `Cargo.lock` has **22 packages and
+all 22 are crates in this repository**. Zero third-party dependencies.
+
+**Not reproducible, by one line**: CI does `git clone --depth 1` of llama.cpp, so
+it builds against whatever `master` is that day. Pinning the commit is the gap
+between "builds" and "reproducible" — left as Atur's call.
+
+**Accessibility**: the brand pages honour `prefers-reduced-motion` and carry
+`aria-*` and `role=`, and every assembled page has `lang`. The window is
+keyboard-reachable — every button goes through one helper that passes
+`WS_TABSTOP` — but **there is no contrast audit and no screen-reader story**, since
+owner-draw controls paint text no accessibility API is told about.
+
+**Upgrade**: adjacent versions are verified end to end; a long jump from 0.0.2 is
+not. The mechanism is sound and tested — unknown settings keys are preserved on
+write, so an old build cannot destroy a new build's preferences.
+
+## §4f of the analysis is done (2026-08-28)
+
+**§4f — open-source readiness**
+(`research/4f-open-source-readiness-2026-08-28.md`). The plan pointed straight at
+the one real problem and everything else was already in place.
+
+**The embedded fonts were attributed nowhere a user receives.** Cinzel, IBM Plex
+Mono and UnifrakturMaguntia are OFL 1.1, embedded as base64 in every build and in
+every page served at `/qr` and `/scan`. The root `NOTICE` that ships in every
+archive had **0 mentions** of any of them; the assembled page had **0 occurrences
+of "Copyright"**. The attributions existed in `assets/grimoire/fonts/NOTICE` — a
+file the release workflow does not copy. **Fixed in both places**, with a test
+(`every_page_carries_the_fonts_licence`) asserting each page names the licence and
+all four copyright holders *before* the first `@font-face`. The pages still fetch
+nothing.
+
+**A false lead worth remembering**: grepping the page for `OFL` found six matches
+and looked like compliance. They were three letters occurring by chance inside
+megabytes of base64 font data. `Copyright` returned zero. **A substring match on
+base64 is not evidence.**
+
+Also fixed: the root `NOTICE` described ggml's FFI as `crates/chaos-ggml`, twice.
+That directory does not exist — the same `crates/` hazard §4c warns about, sitting
+in the one file whose job is to be legally accurate.
+
+**Already in place, verified**: Apache-2.0; ggml MIT and linked rather than
+vendored; no weights distributed; CONTRIBUTING, issue templates and a PR template
+present; the README's build steps *are* CI's steps; **`ci.yml` references
+`secrets.` zero times so a fork's PR gets the full matrix**; and **0 commits in
+history contain the token**.
+
+**Left open for Atur**: whether the OFL's full 4,000 words should ship in the root
+`NOTICE` rather than being pointed at, and nobody has run `strip` and re-read a
+served page.
+
+## §4e of the analysis is done (2026-08-28)
+
+**§4e — production readiness** (`research/4e-production-readiness-2026-08-28.md`).
+Five failure modes exercised on a real node, one declared untestable, **one real
+bug fixed, and one thing I reported as a bug was my own probe.**
+
+**The result that matters: nothing detects a corrupt model.** Zero bytes, random
+bytes and a truncated file all fail precisely and exit 1. **Four kilobytes of
+zeros written into the weights loads, exits 0 and answers fluently** — *"Paris.
+The capital of Germany is Berlin"* where the intact model says *"Paris. The
+capital of France is Paris"*. Both plausible, neither flagged, and **there is no
+checksum**: `download` verifies the magic bytes, not a hash. A badly resumed or
+bit-rotted file is confidently wrong forever.
+
+**Two instances**: the second exits non-zero, but **binds the port last** — it
+loaded the whole model first (0.7 s here, minutes for V4-Flash) before finding the
+address taken, and reports the raw OS string rather than naming the port or
+`chaos stop`.
+
+**A dropped stream — and a correction.** I killed a node mid-answer, saw text stop
+mid-word and the client exit 0, and called it a bug. Then I ran the same prompt
+and **killed nothing**: it stopped at the same word, exit 0. The node had hit its
+default `max_tokens` and sent `[DONE]`; the answer was complete. Identical
+truncation in two runs was the tell. **Third time today a probe was wrong and the
+code was right.**
+
+**The bug was real, just not the one I saw**: `post_sse` returned `Ok` on a clean
+EOF without `[DONE]`, which is what a *gracefully* closed connection gives. A
+killed process sends RST and already errored, so the live test could not reach the
+broken path. Both paths now report truncation, verified live (*"the connection
+broke after 15 chunk(s) … What you have above is incomplete"*, exit 2) and by
+**five new socket tests** against a fake node on an ephemeral port.
+
+**Declared rather than faked**: full-disk behaviour is **unmeasured** — filling
+the drive on a working machine is not a test to run. And **install/update/uninstall
+is verified on Windows only**; the published `.deb` and AppImage have never been
+installed anywhere, and macOS ships tarballs with no installer.
+
+## §4c and §4d of the analysis are done (2026-08-28)
+
+**§4c — folder structure** (`research/4c-folder-structure-2026-08-28.md`). The
+buckets hold and nothing needs moving. No untracked `crates/` here — the check is
+`git ls-files`, not `ls`. **11 of the 19 binaries live under `core/`** because two
+good rules collide there; resolved by writing the rule down rather than moving
+seven binaries through three staging loops and an installer file list: **`core/`
+holds a crate's own tools, `cli/` holds the front door and the runner.**
+
+**Three documented counts went stale in one day** — tests, architectures (13
+against a list of 14), binaries (seventeen, then eighteen, against nineteen). So
+`core/arch/tests/documented_counts.rs` now enforces the architecture count, the
+binary count, and the consistency of `release.yml`'s three staging loops. **That
+last test was tested**: deleting `chaos-qr` from one Windows list fails it with
+*"windows list 1 is missing"*, and the workflow was restored byte-for-byte.
+**Open decision for Atur: 3 of 6 benchmarks ship, for no stated reason.**
+
+**§4d — tests** (`research/4d-tests-2026-08-28.md`). Both named thin spots
+addressed, and one the plan did not name mattered more than either.
+
+**The key gate had no test at all.** `authorised()` is the whole of the server's
+access control and nothing asserted it — a wrong answer there is a `/v1/*`
+endpoint that quietly stops requiring the key, silent, and on a `0.0.0.0` binding
+it is the entire security model gone. Now exhaustive: every route class, a query
+string that must not slip past the prefix check, every header shape a real client
+sends, and a **full rather than prefix** comparison.
+
+**`network/serve` now has the `tests/` directory it never had**, holding two
+contracts that span two files each — the usage block against the route table, and
+`/status`'s keys against the keys `chaos status` parses. **The first caught a real
+defect on its first run: `POST /v1/completions` and `POST /v1/embeddings` are
+implemented *and* unit-tested and were missing from the server's own help.** Both
+now documented.
+
+**A skip can no longer masquerade as a pass.** `CHAOS_REQUIRE_GPU=1` turns every
+GPU skip into a failure; CI stays green without it.
+
+**And the GPU suite ran for the first time.** Against `build-vulkan` on this
+laptop's RTX 3050: **14 GPU tests run and pass** — 6 in `device_arithmetic`
+(0.84 s, against 0.00 s when skipping), 6 in `scheduler`, plus the 2 its own note
+says to run alone, which do not reproduce the abort. **This verifies the FFI, the
+device buffers, the mixed host/device graphs and the scheduler on a real card. It
+says nothing about forward-pass parity** — "the device path fails 1 of 8 parity
+prompts" is arithmetic in `chaos-arch` and remains open.
+
+## §4a and §4b of the analysis are done (2026-08-28)
+
+**§4a — where the time goes** (`research/4a-where-the-time-goes-2026-08-28.md`).
+Two of the four areas the plan named are **closed as immaterial, with numbers**:
+a 17 GiB model's always-read set loads in **0.38 s** and load parallelism is done
+at four threads; tokenization costs **0.76 ms against 2,100 ms of prefill —
+0.036%**, measured by a new `chaos-tokbench`, round trip exact. The GUI's worst
+blocking call is 74.1 ms against a 200 ms threshold.
+
+**The dense gap is entirely the FFN.** Against llama.cpp on Llama-3.2-1B,
+alternating, both command lines in the node: hand-tuned against hand-tuned,
+**llama.cpp is 1.30x ahead on prefill (382.26 v 294.29) and 1.30x ahead on
+generation (27.14 v 20.80)**. `chaos-run`'s own breakdown puts **1.9 s of 3.1 s of
+compute in the FFN (61%)** with 0.0 s disk — so it is a matmul gap, and nothing
+that leaves the FFN alone can close it. **The thread count is a bigger lever than
+the engine**: llama.cpp's own generation is 1.84x faster at `-t 4` than at
+`-t 20`, more than the entire engine difference.
+
+**§4b — claimed versus works** (`research/4b-claimed-versus-works-2026-08-28.md`).
+Eight checkable claims: four survive, three corrected, **one retracted**.
+
+**RETRACTED — "Proven: Qwen3-30B-A3B generates correct text".** `qwen3moe` is not
+in `VERIFIED_ARCHITECTURES` and the model needs `--force`: its eight-prompt diff
+came back **1 FAIL**, a demonstrated near-tie where llama.cpp produces our exact
+answer under `-b 1`. The engine is probably right; the claim is not earned, in the
+same file that says only a diff counts. V4-Flash **is** verified and now carries
+that headline.
+
+**Corrected**: README said *13* architectures where the list has **14** (a test
+now enforces it — `core/arch/tests/documented_counts.rs`); the headline **31 tok/s
+on Qwen2-0.5B was the best of three, not the median** (28.33/27.30/31.32 → now 28,
+with the old numbers shown); and the install table had **no row for Intel Mac or
+ARM Linux** though both are published assets.
+
+**Survives, recomputed**: *165 of llama.cpp's 182 long flags implemented, 17
+declined, 0 unrecognised* is exactly right on build `daef2b3`. What was stale was
+the audit *node* (158/24), now fixed. **Three of my own recounts were wrong before
+they were right**, and every one disagreed with a documented number that turned
+out to be correct — the REFUSED table's line range, a regex that dropped
+multi-line tuples, and the tokenizer's BOS. When a crude recount disagrees with a
+number whose source says it was computed, suspect the recount.
+
+## The CLI became a tier: `chaos` is the front door (2026-08-28)
+
+Atur, twice: **the CLI must not be a lesser tier.** §3 of the plan listed seven
+items; **six are done and measured, one is declared not built.** Full account
+with the transcripts: `docs/graph/backlog/cli-first-class-tier.md`.
+
+**`chaos <subcommand>` is the front door, and every old binary name still
+works.** `chaos run` *is* `chaos-run`, arguments passed through untouched, so
+scripts, docs, the installer's file list and `asset_for_platform` all keep
+meaning what they meant. Nothing was renamed; a name was added.
+
+**The settings file is now shared, which was the plan's exact complaint** — *"the
+app has a settings file the CLI cannot read"*. `Settings` moved from `gui/app` to
+**`core/config`**, and `gui/app` re-exports it, so every `settings::` call site in
+the window is unchanged. `chaos start` builds the server's flags with
+`Settings::serve_args`, the same function the window calls, so there is no second
+list to drift.
+
+**Measured on a real node** (throwaway `USERPROFILE`, `Llama-3.2-1B`):
+
+| command | result |
+|---|---|
+| `chaos start Llama-3.2-1B` | pid 23660, reachable in ~1 s |
+| `chaos status` | model, route, context 2048, off-loopback false — **no curl** |
+| `chaos connect 127.0.0.1:8231 "Name one colour…"` | streamed `Red`, key from settings |
+| `chaos start` again | refuses: already running |
+| `chaos stop` / stale pid / no pid | stops; clears; says so. Exit codes distinct |
+
+**Two bugs the measurement caught.** `chaos start` reported success over a node
+that had already exited — it now waits 600 ms and prints the exit code and the
+log's tail. And the first liveness check was wrong on Windows in a way that looked
+right: **`OpenProcess` succeeds on an exited process while any handle is open**,
+and the parent held one, so `alive()` returned true for a dead child.
+`Child::try_wait` is authoritative; `alive()` now requires `STILL_ACTIVE`.
+
+**`chaos scan` is NOT BUILT and says so.** `core/qr` encodes only. Decoding a
+photograph is thresholding, finder detection, a perspective basis, de-masking and
+Reed-Solomon *correction*, and every stage fails by returning a plausible wrong
+string. The command is listed as `NOT BUILT` and names the two readers that work.
+
+**`chaos-qr` was in no ship list at all** — the brand tier claims it reaches a
+bare terminal and the binary was never packaged. It and `chaos` are now in the
+release workflow's three staging lists and in `make-linux-packages.sh`. **Not yet
+through a tag**, so no published archive contains them.
+
+**`cargo install --path cli/chaos` works, and needs no ggml**: the front door,
+the settings reader, the HTTP client and the JSON parser all build with
+`GGML_LIB_DIR` unset, and CI now checks all four. Completions generate for bash,
+zsh, fish and powershell from one list. **bash and powershell are sourced into
+their real shell and driven** — `chaos st` offers exactly `start stop status` in
+both, 17 verbs each. **zsh and fish are generated and never sourced**, because
+neither is installed here; that is the honest limit.
+
+## The secure-context question is decided (2026-08-28)
+
+§1 asked for a deliberate answer and got one: **accept the limit. The mark is
+universal; the reader is a phone feature.** No code changed — the page already
+fails with the reason, which is why this costs nothing. A self-signed certificate
+would put a security warning in front of a stranger's first contact with Chaos;
+`localhost`-only would make the reader work on the machine least likely to need
+it. `docs/graph/research/secure-context-decision-2026-08-28.md` has the reasoning
+and what would reopen it (a real iOS need, which is still unanswered).
+
+**`--emit-pages` has now run** for the first time, and its output is measured
+rather than trusted: `qr.html` 362,804 bytes and `scan.html` 228,348 bytes, with
+**0 `<link>`, 0 `src=`, 0 `@import`, 0 `fetch`/XHR, and 6 `@font-face` each, all
+as `data:` URIs**. The only `http` strings in either are an SVG namespace and the
+repository link, neither of which is a fetch.
+
+## CHAOS left the menu, and the mode moved to the rail (2026-08-28)
+
+Atur, on the fix above: *"why is the CHAOS option in the app's menu list? it is
+chosen the first time the app opens, and after that at the bottom left of the app
+we should show the mode + a CHANGE MODE button ... get accept after clicking
+CHANGE ... if not, stay in the current mode, because maybe the user already ran a
+model or gave it a prompt, and changing mode stops all current work"*.
+
+He was pointing at a real duplication: the mode was answered by the launch knob
+**and** offered again as a whole destination in the rail.
+
+- **CHAOS is no longer a rail page.** `nav::RAIL_PAGES` is the five a person
+  navigates to; `nav::PAGES` is still all six, because CHAOS still exists and
+  still owns controls. It is reached from the mode badge.
+- **The four ALONE/CORE/HELPER/CLIENT buttons are gone from the page.** The knob
+  answers the mode; the badge reports it. `Weight::Radio` went with them, since a
+  never-constructed variant is a `-D warnings` failure.
+- **The mode block sits at the bottom of the rail**: `ALONE` (the badge, which
+  opens the CHAOS page) over `CHANGE MODE`.
+- **Leaving a mode asks first, and so does Escape.** Escape has gone straight to
+  the knob since the knob existed, so one keystroke could unload a model and
+  clear a conversation with nothing asked. Both doors now call
+  `confirm_leaving_mode`, which names what will be lost — the loaded model, the
+  number of exchanges, an unsent prompt — and defaults to staying.
+- **CHAOS was fourth in `PAGES`, so removing it from the menu would have left
+  `Ctrl+4` dead while `Ctrl+5` and `Ctrl+6` worked.** It is last now, and the
+  rail's accelerators are a contiguous `Ctrl+1..5`.
+
+Measured on the real window, not reasoned about:
+
+| step | result |
+|---|---|
+| badge label | `ALONE` — upper case at the point of display, `alone` still in settings.txt |
+| press the badge | CHAT controls 4 → 0, CHAOS controls 0 → **5** |
+| CHANGE MODE | modal appears: *"Leave ALONE mode? … You will be taken back to the mode dial."* |
+| answer **No** | **5 controls still on-screen** — still in the mode, nothing stopped |
+| answer **Yes** | 8 → **0** on-screen: the knob owns the window |
+| RETURN | 8 back |
+
+`run-through.ps1` covers the new block and lists CHANGE MODE as blocking, since a
+modal stops the message loop the script drives.
+
+**The run-through reported a clean pass over the broken app**: 22 controls, worst
+blocking call 48.5 ms. It drives pages by `WM_COMMAND`, so it walked an app that
+had never left its launch screen. It now presses RETURN first and *stops* if no
+rail button is on-screen, and it covers the **CHAOS page**, which it never did.
+The two brand buttons have now been clicked for the first time — with no address
+set they correctly open nothing, 3.8 ms and 0.5 ms.
 
 **v0.0.21 verified from its own published files.** The APK was downloaded from
 the release and opened: `lib/arm64-v8a/libchaos_serve.so` (3,245,872 bytes — the
@@ -895,8 +1260,10 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **909 tests** (60 binaries, 0 failed, 33 ignored — the V4-Flash set
-needs the container, and the autoencoder set needs the 336 MB `flux2-vae`),
+**Current**: **942 tests** (0 failed, 42 ignored — the V4-Flash set
+needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
+measured 2026-08-28, and the ignored count was recorded as 33 while a run
+reported 42),
 clippy `--workspace --all-targets -D warnings` 0, fmt clean. **165 of llama.cpp's 182 long flags implemented, 17 declined with a
 written reason, 0 unrecognised** — counted from both binaries rather than by
 reading, which is the only way that number has ever been right.

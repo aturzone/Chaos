@@ -26,36 +26,11 @@ pub const fn rgb(r: u8, g: u8, b: u8) -> Rgb {
 }
 
 /// Which way round the palette runs.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Mode {
-    /// Hermes' default, and this app's: a light ground with near-black text.
-    Light,
-    Dark,
-}
-
-impl Mode {
-    pub fn toggled(self) -> Self {
-        match self {
-            Mode::Light => Mode::Dark,
-            Mode::Dark => Mode::Light,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Mode::Light => "light",
-            Mode::Dark => "dark",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "light" => Some(Mode::Light),
-            "dark" => Some(Mode::Dark),
-            _ => None,
-        }
-    }
-}
+///
+/// **Defined in `chaos-config`, because it is persisted.** `mode = light` is a
+/// line in the settings file, so its spelling and its parser live beside every
+/// other line's; the palette built from it is still this module's business.
+pub use chaos_config::Mode;
 
 /// Every colour the window may use.
 ///

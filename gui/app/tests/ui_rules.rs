@@ -265,6 +265,137 @@ fn controls_are_created_hidden_so_one_page_owns_the_screen() {
     );
 }
 
+/// **The knob owns the child windows, not just the paint.**
+///
+/// `WM_PAINT` returns after `paint_launch` while a mode is unchosen, but the
+/// controls are real HWNDs and painting the knob does not cover them. `WM_CREATE`
+/// calls `show_page(Page::Chat)` for the state it sets, so without a guard the
+/// window opens with the chat transcript, its composer, SEND, CLEAR, the whole
+/// rail and STOP floating over the launch screen -- which is what the installed
+/// v0.0.21 did, and what Atur reported on 2026-08-27.
+///
+/// Measured on 2026-08-28 against the installed build: 9 controls on-screen at
+/// open while ESC still did nothing, and ESC does nothing only when `launched`
+/// is false. `back_to_knob` hid them correctly on the way out; only the way in
+/// was wrong, so this asserts the guard is on the way in and that both routes
+/// hide through the same function.
+#[test]
+fn the_knob_owns_the_screen_before_a_mode_is_chosen() {
+    let src = main_rs();
+    let show = code_only(function_body(&src, "fn show_page("));
+
+    let guard = show
+        .find("!launched()")
+        .expect("show_page has no `!launched()` guard: the launch screen gets the page's controls on top of it");
+    let hide = show
+        .find("hide_every_control()")
+        .expect("show_page's guard does not hide the controls");
+    let first_show = show
+        .find("SW_SHOW")
+        .expect("show_page no longer shows anything");
+
+    assert!(
+        guard < first_show && hide < first_show,
+        "show_page reveals controls before checking whether a mode has been          chosen: guard at {guard}, hide at {hide}, first SW_SHOW at {first_show}"
+    );
+
+    // The guard has to leave, or it hides the controls and then shows them.
+    let ret = show[guard..]
+        .find("return")
+        .map(|i| i + guard)
+        .expect("show_page's guard does not return, so it falls through and shows the page anyway");
+    assert!(
+        ret < first_show,
+        "show_page's guard does not return before revealing the page"
+    );
+
+    // **One hider, not two.** These two disagreed once, and the route that was
+    // missing it was the one that ran at startup.
+    let back = code_only(function_body(&src, "unsafe fn back_to_knob("));
+    assert!(
+        back.contains("hide_every_control()"),
+        "back_to_knob hides controls its own way again; the two routes will drift"
+    );
+    assert!(
+        !back.contains("SW_HIDE"),
+        "back_to_knob still hides controls inline instead of through hide_every_control"
+    );
+}
+
+/// **The mode is shown in the rail and left only after a question.**
+///
+/// Atur, 2026-08-28: *"why is the CHAOS option in the app's menu list? it is
+/// chosen the first time the app opens, and after that at the bottom left of the
+/// app we should show the mode + a CHANGE MODE button ... get accept after
+/// clicking CHANGE ... if not, stay in the current mode, because maybe the user
+/// already ran a model or gave it a prompt, and changing mode stops all current
+/// work"*.
+///
+/// Three claims, each checkable: the badge is the CHAOS page's door, CHANGE MODE
+/// asks before leaving, and **Escape asks too** — it went straight to the knob
+/// from the day the knob existed, so one keystroke could unload a model with
+/// nothing asked.
+#[test]
+fn leaving_a_mode_asks_first_and_the_rail_says_which_mode() {
+    let src = main_rs();
+    let code = code_only(&src);
+
+    assert!(
+        code.contains("(nav::ID_MODE_BADGE, BN_CLICKED) => show_page(Page::Chaos)"),
+        "the mode badge is not the door to the CHAOS page, which now has no other"
+    );
+    assert!(
+        code.contains("fn confirm_leaving_mode()"),
+        "there is no confirmation before leaving a mode"
+    );
+
+    // Both doors out of a mode must go through the question. A bare
+    // `back_to_knob` reachable from either would be the bug this closes.
+    for door in ["(nav::ID_CHANGE_MODE, BN_CLICKED)", "VK_ESCAPE"] {
+        let at = code
+            .find(door)
+            .unwrap_or_else(|| panic!("{door} is no longer a way back to the knob"));
+        let after = &code[at..(at + 400).min(code.len())];
+        let asks = after.find("confirm_leaving_mode()");
+        let goes = after.find("back_to_knob");
+        assert!(
+            asks.is_some() && goes.is_some() && asks < goes,
+            "{door} reaches back_to_knob without asking first"
+        );
+    }
+
+    // The badge has to say something, and it has to be kept current.
+    assert!(
+        code.contains("fn sync_mode_badge()"),
+        "nothing keeps the mode badge's label current"
+    );
+    // Definition plus at least two call sites: once at startup and once where
+    // the role changes. A badge synced in only one of those goes stale on the
+    // other path.
+    assert!(
+        code.matches("sync_mode_badge()").count() >= 3,
+        "the mode badge is defined but not synced from both startup and pick_role"
+    );
+
+    // **The spelling in settings.txt is not the spelling in the rail.**
+    // `as_str` is what `Role::parse` reads back, so upper case belongs at the
+    // point of display and nowhere else.
+    for role in [
+        chaos_app::settings::Role::Alone,
+        chaos_app::settings::Role::Core,
+        chaos_app::settings::Role::Client,
+        chaos_app::settings::Role::Helper,
+    ] {
+        let f = role.as_str();
+        assert_eq!(f, f.to_lowercase(), "{role:?} is stored in mixed case");
+        assert_eq!(
+            chaos_app::settings::Role::parse(f),
+            Some(role),
+            "{role:?} does not round-trip through the file spelling"
+        );
+    }
+}
+
 /// Every command the window routes must exist as a function, or a button does
 /// nothing and says nothing.
 #[test]
@@ -506,15 +637,91 @@ fn a_rail_label_and_its_page_title_agree() {
     }
 }
 
-/// Chat is the home surface, so it is the page the window opens on.
+/// Chat is the home surface, so it is the page the window opens on -- for every
+/// mode that has one.
+///
+/// **A HELPER does not.** `pages_for(Helper)` is CHAOS/MONITOR/SETTINGS, so once
+/// the mode is remembered and the knob is skipped, opening on `Page::Chat` would
+/// raise a page the rail cannot reach. The window opens on the first *reachable*
+/// page, which is Chat for three modes out of four because `PAGES[0]` is Chat
+/// and `pages_for` preserves that order.
 #[test]
-fn the_window_opens_on_chat() {
+fn the_window_opens_on_the_first_page_the_mode_can_reach() {
     let src = main_rs();
     assert!(
-        src.contains("show_page(Page::Chat)"),
-        "the window does not open on Chat"
+        code_only(&src).contains("let startup_page = nav::pages_for(cfg.role)"),
+        "the window no longer opens on the mode's first reachable page"
     );
     assert_eq!(nav::PAGES[0], Page::Chat);
+    for role in [
+        chaos_app::settings::Role::Alone,
+        chaos_app::settings::Role::Core,
+        chaos_app::settings::Role::Client,
+    ] {
+        assert_eq!(
+            nav::pages_for(role).first().copied(),
+            Some(Page::Chat),
+            "{role:?} no longer opens on Chat"
+        );
+    }
+    // **A HELPER has no CHAT and, since CHAOS left the rail, no CHAOS either.**
+    // Its first rail page is MONITOR, and the startup page follows this rather
+    // than naming a page of its own.
+    assert_eq!(
+        nav::pages_for(chaos_app::settings::Role::Helper)
+            .first()
+            .copied(),
+        Some(Page::Monitor),
+        "a HELPER's first reachable page changed; the startup page follows it"
+    );
+    // And no mode may reach CHAOS through the rail: the mode badge is its door.
+    for role in [
+        chaos_app::settings::Role::Alone,
+        chaos_app::settings::Role::Core,
+        chaos_app::settings::Role::Client,
+        chaos_app::settings::Role::Helper,
+    ] {
+        assert!(
+            !nav::pages_for(role).contains(&Page::Chaos),
+            "{role:?} can reach CHAOS from the rail again"
+        );
+    }
+}
+
+/// **Asked once, then remembered**, which is what Atur chose on 2026-08-28 over
+/// asking on every launch. `role` cannot carry the answer because its default is
+/// a real role, so `mode_chosen` does, and it must survive the file or the
+/// window asks again every time.
+#[test]
+fn the_mode_is_asked_once_and_remembered() {
+    let src = main_rs();
+    assert!(
+        code_only(&src).contains("launched: cfg.mode_chosen"),
+        "the window no longer opens launched when the mode was already chosen"
+    );
+    assert!(
+        code_only(&src).contains("ui.cfg.mode_chosen = true"),
+        "answering the knob no longer records that the mode was chosen"
+    );
+
+    // Absent from an existing file means "never asked", so an upgrader is asked
+    // exactly once more rather than never or always.
+    assert!(
+        !Settings::parse("role = client\n").mode_chosen,
+        "a file with no mode_chosen key must read as never asked"
+    );
+    for (text, expect) in [
+        ("mode_chosen = true\n", true),
+        ("mode_chosen = false\n", false),
+    ] {
+        assert_eq!(Settings::parse(text).mode_chosen, expect, "{text:?}");
+    }
+    let mut s = Settings::default();
+    s.mode_chosen = true;
+    assert!(
+        Settings::parse(&s.render()).mode_chosen,
+        "mode_chosen does not survive a round trip through the file"
+    );
 }
 
 /// Nothing may be discovered by clicking: every settings row carries a hint,

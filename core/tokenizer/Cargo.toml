@@ -16,3 +16,10 @@ chaos-gguf = { path = "../../core/gguf" }
 
 [dev-dependencies]
 chaos-model = { path = "../../core/model" }
+
+# Times encode and decode, because §4a named the tokenizer as untouched ground
+# and nothing in the workspace measured it. Reads only a container's header, so
+# it needs no more than the parser this crate already depends on.
+[[bin]]
+name = "chaos-tokbench"
+path = "src/bin/chaos-tokbench.rs"

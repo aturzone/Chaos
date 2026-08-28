@@ -1,0 +1,20 @@
+# What Chaos remembers between runs, shared by the window and the command line.
+#
+# `Settings` used to live inside `gui/app`, which made `~/.chaos/settings.txt` a
+# file the app wrote and no CLI tool could read. Nothing in it was ever
+# graphical; it is here so both tiers read one file.
+#
+# **No dependencies, and nothing to compile but Rust** -- so this is one of the
+# crates CI builds without `GGML_LIB_DIR`.
+[package]
+name = "chaos-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "The Chaos settings file: one format, read by the window and the command line alike."
+
+[dependencies]

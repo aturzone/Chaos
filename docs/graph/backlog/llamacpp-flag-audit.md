@@ -12,6 +12,30 @@ $ llama-completion --help | grep -oE '\-\-[a-zA-Z0-9][a-zA-Z0-9-]*' | sort -u | 
 182
 ```
 
+## 2026-08-28 (§4b): recounted from both binaries — 165 / 17 / 0
+
+**The split below is stale; the total is not.** Recomputed against the same
+llama.cpp build (`daef2b3`, still 182 long flags):
+
+```
+llama-completion --help | grep -oE '\-\-[a-zA-Z0-9][a-zA-Z0-9-]*' | sort -u   # 182
+  intersected with chaos-run's REFUSED table (lines 1119-1217)                #  17 declined
+  named anywhere else in chaos-run                                            # 165 implemented
+  in neither                                                                  #   0
+```
+
+So **165 implemented, 17 declined, 0 unrecognised** — which is exactly what
+`STATUS.md` says, and the `158 / 24` below is what drifted. Seven flags moved
+from declined to implemented and the node was never updated.
+
+**Two failed recounts before the right one, both of which disagreed with
+STATUS.** The first took the REFUSED table as lines 1119-1200 when it ends at
+1217, and reported 168/14. The second used a regex that only matched a flag on
+the same line as its opening `(`, which silently dropped every multi-line tuple
+and reported 165/0/17 — the same 17 flags, counted as *unrecognised* rather than
+declined. **When a crude recount disagrees with a number whose source says it was
+computed, suspect the recount.**
+
 ## 2026-08-14: 182 of 182 recognised — and one of them was being eaten
 
 The count is now **computed from the two sources rather than tallied by hand**,

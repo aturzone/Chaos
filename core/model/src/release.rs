@@ -87,21 +87,52 @@ pub const LATEST_URL: &str = "https://api.github.com/repos/aturzone/Chaos/releas
 /// five: Windows x86_64, macOS on both arm64 and x86_64, and Linux on both
 /// x86_64 and arm64.
 pub fn asset_for_platform(version: &Version) -> String {
+    let os = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    // `arm64` rather than Rust's `aarch64`, because the asset names are what a
+    // person reads on the releases page.
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    asset_name(version, os, arch)
+}
+
+/// Every platform a release builds for, as `(os, arch)`.
+///
+/// **Here so the whole matrix can be checked on one machine.** The interesting
+/// failure is not "this host computes the wrong name" -- it is "the workflow
+/// renamed an asset and every installed copy stopped updating", and that cannot
+/// be caught by a test that only ever asks about the host it runs on.
+pub const PLATFORMS: &[(&str, &str)] = &[
+    ("windows", "x86_64"),
+    ("macos", "arm64"),
+    ("macos", "x86_64"),
+    ("linux", "x86_64"),
+    ("linux", "arm64"),
+];
+
+/// The asset name for a named platform, independent of the host.
+///
+/// **This function is a contract with every copy of Chaos ever installed.** An
+/// old build asks the feed for the name *it* computes, and nothing in a new
+/// release can teach it a different one. So renaming a release asset does not
+/// break the next update -- it breaks every update from every version already on
+/// a disk, silently, and the only symptom is "Chaos never tells me about new
+/// versions". `the_update_contract.rs` holds it to what the workflow publishes.
+pub fn asset_name(version: &Version, os: &str, arch: &str) -> String {
     let v = version.text();
-    // The names the release workflow's matrix produces. `arm64` rather than
-    // Rust's `aarch64`, because the asset names are what a person reads on the
-    // releases page.
-    let arm = cfg!(target_arch = "aarch64");
-    if cfg!(windows) {
+    match os {
         // One Windows build. When an arm64 one exists this needs the same
         // branch the others have.
-        format!("Chaos-v{v}-windows-x86_64-Setup.exe")
-    } else if cfg!(target_os = "macos") {
-        let arch = if arm { "arm64" } else { "x86_64" };
-        format!("Chaos-v{v}-macos-{arch}.tar.gz")
-    } else {
-        let arch = if arm { "arm64" } else { "x86_64" };
-        format!("Chaos-v{v}-linux-{arch}.tar.gz")
+        "windows" => format!("Chaos-v{v}-windows-x86_64-Setup.exe"),
+        other => format!("Chaos-v{v}-{other}-{arch}.tar.gz"),
     }
 }
 

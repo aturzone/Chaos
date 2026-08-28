@@ -110,6 +110,14 @@ fn main() {
         "connect" => connect(rest),
         "config" => config(),
         "verify" => verify(rest),
+        // Delegated rather than reimplemented: `chaos-run --update` already
+        // checks the feed, asks, downloads, refuses a file too small to be an
+        // installer, and exits so Windows can replace the running binary.
+        "update" => {
+            let mut args = vec!["--update".to_string()];
+            args.extend_from_slice(rest);
+            pass_through("chaos-run", &args)
+        }
         "scan" => {
             // Not a failure of this invocation -- it is a feature that does not
             // exist, and the message is the deliverable.

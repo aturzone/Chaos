@@ -23,6 +23,59 @@ fn read(name: &str) -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
 }
 
+/// Every binary target in the workspace.
+///
+/// **Cargo finds binaries two ways and this used to look for only one.** A
+/// `[[bin]]` section in a manifest is the explicit way; any `src/bin/*.rs` is a
+/// binary too, with no declaration anywhere. `chaos-qdbench` and
+/// `chaos-membench` are both of the second kind, so a scan of the manifests
+/// reported nineteen binaries for a workspace that had twenty-one -- and both
+/// missing ones were invisible to the ship-list check below for the same reason.
+///
+/// They are not incidental binaries either: `chaos-membench` measured this
+/// machine at 30.8 GiB/s and `chaos-qdbench` measured queue depth at 2.55x, and
+/// those two numbers are what the whole 5 tok/s argument rests on. They shipped
+/// nowhere, so nobody on a bigger machine could reproduce either one.
+fn bin_targets() -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for bucket in ["core", "cli", "gui", "network", "android"] {
+        let Ok(entries) = std::fs::read_dir(root().join(bucket)) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            // The declared kind.
+            if let Ok(text) = std::fs::read_to_string(e.path().join("Cargo.toml")) {
+                let mut in_bin = false;
+                for line in text.lines() {
+                    let t = line.trim();
+                    if t == "[[bin]]" {
+                        in_bin = true;
+                    } else if t.starts_with(char::from(91)) && t != "[[bin]]" {
+                        in_bin = false;
+                    } else if in_bin {
+                        if let Some(rest) = t.strip_prefix("name = ") {
+                            out.insert(rest.trim_matches(char::from(34)).to_string());
+                            in_bin = false;
+                        }
+                    }
+                }
+            }
+            // And the discovered kind.
+            if let Ok(bins) = std::fs::read_dir(e.path().join("src").join("bin")) {
+                for b in bins.flatten() {
+                    let path = b.path();
+                    if path.extension().and_then(|x| x.to_str()) == Some("rs") {
+                        if let Some(stem) = path.file_stem().and_then(|x| x.to_str()) {
+                            out.insert(stem.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// **The verified-architecture count in the README is the list's real length.**
 ///
 /// The README's sentence is the one a reader believes, and it is the one that
@@ -60,35 +113,8 @@ fn the_readme_quotes_the_real_number_of_verified_architectures() {
 /// lives.
 #[test]
 fn claude_md_quotes_the_real_number_of_binaries() {
-    let mut n = 0usize;
-    let mut names = Vec::new();
-    for bucket in ["core", "cli", "gui", "network", "android"] {
-        let dir = root().join(bucket);
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for e in entries.flatten() {
-            let manifest = e.path().join("Cargo.toml");
-            let Ok(text) = std::fs::read_to_string(&manifest) else {
-                continue;
-            };
-            let mut in_bin = false;
-            for line in text.lines() {
-                let t = line.trim();
-                if t == "[[bin]]" {
-                    in_bin = true;
-                } else if t.starts_with('[') && t != "[[bin]]" {
-                    in_bin = false;
-                } else if in_bin {
-                    if let Some(rest) = t.strip_prefix("name = ") {
-                        names.push(rest.trim_matches('"').to_string());
-                        n += 1;
-                        in_bin = false;
-                    }
-                }
-            }
-        }
-    }
+    let names: Vec<String> = bin_targets().into_iter().collect();
+    let n = names.len();
     assert!(
         n > 10,
         "found only {n} binaries, so the walk is wrong, not the docs"
@@ -151,32 +177,8 @@ fn the_ship_lists_agree_and_name_binaries_that_exist() {
         lists.len()
     );
 
-    // Every name must be a real [[bin]] target.
-    let mut real = std::collections::HashSet::new();
-    for bucket in ["core", "cli", "gui", "network", "android"] {
-        let Ok(entries) = std::fs::read_dir(root().join(bucket)) else {
-            continue;
-        };
-        for e in entries.flatten() {
-            let Ok(text) = std::fs::read_to_string(e.path().join("Cargo.toml")) else {
-                continue;
-            };
-            let mut in_bin = false;
-            for line in text.lines() {
-                let t = line.trim();
-                if t == "[[bin]]" {
-                    in_bin = true;
-                } else if t.starts_with('[') && t != "[[bin]]" {
-                    in_bin = false;
-                } else if in_bin {
-                    if let Some(rest) = t.strip_prefix("name = ") {
-                        real.insert(rest.trim_matches('"').to_string());
-                        in_bin = false;
-                    }
-                }
-            }
-        }
-    }
+    // Every name must be a real binary target, declared or discovered.
+    let real = bin_targets();
     for (i, list) in lists.iter().enumerate() {
         for name in list {
             assert!(
@@ -242,4 +244,86 @@ fn the_verified_list_is_a_set_of_plain_names() {
             "{a:?} has whitespace, so it can never match an architecture string"
         );
     }
+}
+
+/// **Every binary the workspace builds reaches every platform a release ships.**
+///
+/// The other direction, and the one that was missing. `the_ship_lists_agree...`
+/// checks that each name in a list is a real binary; nothing checked that each
+/// real binary is in a list. So `chaos-qdbench` and `chaos-membench` were built
+/// by CI, tested by CI, and shipped nowhere -- and *the Linux packages were also
+/// missing `chaos-draw` and `chaos-worker`*, which no test noticed because
+/// `make-linux-packages.sh` was not read by one.
+///
+/// **`a binary in no ship list does not exist`** is already a rule in CLAUDE.md,
+/// bought by `chaos-qr`. This is the mechanism for it.
+#[test]
+fn every_binary_reaches_every_platform() {
+    // `chaos-setup` is the Windows installer. It is staged into the Windows
+    // archive by name, beside the loop, and copied out as the advertised
+    // `-Setup.exe` asset -- so it is deliberately in no `for b in` list, and it
+    // does not exist on Unix at all.
+    let staged_by_name: std::collections::HashSet<&str> = ["chaos-setup"].into_iter().collect();
+    // `chaos-app` is the raw-Win32 window; there is no Unix build of it. It is
+    // in the Linux package list because the script tolerates a missing file, and
+    // that is the script being forgiving rather than a claim it exists.
+    let windows_only: std::collections::HashSet<&str> = ["chaos-app"].into_iter().collect();
+
+    let mut missing: Vec<String> = Vec::new();
+
+    let yml = read(".github/workflows/release.yml");
+    let mut loops = 0usize;
+    for line in yml.lines() {
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix("for b in ") else {
+            continue;
+        };
+        let names: std::collections::HashSet<&str> =
+            rest.trim_end_matches("; do").split_whitespace().collect();
+        if names.len() <= 3 {
+            continue;
+        }
+        loops += 1;
+        for b in bin_targets() {
+            if staged_by_name.contains(b.as_str()) || windows_only.contains(b.as_str()) {
+                continue;
+            }
+            if !names.contains(b.as_str()) {
+                missing.push(format!("release.yml staging loop {loops} omits {b}"));
+            }
+        }
+    }
+    assert_eq!(loops, 3, "expected three staging loops, found {loops}");
+
+    // The Linux packages, which no test had ever read.
+    let sh = read("scripts/make-linux-packages.sh");
+    let bins_line = sh
+        .lines()
+        .find(|l| l.trim_start().starts_with("BINS="))
+        .expect("make-linux-packages.sh has no BINS= line");
+    let packaged: std::collections::HashSet<&str> = bins_line
+        .trim_start()
+        .trim_start_matches("BINS=")
+        .trim_matches(char::from(34))
+        .split_whitespace()
+        .collect();
+    for b in bin_targets() {
+        if staged_by_name.contains(b.as_str()) {
+            continue;
+        }
+        if !packaged.contains(b.as_str()) {
+            missing.push(format!("make-linux-packages.sh omits {b}"));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "these binaries are built and shipped nowhere:{}{}",
+        nl_sep(),
+        missing.join(&nl_sep())
+    );
+}
+
+fn nl_sep() -> String {
+    String::from(char::from(10)) + "  - "
 }

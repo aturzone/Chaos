@@ -64,6 +64,43 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## §4 IS COMPLETE: §4g done (2026-08-28)
+
+**§4g — the seven things nobody asked for**
+(`research/4g-not-asked-for-2026-08-28.md`). Two real gaps fixed, three already
+sound and now measured, two decisions left with Atur.
+
+**"No telemetry" was true and stated nowhere.** The only occurrence of the word in
+the entire repository was the plan asking for it — in the one project whose
+headline property is that it downloads nothing. Now in the README and a new
+`SECURITY.md` section, along with the single exception: the window's update check
+against a static JSON file, which `CHAOS_NO_UPDATE_CHECK` disables.
+
+**The node's exposure, measured and documented.** With a key set, an
+unauthenticated caller gets **401 on `/v1/*`** and **200 on `/status`, `/health`
+and `/qr`** — so on a `0.0.0.0` binding anyone reachable learns the model name,
+its context size and the node's route. **Decision: leave them open, and say so** —
+they are how a device discovers a node, and gating `/status` would break
+`chaos status` against a remote node, which sends no key on that request.
+`SECURITY.md` now carries the exact payloads.
+
+**The SBOM question is answered by a fact**: `Cargo.lock` has **22 packages and
+all 22 are crates in this repository**. Zero third-party dependencies.
+
+**Not reproducible, by one line**: CI does `git clone --depth 1` of llama.cpp, so
+it builds against whatever `master` is that day. Pinning the commit is the gap
+between "builds" and "reproducible" — left as Atur's call.
+
+**Accessibility**: the brand pages honour `prefers-reduced-motion` and carry
+`aria-*` and `role=`, and every assembled page has `lang`. The window is
+keyboard-reachable — every button goes through one helper that passes
+`WS_TABSTOP` — but **there is no contrast audit and no screen-reader story**, since
+owner-draw controls paint text no accessibility API is told about.
+
+**Upgrade**: adjacent versions are verified end to end; a long jump from 0.0.2 is
+not. The mechanism is sound and tested — unknown settings keys are preserved on
+write, so an old build cannot destroy a new build's preferences.
+
 ## §4f of the analysis is done (2026-08-28)
 
 **§4f — open-source readiness**

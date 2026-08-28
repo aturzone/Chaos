@@ -54,6 +54,13 @@ From an archive, copy the binaries yourself:
 sudo install -m 755 Chaos-*/chaos-* /usr/local/bin/ && mkdir -p ~/.chaos/models
 ```
 
+**No telemetry.** Chaos sends nothing anywhere: no analytics, no crash
+reporting, and no phoning home. The one request it makes on its own is the
+window's update check against a static JSON file, which `CHAOS_NO_UPDATE_CHECK`
+turns off. `Cargo.lock` has **22 packages and all 22 are crates in this
+repository** — there is no third-party dependency to audit. `SECURITY.md` records
+what a running node *does* expose, measured.
+
 **The window is Windows-only.** `chaos-app` is written against Win32, so the
 Linux and macOS builds are the command-line tools -- `chaos-run`, `chaos-serve`,
 `chaos-probe`, `chaos-pull`, `chaos-draw` and the rest. `chaos-serve` speaks the OpenAI API, so

@@ -3,7 +3,7 @@ name: CI
 # Chaos links against a prebuilt ggml. Rather than vendor it, each job builds
 # ggml from llama.cpp and points GGML_LIB_DIR at the result — the same steps a
 # contributor follows by hand, so a green CI means the documented steps work.
-#
+  #
 # Linux and macOS have never been executed at runtime. These jobs are the first
 # thing that will tell us whether the per-platform direct-I/O paths compile and
 # whether the unit tests pass there.
@@ -17,6 +17,18 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # **The ggml source is pinned, so a green run means something tomorrow.**
+  #
+  # This used to be `git clone --depth 1`, which takes whatever llama.cpp's master
+  # happens to be that day -- so "CI was green" was a statement about an unknown
+  # commit, and a build that broke overnight was indistinguishable from one we
+  # broke ourselves. 4g named it as the one line between "builds" and
+  # "reproducible".
+  #
+  # Bumping this is a deliberate act: change the SHA, watch CI, and if the
+  # arithmetic moves, VERIFIED_ARCHITECTURES is what says so. It also keys the
+  # ggml cache, which is keyed on this file's hash.
+  LLAMACPP_COMMIT: 90c26fcd4b2114b4aa39d09d69318cb8f438d27a
   RUST_BACKTRACE: 1
 
 concurrency:
@@ -129,7 +141,13 @@ jobs:
         if: runner.os == 'Windows' && steps.ggml-cache.outputs.cache-hit != 'true'
         shell: msys2 {0}
         run: |
-          git clone --depth 1 https://github.com/ggml-org/llama.cpp
+          git init llama.cpp
+          cd llama.cpp
+          git remote add origin https://github.com/ggml-org/llama.cpp
+          # A single commit, not a branch: GitHub serves an exact SHA.
+          git fetch --depth 1 origin "$LLAMACPP_COMMIT"
+          git checkout --detach FETCH_HEAD
+          cd -
           cmake -S llama.cpp -B llama.cpp/build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DBUILD_SHARED_LIBS=OFF             -DLLAMA_BUILD_TESTS=OFF             -DLLAMA_BUILD_EXAMPLES=OFF             -DLLAMA_BUILD_SERVER=OFF             -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
           cmake --build llama.cpp/build --target ggml ggml-base ggml-cpu -j
           mkdir -p ggml-libs
@@ -155,7 +173,13 @@ jobs:
         if: runner.os != 'Windows' && steps.ggml-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/ggml-org/llama.cpp
+          git init llama.cpp
+          cd llama.cpp
+          git remote add origin https://github.com/ggml-org/llama.cpp
+          # A single commit, not a branch: GitHub serves an exact SHA.
+          git fetch --depth 1 origin "$LLAMACPP_COMMIT"
+          git checkout --detach FETCH_HEAD
+          cd -
           cmake -S llama.cpp -B llama.cpp/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \

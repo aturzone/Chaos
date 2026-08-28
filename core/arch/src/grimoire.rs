@@ -43,6 +43,22 @@ pub const SCRY: &str = include_str!("../../../assets/grimoire/scanner.html");
 /// Cinzel, IBM Plex Mono and UnifrakturMaguntia, latin subsets, base64 WOFF2.
 pub const FONTS: &str = include_str!("../../../assets/grimoire/fonts.css");
 
+/// The fonts' attribution, carried in every assembled page.
+///
+/// **The OFL requires the notice to be preserved with the font**, and these
+/// fonts are embedded in the page itself. Kept short deliberately: the full
+/// licence is in `assets/grimoire/fonts/NOTICE` and in the root `NOTICE` that
+/// ships in every archive, and a page is not the place for 4,000 words of it.
+pub const FONT_NOTICE: &str = concat!(
+    "<!--\n",
+    "Fonts embedded in this page, under the SIL Open Font License 1.1:\n",
+    "  Cinzel - Copyright 2020 The Cinzel Project Authors\n",
+    "  IBM Plex Mono - Copyright (c) 2017 IBM Corp. with Reserved Font Name \"Plex\"\n",
+    "  UnifrakturMaguntia - Copyright (c) 2010 j. 'mach' wust; (c) 2009 Peter Wiegel\n",
+    "Full text: assets/grimoire/fonts/NOTICE in the Chaos repository.\n",
+    "-->\n",
+);
+
 /// Which of the two pages to build.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
@@ -98,7 +114,15 @@ pub fn page(which: Page, host: Host<'_>) -> String {
         "<meta name=\"color-scheme\" content=\"light dark\">\n",
         "<title>",
         &title,
-        "</title>\n<style>\n",
+        "</title>\n",
+        // **The fonts travel in this page, so their licence must travel
+        // with them.** All three are SIL Open Font License 1.1, embedded as
+        // base64 rather than linked, and the OFL requires the copyright
+        // notices to be preserved with the font. §4f found them attributed
+        // nowhere a user receives: not in the shipped root NOTICE (fixed)
+        // and not here.
+        FONT_NOTICE,
+        "<style>\n",
         FONTS,
         "</style>\n",
         &inject,
@@ -232,6 +256,43 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    /// **The fonts are embedded, so their licence must be embedded with them.**
+    ///
+    /// All three are SIL Open Font License 1.1, which requires the copyright
+    /// notice to be preserved with the font. §4f found them attributed nowhere a
+    /// user actually receives: not in the root `NOTICE` that ships in every
+    /// archive, and not in the page that carries the font bytes. The root NOTICE
+    /// is fixed; this is the half a minifier or a refactor could silently drop.
+    #[test]
+    fn every_page_carries_the_fonts_licence() {
+        for page in [Page::Mark, Page::Scry] {
+            let html = super::page(
+                page,
+                Host {
+                    endpoint: Some("http://127.0.0.1:8080"),
+                    theme: None,
+                },
+            );
+            assert!(
+                html.contains("SIL Open Font License"),
+                "{page:?} embeds the fonts and does not name their licence"
+            );
+            for holder in ["Cinzel", "IBM Corp", "wust", "Wiegel"] {
+                assert!(
+                    html.contains(holder),
+                    "{page:?} does not carry the {holder} copyright notice"
+                );
+            }
+            // Before the fonts, so it is read as belonging to them.
+            let notice = html.find("SIL Open Font License").unwrap();
+            let fonts = html.find("@font-face").unwrap_or(usize::MAX);
+            assert!(
+                notice < fonts,
+                "{page:?} states the licence after the fonts it covers"
+            );
+        }
     }
 
     #[test]

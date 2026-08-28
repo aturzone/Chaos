@@ -64,6 +64,41 @@ candidates were eliminated first and cheaply: exactly one top-level
 `ChaosAppWindow`, and no duplicate control ids among 56 children.
 `run-through.ps1` had the same bug in its `TextOf` and now sends `WM_GETTEXT`.
 
+## §4f of the analysis is done (2026-08-28)
+
+**§4f — open-source readiness**
+(`research/4f-open-source-readiness-2026-08-28.md`). The plan pointed straight at
+the one real problem and everything else was already in place.
+
+**The embedded fonts were attributed nowhere a user receives.** Cinzel, IBM Plex
+Mono and UnifrakturMaguntia are OFL 1.1, embedded as base64 in every build and in
+every page served at `/qr` and `/scan`. The root `NOTICE` that ships in every
+archive had **0 mentions** of any of them; the assembled page had **0 occurrences
+of "Copyright"**. The attributions existed in `assets/grimoire/fonts/NOTICE` — a
+file the release workflow does not copy. **Fixed in both places**, with a test
+(`every_page_carries_the_fonts_licence`) asserting each page names the licence and
+all four copyright holders *before* the first `@font-face`. The pages still fetch
+nothing.
+
+**A false lead worth remembering**: grepping the page for `OFL` found six matches
+and looked like compliance. They were three letters occurring by chance inside
+megabytes of base64 font data. `Copyright` returned zero. **A substring match on
+base64 is not evidence.**
+
+Also fixed: the root `NOTICE` described ggml's FFI as `crates/chaos-ggml`, twice.
+That directory does not exist — the same `crates/` hazard §4c warns about, sitting
+in the one file whose job is to be legally accurate.
+
+**Already in place, verified**: Apache-2.0; ggml MIT and linked rather than
+vendored; no weights distributed; CONTRIBUTING, issue templates and a PR template
+present; the README's build steps *are* CI's steps; **`ci.yml` references
+`secrets.` zero times so a fork's PR gets the full matrix**; and **0 commits in
+history contain the token**.
+
+**Left open for Atur**: whether the OFL's full 4,000 words should ship in the root
+`NOTICE` rather than being pointed at, and nobody has run `strip` and re-read a
+served page.
+
 ## §4e of the analysis is done (2026-08-28)
 
 **§4e — production readiness** (`research/4e-production-readiness-2026-08-28.md`).
@@ -1188,7 +1223,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **941 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **942 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

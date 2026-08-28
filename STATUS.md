@@ -26,12 +26,28 @@ false. Guard added inside `show_page` so every route in is covered, hiding share
 with `back_to_knob`, and a regression test asserts the guard precedes the first
 `SW_SHOW`.
 
-**The plan's §0b description was stale**, and this is the answer to its third
+**The plan's §0b description was stale**, and this answers its third
 deliverable: the desktop already asks the mode once, on a launch screen
 (`paint_launch`, `knob.rs`), exactly like the phone. It just did not own the
-window. What is left is a *decision* for Atur, not a defect: the knob is shown on
-**every** launch, because `launched` starts `false` and nothing consults the
-already-saved `role`.
+window.
+
+**Decided by Atur on 2026-08-28: asked once, then remembered.** The knob showed
+on every launch because `launched` started `false` and nothing consulted the
+saved `role`. It now starts from a new `mode_chosen` setting — `role` cannot
+carry that answer, because its default is a real role and a machine nobody asked
+reads the same as one whose owner chose ALONE. ESC still returns to the knob, so
+remembering is not a trap. Measured on the real window:
+
+| launch | `mode_chosen` | controls on-screen at open | |
+|---|---|---|---|
+| first | absent | **0** — the knob has the window | RETURN enters, and the file gains `mode_chosen = true` |
+| second | `true` | **9** — straight into the saved mode | ESC still goes back to the knob |
+
+**An existing settings.txt has no `mode_chosen` key, so everyone upgrading is
+asked exactly once more and then remembered.** That is the intended migration.
+The window also now opens on the first page the mode can *reach*, not on CHAT
+unconditionally — `pages_for(Helper)` has no CHAT, so a remembered HELPER would
+otherwise have raised a page its own rail cannot reach.
 
 **OPEN, and not caused by the fix — the installed v0.0.21 does it too.** The
 CHAOS page arrives **blank**: `ID_CORE_ADDR`, `ID_CORE_KEY` and
@@ -929,7 +945,7 @@ and document was renamed on 2026-08-16 — `bigtea-run` is `chaos-run`,
 remote is deliberately unchanged; Atur renames the repository himself, at which
 point the `repository`/`homepage` URLs and the CI badge start resolving.
 
-**Current**: **910 tests** (0 failed, 42 ignored — the V4-Flash set
+**Current**: **911 tests** (0 failed, 42 ignored — the V4-Flash set
 needs the container, and the autoencoder set needs the 336 MB `flux2-vae`;
 measured 2026-08-28, and the ignored count was recorded as 33 while a run
 reported 42),

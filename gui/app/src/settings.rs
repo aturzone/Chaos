@@ -49,6 +49,17 @@ pub struct Settings {
     pub api_key: Option<String>,
     /// What this machine is to the other machines. See [`Role`].
     pub role: Role,
+    /// Whether the mode has ever been chosen on the launch screen.
+    ///
+    /// **`role` cannot answer this**, because its default is a real role: a
+    /// machine nobody has asked and a machine whose owner chose ALONE both read
+    /// `role = alone`. Atur, on the window asking every time: *"mode selection
+    /// happens once and you enter that mode"* -- so the knob is shown until this
+    /// is true, and not again unless ESC brings it back.
+    ///
+    /// Absent from an existing file, so anyone upgrading is asked exactly once
+    /// more and then remembered. That is the intended migration, not a bug.
+    pub mode_chosen: bool,
     /// The CORE this device talks to, as `host:port`, when it is not one.
     pub core_addr: Option<String>,
     /// The key that CORE wants.
@@ -195,6 +206,7 @@ impl Default for Settings {
             mode: Mode::Light,
             api_key: None,
             role: Role::Alone,
+            mode_chosen: false,
             core_addr: None,
             core_key: None,
             unknown: BTreeMap::new(),
@@ -239,6 +251,7 @@ impl Settings {
                 "mode" => s.mode = Mode::parse(v).unwrap_or(s.mode),
                 "api_key" => s.api_key = (!v.is_empty()).then(|| v.to_string()),
                 "role" => s.role = Role::parse(v).unwrap_or(s.role),
+                "mode_chosen" => s.mode_chosen = truthy(v),
                 "core_addr" => s.core_addr = (!v.is_empty()).then(|| v.to_string()),
                 "core_key" => s.core_key = (!v.is_empty()).then(|| v.to_string()),
                 _ => {
@@ -273,6 +286,7 @@ impl Settings {
         out.push_str(&format!("mode = {}\n", self.mode.as_str()));
         out.push_str(&opt("api_key", self.api_key.clone()));
         out.push_str(&format!("role = {}\n", self.role.as_str()));
+        out.push_str(&format!("mode_chosen = {}\n", self.mode_chosen));
         out.push_str(&opt("core_addr", self.core_addr.clone()));
         out.push_str(&opt("core_key", self.core_key.clone()));
         for (k, v) in &self.unknown {

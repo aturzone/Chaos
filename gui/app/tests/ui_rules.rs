@@ -563,15 +563,76 @@ fn a_rail_label_and_its_page_title_agree() {
     }
 }
 
-/// Chat is the home surface, so it is the page the window opens on.
+/// Chat is the home surface, so it is the page the window opens on -- for every
+/// mode that has one.
+///
+/// **A HELPER does not.** `pages_for(Helper)` is CHAOS/MONITOR/SETTINGS, so once
+/// the mode is remembered and the knob is skipped, opening on `Page::Chat` would
+/// raise a page the rail cannot reach. The window opens on the first *reachable*
+/// page, which is Chat for three modes out of four because `PAGES[0]` is Chat
+/// and `pages_for` preserves that order.
 #[test]
-fn the_window_opens_on_chat() {
+fn the_window_opens_on_the_first_page_the_mode_can_reach() {
     let src = main_rs();
     assert!(
-        src.contains("show_page(Page::Chat)"),
-        "the window does not open on Chat"
+        code_only(&src).contains("let startup_page = nav::pages_for(cfg.role)"),
+        "the window no longer opens on the mode's first reachable page"
     );
     assert_eq!(nav::PAGES[0], Page::Chat);
+    for role in [
+        chaos_app::settings::Role::Alone,
+        chaos_app::settings::Role::Core,
+        chaos_app::settings::Role::Client,
+    ] {
+        assert_eq!(
+            nav::pages_for(role).first().copied(),
+            Some(Page::Chat),
+            "{role:?} no longer opens on Chat"
+        );
+    }
+    assert_eq!(
+        nav::pages_for(chaos_app::settings::Role::Helper)
+            .first()
+            .copied(),
+        Some(Page::Chaos),
+        "a HELPER's first reachable page changed; the startup page follows it"
+    );
+}
+
+/// **Asked once, then remembered**, which is what Atur chose on 2026-08-28 over
+/// asking on every launch. `role` cannot carry the answer because its default is
+/// a real role, so `mode_chosen` does, and it must survive the file or the
+/// window asks again every time.
+#[test]
+fn the_mode_is_asked_once_and_remembered() {
+    let src = main_rs();
+    assert!(
+        code_only(&src).contains("launched: cfg.mode_chosen"),
+        "the window no longer opens launched when the mode was already chosen"
+    );
+    assert!(
+        code_only(&src).contains("ui.cfg.mode_chosen = true"),
+        "answering the knob no longer records that the mode was chosen"
+    );
+
+    // Absent from an existing file means "never asked", so an upgrader is asked
+    // exactly once more rather than never or always.
+    assert!(
+        !Settings::parse("role = client\n").mode_chosen,
+        "a file with no mode_chosen key must read as never asked"
+    );
+    for (text, expect) in [
+        ("mode_chosen = true\n", true),
+        ("mode_chosen = false\n", false),
+    ] {
+        assert_eq!(Settings::parse(text).mode_chosen, expect, "{text:?}");
+    }
+    let mut s = Settings::default();
+    s.mode_chosen = true;
+    assert!(
+        Settings::parse(&s.render()).mode_chosen,
+        "mode_chosen does not survive a round trip through the file"
+    );
 }
 
 /// Nothing may be discovered by clicking: every settings row carries a hint,

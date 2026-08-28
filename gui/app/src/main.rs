@@ -524,12 +524,24 @@ mod windows_app {
             // somewhere for it to go.
             tray_add(hwnd, hinst);
 
+            // Taken before `cfg` is moved into `build_controls`.
+            let startup_page = nav::pages_for(cfg.role)
+                .first()
+                .copied()
+                .unwrap_or(Page::Chat);
             build_controls(hwnd, hinst, cfg);
             build_menu(hwnd);
             sync_titlebar();
             fill_settings_page();
             fill_image_page();
-            show_page(Page::Chat);
+            // **Chat is home, but not every mode has one.** `pages_for(Helper)`
+            // is CHAOS/MONITOR/SETTINGS, so opening a remembered HELPER on
+            // `Page::Chat` would put a page's controls up that the rail cannot
+            // reach -- the same class of mismatch as the knob painted under the
+            // shell, arriving by the other door. `launch()` already lands on a
+            // reachable page when the knob is answered; this is that rule
+            // applied to the launch that skips the knob.
+            show_page(startup_page);
             SetTimer(hwnd, TIMER_ID, TICK_MS, 0);
             SetTimer(hwnd, SPLASH_TIMER, SPLASH_MS, 0);
 
@@ -1075,7 +1087,13 @@ mod windows_app {
                 total_bytes: total_memory_bytes(),
                 splash: Some(std::time::Instant::now()),
                 // A fresh install starts on ALONE, which is the left stop.
-                launched: false,
+                // **Asked once, then remembered.** Atur, 2026-08-28, choosing
+                // between asking every launch and asking once: *"mode selection
+                // happens once and you enter that mode"*. `role` alone cannot
+                // decide this -- its default is a real role -- so
+                // `mode_chosen` carries the answer. ESC is still the way back
+                // to the knob, so remembering is not a trap.
+                launched: cfg.mode_chosen,
                 knob_angle: chaos_app::knob::angle_of(cfg.role),
                 knob_held: false,
                 server: None,
@@ -3530,6 +3548,14 @@ Any value a client sends is accepted.                      The server still list
         UI.with(|u| {
             if let Some(ui) = u.borrow_mut().as_mut() {
                 ui.launched = true;
+                // Answered, so the next launch goes straight in. Saved here
+                // rather than in `pick_role`, which returns early when the mode
+                // picked is the one already stored -- and that early return is
+                // exactly the common case of accepting the remembered mode.
+                if !ui.cfg.mode_chosen {
+                    ui.cfg.mode_chosen = true;
+                    let _ = ui.cfg.save();
+                }
                 // Land on a page this mode actually has. A HELPER has no chat,
                 // and starting it on one would be a blank screen.
                 let pages = nav::pages_for(role);

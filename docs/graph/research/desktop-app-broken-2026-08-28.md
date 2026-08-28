@@ -30,6 +30,22 @@ So the answer to §0b's third deliverable — "decide, and write down, when the
 desktop asks for a mode" — is that it already asks at launch. What it did *not*
 do is give that screen the window.
 
+**The remaining decision, made by Atur on 2026-08-28: asked once, then
+remembered.** The knob showed on every launch because `launched` started `false`
+and nothing consulted the saved `role`. A new `mode_chosen` setting carries the
+answer — `role` cannot, because its default is a real role, so a machine nobody
+asked reads identically to one whose owner chose ALONE. Measured on the real
+window: first launch 0 controls on-screen and the file gains `mode_chosen =
+true`; second launch 9 controls, straight into the saved mode; ESC returns to the
+knob in both. An existing settings.txt has no such key, so everyone upgrading is
+asked exactly once more — the intended migration, not a bug.
+
+That change forced a second one. The window opened on `Page::Chat`
+unconditionally, and `pages_for(Helper)` has no CHAT — so a *remembered* HELPER
+would have opened a page its own rail cannot reach, the same mismatch as the knob
+under the shell arriving by the other door. Startup now takes the first page the
+mode can reach, which is CHAT for three modes of four.
+
 ## Defect 1 — the knob was painted underneath the running application
 
 **Fixed.** `WM_CREATE` ends with `show_page(Page::Chat)` (main.rs:532), which

@@ -25,7 +25,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once.
-cargo test --release          # 910 tests
+cargo test --release          # 911 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -168,8 +168,9 @@ carried end to end with models byte-identical. STATUS.md has the bytes.
 knob was painted *underneath* nine live child HWNDs at startup — 9 controls
 on-screen at open, 0 after. **Still open**: the CHAOS page arrives blank
 (address, key and guidance all empty, in the installed v0.0.21 too), proven by a
-marker that survived navigation, **cause not identified**. A decision for Atur is
-also open: the knob is shown on every launch, never consulting the saved `role`.
+marker that survived navigation, **cause not identified**. Atur decided the mode
+is **asked once then remembered** (`mode_chosen`), and startup now opens the
+first page the mode can *reach* — a HELPER has no CHAT.
 
 `STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue. Both
 are more current than this file — take a number from them, not from here.

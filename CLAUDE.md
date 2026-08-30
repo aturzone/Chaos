@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 953 tests
+cargo test --release          # 959 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -98,12 +98,17 @@ benchmark or an inspector belongs beside the crate it measures, and `chaos probe
 reaches it without anyone knowing where it lives. Two stated rules collide here
 and this is the resolution (§4c).
 
-**Nineteen binaries, not five** — also `chaos-pull` (fetch a model),
-`chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and five benchmarks;
-`grep '^name' */*/Cargo.toml` lists them. **A binary in no ship list does not
-exist**: `chaos-qr` was absent from all three of release.yml's staging loops and
-from `make-linux-packages.sh` while the brand tier claimed it reached a bare
-terminal.
+**Twenty-one binaries, not five** — also `chaos-pull` (fetch a model),
+`chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and **eight**
+benchmarks. **`grep '^name' */*/Cargo.toml` undercounts by two**: a `src/bin/*.rs`
+is a binary with no `[[bin]]` anywhere, which is what hid `chaos-qdbench` and
+`chaos-membench`. **A binary in no ship list does not exist**: `chaos-qr` was
+absent from all three of release.yml's staging loops, and those two benchmarks
+— the ones that measured 30.8 GiB/s and queue depth 2.55x, the two numbers the
+whole 5 tok/s argument rests on — shipped nowhere at all, while the Linux
+packages also lacked `chaos-draw` and `chaos-worker`.
+`every_binary_reaches_every_platform` is now the mechanism, in both directions
+and including `make-linux-packages.sh`, which no test had ever read.
 
 **The mark and the reader have one source, served by the node.**
 `assets/grimoire/*.html` plus embedded fonts are `include_str!`d by

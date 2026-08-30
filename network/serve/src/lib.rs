@@ -389,8 +389,18 @@ fn run_loop(
     print_route_code(&node);
     // Whether a key is required is the one thing a client cannot discover by
     // trying, so it is printed rather than left to a 401.
+    // **`/v1/*` stopped being the whole answer in v0.0.23.** `/status` and
+    // `/health` went behind the key too, gated on the *peer* rather than the
+    // bind address -- so the rule is not one route prefix, it is where the
+    // request came from. Measured against a node on `0.0.0.0`: from the LAN
+    // address `/status`, `/health` and `/v1/models` are all 401 without the key
+    // and 200 with it, while `/qr`, `/scan` and `/mark` stay open because a
+    // stranger's phone has no key and scanning the mark is the point.
     match &api_key {
-        Some(_) => println!("           api key   required on /v1/*"),
+        Some(_) => {
+            println!("           api key   required off this machine, on /v1/*, /status, /health");
+            println!("                     the mark (/qr, /scan) stays open -- a phone has no key");
+        }
         None => println!("           api key   none -- any value is accepted"),
     }
     println!(

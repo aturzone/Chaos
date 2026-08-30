@@ -163,7 +163,7 @@ jobs:
           # them. It is additive -- nobody loses a binary they were using -- and a
           # few hundred kilobytes against a 21 MB archive. `documented_counts.rs`
           # asserts the three loops here cannot disagree with each other.
-          for b in chaos chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench chaos-draw chaos-worker; do
+          for b in chaos chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench chaos-qdbench chaos-membench chaos-draw chaos-worker; do
             exe="./$b${{ matrix.ext }}"
             test -f "$exe" || { echo "::error::$b was not built"; fail=1; continue; }
             # No arguments: every one of these prints usage and exits non-zero,
@@ -208,7 +208,7 @@ jobs:
           GGML_LIB_DIR: ${{ github.workspace }}/ggml-libs
         run: |
           mkdir -p stage
-          for b in chaos-app chaos chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench chaos-draw chaos-worker; do
+          for b in chaos-app chaos chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench chaos-qdbench chaos-membench chaos-draw chaos-worker; do
             test -f "target/release/$b.exe" || { echo "::error::$b.exe missing"; exit 1; }
             cp "target/release/$b.exe" stage/
           done
@@ -256,7 +256,7 @@ jobs:
           # chaos-app ships but is deliberately absent from the smoke test
           # above: with no arguments it opens a window, and CI would wait
           # for someone to close it.
-          for b in chaos-app chaos chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench chaos-draw chaos-worker; do
+          for b in chaos-app chaos chaos-run chaos-serve chaos-probe chaos-model-info chaos-pull chaos-meta chaos-qr gguf-info chaos-loadbench chaos-iobench chaos-gpubench chaos-kernelbench chaos-spectrum chaos-tokbench chaos-qdbench chaos-membench chaos-draw chaos-worker; do
             cp "target/release/$b${{ matrix.ext }}" "$DIR/"
           done
           cp README.md LICENSE NOTICE CHANGELOG.md STATUS.md "$DIR/"

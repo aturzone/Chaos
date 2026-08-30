@@ -103,6 +103,13 @@ pub const OWN: &[(&str, &str)] = &[
         "connect",
         "talk to another machine's node: chaos connect <route> \"prompt\"",
     ),
+    // **The front door had no way to update, and it is the documented door.**
+    // `chaos-run --update` has done the whole job since v0.0.13; a second
+    // updater in this crate would be a second one to keep correct.
+    (
+        "update",
+        "check for a newer Chaos and install it -- no manual download",
+    ),
     (
         "config",
         "the settings every tier reads, and where they come from",

@@ -68,7 +68,7 @@ Each release's contents and its gate are in the plan; the short form:
 
 ## The honest scoreboard
 
-**Current**: **960 tests** (0 failed, 42 ignored — the V4-Flash set needs the
+**Current**: **964 tests** (0 failed, 42 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 
@@ -105,11 +105,14 @@ with a claimed lead either — the ranges overlap.
 
 **Nothing below is blocking a merge. All of it is blocking v0.0.30.**
 
-1. **No CI job runs the correctness suite against a real model.** `ci.yml:222-228` runs
-   `--ignored` with nothing on disk, and its own comment says it proves the skip path
-   works. So every green run is compatible with a silently regressed forward pass — the
-   one bug class this project says is the only one that matters. **The single biggest
-   LTS risk in the tree.**
+1. ~~**No CI job runs the correctness suite against a real model.**~~ **Closed
+   2026-08-31.** CI now fetches a 397 MB Qwen2-0.5B, verifies it is really a GGUF, and
+   runs four layers with `CHAOS_REQUIRE_MODEL_TESTS=1` so a missing model fails rather
+   than skips. The layers' sensitivity is **measured**: 4 KiB of zeros in the container
+   changes nothing observable, **1 MiB moves the byte-exact golden but not the substring
+   tripwire**, 16 MiB moves both — which is why there are two output checks and not one.
+   The byte-exact golden exists for `x86_64-windows` only; the other platforms run the
+   remaining three layers and say so rather than inventing a pass.
 2. **`F = 0.84 s` has never been profiled.** Measured once, 2026-08-16. It caps this
    machine at 1.19 tok/s regardless of the disk, and the document that relies on it
    calls this *"the one measurement left worth taking."*

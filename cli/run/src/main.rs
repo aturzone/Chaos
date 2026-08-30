@@ -1480,6 +1480,51 @@ fn usage_rest() -> ExitCode {
 ///
 /// Not a default. A download and an installer launch should not happen because
 /// somebody typed a flag whose name suggests only a question.
+/// A flag's numeric value, or a refusal.
+///
+/// **`-n notanumber` used to load the model and generate eight tokens.** The
+/// value parsed with `.parse().ok()` and fell back to the default, so a typo in
+/// a number was indistinguishable from not passing the flag at all -- the run
+/// went ahead, at the wrong setting, with nothing said. Forty-three flags did
+/// this.
+///
+/// The project already counts it a defect for a flag *name* to be swallowed:
+/// *"182 of 182 recognised, 0 unrecognised"* is a headline number. A flag whose
+/// **value** is swallowed is the same failure one level down, and it is worse,
+/// because the name being accepted is what convinces you the value was too.
+///
+/// A missing value still takes the default: `-n` at the end of the line is a
+/// different mistake and this is not the place to start refusing it.
+fn number_or_refuse<T: std::str::FromStr>(v: Option<&String>, flag: &str, dflt: T) -> T {
+    let Some(raw) = v else {
+        return dflt;
+    };
+    match raw.parse::<T>() {
+        Ok(n) => n,
+        Err(_) => {
+            eprintln!("chaos-run: {flag} wants a number, and got {raw:?}.");
+            eprintln!("           Nothing was loaded. Fix the value and run it again.");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// The same, for a flag whose absence means "not set" rather than a default.
+///
+/// Here the swallow is quieter still: a malformed value produced `None`, which
+/// reads downstream as *the user did not ask for this*, so the flag silently did
+/// nothing at all.
+fn opt_number_or_refuse<T: std::str::FromStr>(v: Option<&String>, flag: &str) -> Option<T> {
+    let raw = v?;
+    match raw.parse::<T>() {
+        Ok(n) => Some(n),
+        Err(_) => {
+            eprintln!("chaos-run: {flag} wants a number, and got {raw:?}.");
+            eprintln!("           Nothing was loaded. Fix the value and run it again.");
+            std::process::exit(2);
+        }
+    }
+}
 fn update_in_place(assume_yes: bool) -> ExitCode {
     use chaos_model::release;
     let running = release::running();
@@ -1719,7 +1764,7 @@ fn main() -> ExitCode {
     while i < rest.len() {
         match rest[i].as_str() {
             "-n" | "--n-predict" | "--predict" => {
-                n_predict = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(8);
+                n_predict = number_or_refuse(rest.get(i + 1), &rest[i], 8);
                 i += 2;
             }
             "--cache" => {
@@ -1730,68 +1775,62 @@ fn main() -> ExitCode {
                 i += 2;
             }
             "--temp" | "--temperature" => {
-                sampler.temperature = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.8);
+                sampler.temperature = number_or_refuse(rest.get(i + 1), &rest[i], 0.8);
                 i += 2;
             }
             "--top-k" => {
-                sampler.top_k = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(40);
+                sampler.top_k = number_or_refuse(rest.get(i + 1), &rest[i], 40);
                 i += 2;
             }
             "--top-p" => {
-                sampler.top_p = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.95);
+                sampler.top_p = number_or_refuse(rest.get(i + 1), &rest[i], 0.95);
                 i += 2;
             }
             "--min-p" => {
-                sampler.min_p = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.05);
+                sampler.min_p = number_or_refuse(rest.get(i + 1), &rest[i], 0.05);
                 i += 2;
             }
             "--repeat-penalty" => {
-                sampler.repeat_penalty =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(1.1);
+                sampler.repeat_penalty = number_or_refuse(rest.get(i + 1), &rest[i], 1.1);
                 i += 2;
             }
             // llama.cpp's spellings, and OpenAI's semantics: frequency scales
             // with how often a token was used, presence is flat.
             "--frequency-penalty" => {
-                sampler.frequency_penalty =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sampler.frequency_penalty = number_or_refuse(rest.get(i + 1), &rest[i], 0.0);
                 i += 2;
             }
             "--presence-penalty" => {
-                sampler.presence_penalty =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sampler.presence_penalty = number_or_refuse(rest.get(i + 1), &rest[i], 0.0);
                 i += 2;
             }
             // llama.cpp's sampler flags, its spellings, its defaults.
             "--typical" | "--typical-p" => {
-                sampler.typical_p = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(1.0);
+                sampler.typical_p = number_or_refuse(rest.get(i + 1), &rest[i], 1.0);
                 i += 2;
             }
             "--top-nsigma" | "--top-n-sigma" => {
-                sampler.top_n_sigma = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sampler.top_n_sigma = number_or_refuse(rest.get(i + 1), &rest[i], 0.0);
                 i += 2;
             }
             "--dynatemp-range" => {
-                sampler.dynatemp_range =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sampler.dynatemp_range = number_or_refuse(rest.get(i + 1), &rest[i], 0.0);
                 i += 2;
             }
             "--dynatemp-exp" => {
-                sampler.dynatemp_exponent =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(1.0);
+                sampler.dynatemp_exponent = number_or_refuse(rest.get(i + 1), &rest[i], 1.0);
                 i += 2;
             }
             "--xtc-probability" => {
-                sampler.xtc_probability =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sampler.xtc_probability = number_or_refuse(rest.get(i + 1), &rest[i], 0.0);
                 i += 2;
             }
             "--xtc-threshold" => {
-                sampler.xtc_threshold = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.1);
+                sampler.xtc_threshold = number_or_refuse(rest.get(i + 1), &rest[i], 0.1);
                 i += 2;
             }
             "--mirostat" => {
-                sampler.mirostat = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0);
+                sampler.mirostat = number_or_refuse(rest.get(i + 1), &rest[i], 0);
                 i += 2;
             }
             // Adaptive-p: aim for a token of roughly this probability, with the
@@ -1799,12 +1838,11 @@ fn main() -> ExitCode {
             // mirostat it replaces the truncate-then-temperature tail rather
             // than joining it, so the two cannot both be on.
             "--adaptive-target" | "--adaptive-p" => {
-                sampler.adaptive_p = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(-1.0);
+                sampler.adaptive_p = number_or_refuse(rest.get(i + 1), &rest[i], -1.0);
                 i += 2;
             }
             "--adaptive-decay" => {
-                sampler.adaptive_decay =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.95);
+                sampler.adaptive_decay = number_or_refuse(rest.get(i + 1), &rest[i], 0.95);
                 i += 2;
             }
             // Fill-in-the-middle. The ids are resolved from the vocabulary
@@ -1814,11 +1852,11 @@ fn main() -> ExitCode {
                 i += 1;
             }
             "--mirostat-ent" => {
-                sampler.mirostat_tau = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(5.0);
+                sampler.mirostat_tau = number_or_refuse(rest.get(i + 1), &rest[i], 5.0);
                 i += 2;
             }
             "--mirostat-lr" => {
-                sampler.mirostat_eta = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.1);
+                sampler.mirostat_eta = number_or_refuse(rest.get(i + 1), &rest[i], 0.1);
                 i += 2;
             }
             "--ignore-eos" => {
@@ -1839,11 +1877,11 @@ fn main() -> ExitCode {
                 i += 2;
             }
             "--repeat-last-n" => {
-                sampler.repeat_last_n = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(64);
+                sampler.repeat_last_n = number_or_refuse(rest.get(i + 1), &rest[i], 64);
                 i += 2;
             }
             "--seed" => {
-                sampler.seed = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0);
+                sampler.seed = number_or_refuse(rest.get(i + 1), &rest[i], 0);
                 i += 2;
             }
             // Frame the prompt as a chat turn, the way the model was trained.
@@ -1872,10 +1910,8 @@ fn main() -> ExitCode {
             // than inventing better ones, because muscle memory is the whole
             // reason an OpenAI-shaped API and a familiar CLI are worth having.
             "-t" | "--threads" => {
-                threads = rest
-                    .get(i + 1)
-                    .and_then(|v| v.parse().ok())
-                    .filter(|&t: &usize| t > 0);
+                threads =
+                    opt_number_or_refuse(rest.get(i + 1), &rest[i]).filter(|&t: &usize| t > 0);
                 i += 2;
             }
             // Generation and prefill want opposite thread counts — one is
@@ -2319,7 +2355,7 @@ fn main() -> ExitCode {
             "--lora-scaled" => {
                 match (
                     rest.get(i + 1),
-                    rest.get(i + 2).and_then(|v| v.parse().ok()),
+                    opt_number_or_refuse(rest.get(i + 2), &rest[i]),
                 ) {
                     (Some(p), Some(sc)) => loras.push((p.clone(), sc)),
                     _ => {
@@ -2338,7 +2374,7 @@ fn main() -> ExitCode {
             "--control-vector-scaled" => {
                 match (
                     rest.get(i + 1),
-                    rest.get(i + 2).and_then(|v| v.parse().ok()),
+                    opt_number_or_refuse(rest.get(i + 2), &rest[i]),
                 ) {
                     (Some(p), Some(sc)) => cvecs.push((p.clone(), sc)),
                     _ => {
@@ -2350,8 +2386,8 @@ fn main() -> ExitCode {
             }
             "--control-vector-layer-range" => {
                 match (
-                    rest.get(i + 1).and_then(|v| v.parse().ok()),
-                    rest.get(i + 2).and_then(|v| v.parse().ok()),
+                    opt_number_or_refuse(rest.get(i + 1), &rest[i]),
+                    opt_number_or_refuse(rest.get(i + 2), &rest[i]),
                 ) {
                     (Some(a), Some(b)) => cvec_range = Some((a, b)),
                     _ => {
@@ -2412,7 +2448,7 @@ fn main() -> ExitCode {
                 i += 2;
             }
             "--reasoning-budget" => {
-                reasoning.budget = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(-1);
+                reasoning.budget = number_or_refuse(rest.get(i + 1), &rest[i], -1);
                 i += 2;
             }
             "--reasoning-budget-message" => {
@@ -2671,22 +2707,19 @@ fn main() -> ExitCode {
             }
             // --- DRY: penalise continuing a repeat, not reusing a word -----
             "--dry-multiplier" => {
-                sampler.dry_multiplier =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sampler.dry_multiplier = number_or_refuse(rest.get(i + 1), &rest[i], 0.0);
                 i += 2;
             }
             "--dry-base" => {
-                sampler.dry_base = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(1.75);
+                sampler.dry_base = number_or_refuse(rest.get(i + 1), &rest[i], 1.75);
                 i += 2;
             }
             "--dry-allowed-length" => {
-                sampler.dry_allowed_length =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(2);
+                sampler.dry_allowed_length = number_or_refuse(rest.get(i + 1), &rest[i], 2);
                 i += 2;
             }
             "--dry-penalty-last-n" => {
-                sampler.dry_penalty_last_n =
-                    rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0);
+                sampler.dry_penalty_last_n = number_or_refuse(rest.get(i + 1), &rest[i], 0);
                 i += 2;
             }
             "--dry-sequence-breaker" => {
@@ -2737,7 +2770,7 @@ fn main() -> ExitCode {
                 i += 1;
             }
             "--verbosity" | "--log-verbosity" => {
-                logcfg.verbosity = rest.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(1);
+                logcfg.verbosity = number_or_refuse(rest.get(i + 1), &rest[i], 1);
                 i += 2;
             }
             "--perf" => {
@@ -2757,11 +2790,11 @@ fn main() -> ExitCode {
             }
             // --- RoPE, for a container whose metadata is wrong or absent ---
             "--rope-freq-base" => {
-                rope.freq_base = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.freq_base = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             "--rope-freq-scale" => {
-                rope.freq_scale = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.freq_scale = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             // llama.cpp's --rope-scale is the context multiplier, i.e. the
@@ -2780,23 +2813,23 @@ fn main() -> ExitCode {
                 i += 2;
             }
             "--yarn-ext-factor" => {
-                rope.ext_factor = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.ext_factor = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             "--yarn-attn-factor" => {
-                rope.attn_factor = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.attn_factor = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             "--yarn-beta-fast" => {
-                rope.beta_fast = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.beta_fast = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             "--yarn-beta-slow" => {
-                rope.beta_slow = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.beta_slow = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             "--yarn-orig-ctx" => {
-                rope.orig_ctx = rest.get(i + 1).and_then(|v| v.parse().ok());
+                rope.orig_ctx = opt_number_or_refuse(rest.get(i + 1), &rest[i]);
                 i += 2;
             }
             // --- interaction, llama.cpp's spellings ---------------------
@@ -2902,24 +2935,18 @@ fn main() -> ExitCode {
                 i += 1;
             }
             "--ppl-chunk" => {
-                perplexity = rest
-                    .get(i + 1)
-                    .and_then(|v| v.parse().ok())
-                    .filter(|&c: &usize| c >= 2);
+                perplexity =
+                    opt_number_or_refuse(rest.get(i + 1), &rest[i]).filter(|&c: &usize| c >= 2);
                 i += 2;
             }
             "-tb" | "--threads-batch" => {
-                threads_batch = rest
-                    .get(i + 1)
-                    .and_then(|v| v.parse().ok())
-                    .filter(|&t: &usize| t > 0);
+                threads_batch =
+                    opt_number_or_refuse(rest.get(i + 1), &rest[i]).filter(|&t: &usize| t > 0);
                 i += 2;
             }
             "-c" | "--ctx-size" => {
-                ctx_size = rest
-                    .get(i + 1)
-                    .and_then(|v| v.parse().ok())
-                    .filter(|&c: &usize| c > 0);
+                ctx_size =
+                    opt_number_or_refuse(rest.get(i + 1), &rest[i]).filter(|&c: &usize| c > 0);
                 i += 2;
             }
             "--stop" => {
@@ -2935,9 +2962,7 @@ fn main() -> ExitCode {
                 i += 1;
             }
             "-b" | "--batch-size" => {
-                prefill_block = rest
-                    .get(i + 1)
-                    .and_then(|v| v.parse().ok())
+                prefill_block = opt_number_or_refuse(rest.get(i + 1), &rest[i])
                     .filter(|&b: &usize| b > 0)
                     .unwrap_or(256);
                 i += 2;

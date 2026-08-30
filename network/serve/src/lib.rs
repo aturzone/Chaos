@@ -115,6 +115,57 @@ pub fn is_loopback(host: &str) -> bool {
 /// whatever the model is asked to say. An unauthenticated LAN endpoint is not a
 /// default anyone should be able to reach by accident, so this refuses rather
 /// than warns.
+/// What to say when the address is already in use.
+///
+/// **The raw OS string was the whole message.** On Windows that is *"Only one
+/// usage of each socket address (protocol/network address/port) is normally
+/// permitted. (os error 10048)"* -- forty-one words that do not name the port,
+/// do not mention that another node may be running, and do not mention the two
+/// commands that fix it. On Linux it is *"Address already in use"*, which is
+/// shorter and no more actionable.
+///
+/// Every other refusal in this file names the thing and the way out. This one
+/// did not, and it is the one a person hits most.
+pub fn port_taken_message(addr: &str, port: u16, e: std::io::Error) -> String {
+    if e.kind() != std::io::ErrorKind::AddrInUse {
+        return format!("cannot listen on {addr}: {e}");
+    }
+    let mut m = format!("port {port} is already in use, so {addr} cannot be opened.");
+    m.push_str(
+        "
+
+  Another Chaos node is the usual reason:",
+    );
+    m.push_str(
+        "
+    chaos status   what is running, and what model it holds",
+    );
+    m.push_str(
+        "
+    chaos stop     stop the node this machine started",
+    );
+    m.push_str(
+        "
+
+  Or pick a different port:",
+    );
+    m.push_str(&format!(
+        "
+    --port {}",
+        port.saturating_add(1)
+    ));
+    m.push_str(
+        "
+
+Nothing was loaded, so nothing was wasted: the port is taken",
+    );
+    m.push_str(
+        "
+before the model is read.",
+    );
+    m
+}
+
 pub fn refuse_to_start(host: &str, api_key: Option<&str>) -> Option<String> {
     if is_loopback(host) || api_key.is_some_and(|k| !k.is_empty()) {
         return None;
@@ -151,6 +202,23 @@ pub fn serve(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut cache_gib = cache_gib;
     let t0 = std::time::Instant::now();
+
+    // **The port is taken before the model is read, not after.**
+    //
+    // This used to bind at the end, once the weights were resident: a 762 MiB
+    // model discovered the collision after 0.7 s and **a 144 GB model after
+    // minutes** -- the same refusal delivered at the worst possible moment, and
+    // the exact failure the architecture check three screens below already
+    // guards against with the comment *"a four-minute load followed by
+    // 'refusing to start' is the same refusal delivered at the worst possible
+    // moment."* The port was simply not in that list.
+    //
+    // Binding here also makes the socket the thing that reserves the address,
+    // so two nodes racing for one port cannot both spend minutes loading before
+    // one of them loses.
+    let addr = format!("{host}:{port}");
+    let listener = TcpListener::bind(&addr).map_err(|e| port_taken_message(&addr, port, e))?;
+
     let model = Model::open_split(path)?;
     let tokenizer = Tokenizer::from_metadata(model.metadata())?;
     // Same rule as the runner: refuse an architecture nobody has checked rather
@@ -237,7 +305,7 @@ pub fn serve(
             config: &config,
             asked: context,
         };
-        return run_loop(engine, &tokenizer, host, port, t0, api_key);
+        return run_loop(engine, &tokenizer, listener, host, port, t0, api_key);
     }
 
     // Dense: Llama, Mistral, Qwen and everything else the qwen3 path covers.
@@ -318,7 +386,7 @@ pub fn serve(
         config: config.clone(),
         asked: context,
     };
-    run_loop(engine, &tokenizer, host, port, t0, api_key)
+    run_loop(engine, &tokenizer, listener, host, port, t0, api_key)
 }
 
 /// What this process knows about itself, which the engine cannot say.
@@ -366,13 +434,14 @@ impl Node {
 fn run_loop(
     engine: Engine<'_>,
     tokenizer: &Tokenizer,
+    listener: TcpListener,
     host: &str,
     port: u16,
     t0: std::time::Instant,
     api_key: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Already bound, at the top of `serve`, before a byte of the model was read.
     let addr = format!("{host}:{port}");
-    let listener = TcpListener::bind(&addr)?;
     let node = Node::new(host, port);
     println!("ready      {addr} in {:.1}s", t0.elapsed().as_secs_f64());
     // The URL comes first and on its own line: most terminals make it

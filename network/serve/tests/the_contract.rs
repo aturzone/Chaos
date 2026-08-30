@@ -204,3 +204,47 @@ fn status_json_still_carries_every_field_the_cli_reads() {
         );
     }
 }
+
+/// **A taken port is refused before the model is read, and says what to do.**
+///
+/// This used to bind at the end, once the weights were resident: a 762 MiB
+/// model discovered the collision after 0.7 s and **a 144 GB model after
+/// minutes**. The message was the raw OS string -- on Windows forty-one words
+/// that name neither the port nor a way out.
+///
+/// Measured after the fix, two nodes on one port: **refused in 135 ms**.
+///
+/// The socket is bound in `serve` before `Model::open_split`, which cannot be
+/// asserted from outside without a model on disk, so what is checked here is
+/// the half that can be: that the message a person reads is worth reading.
+#[test]
+fn a_taken_port_is_explained_rather_than_reported() {
+    // A real collision, so the OS supplies its own error rather than a guess.
+    let first = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = first.local_addr().unwrap().port();
+    let addr = format!("127.0.0.1:{port}");
+    let err = std::net::TcpListener::bind(&addr).expect_err("the port should be taken");
+    assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
+
+    let m = chaos_serve::port_taken_message(&addr, port, err);
+    for needed in [
+        &port.to_string(), // which port
+        "chaos status",    // what is holding it
+        "chaos stop",      // how to release it
+        "--port",          // or go around it
+    ] {
+        assert!(
+            m.contains(needed),
+            "the refusal does not mention {needed:?}:{}{m}",
+            char::from(10)
+        );
+    }
+    // And it says the load did not happen, which is the whole point of the fix.
+    assert!(m.contains("Nothing was loaded"), "{m}");
+
+    // A different I/O error is not dressed up as a port collision.
+    let other = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope");
+    let m2 = chaos_serve::port_taken_message(&addr, port, other);
+    assert!(!m2.contains("chaos stop"), "{m2}");
+    assert!(m2.contains("nope"), "{m2}");
+}

@@ -219,10 +219,97 @@ jobs:
         shell: bash
         run: bash scripts/check-test-count.sh /tmp/test.log
 
-      # The container-backed tests skip themselves when no model is on disk.
-      # This proves the skip path works, not that the tests pass.
+      # **This step is honest about what it proves, and it is not much.** The
+      # container-backed tests skip themselves when no model is on disk, so this
+      # exercises the skip path. It is kept because a skip that panics is a real
+      # regression, and removed from the sentence that used to imply more.
       - name: Container tests skip cleanly without a model
         shell: bash
         env:
           GGML_LIB_DIR: ${{ github.workspace }}/ggml-libs
         run: cargo test --release --workspace -- --ignored
+
+      # ---------------------------------------------------------------------
+      # The correctness gate. Everything above this line can be green while the
+      # forward pass computes the wrong thing.
+      #
+      # `CLAUDE.md`: *a wrong forward pass produces fluent nonsense, never a
+      # crash*. Until now the only defence was the `--ignored` tests above, run
+      # with no model, which is why this repository could ship a regressed
+      # engine with five green checks. A 397 MB model is a cheap price for the
+      # one bug class the project says is the only one that matters.
+      # ---------------------------------------------------------------------
+      - name: Cache the test model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: test-model
+          key: qwen2-0_5b-instruct-q4_k_m-v1
+
+      - name: Fetch the test model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p test-model
+          # The same URL shape `chaos-pull` uses, so if HuggingFace changes
+          # this breaks here rather than in a user's download.
+          URL=https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf
+          curl -fL --retry 3 --retry-delay 5 -o test-model/Qwen2-0.5B-Instruct-Q4_K_M.gguf "$URL"
+          # **Exit zero is not a model.** The trap `chaos-pull` documents and
+          # `chaos verify` exists for: a redirect to an error page saves
+          # perfectly and runs not at all. Checked here so a bad URL fails at
+          # the download with a clear message rather than as a baffling test
+          # failure three steps later.
+          F=test-model/Qwen2-0.5B-Instruct-Q4_K_M.gguf
+          SIZE=$(wc -c < "$F")
+          test "$SIZE" -gt 100000000 \
+            || { echo "::error::the model is only $SIZE bytes, which is an error page"; exit 1; }
+          MAGIC=$(head -c 4 "$F")
+          test "$MAGIC" = "GGUF" \
+            || { echo "::error::the downloaded file does not start with GGUF"; exit 1; }
+          echo "model: $SIZE bytes, magic GGUF"
+
+      # Four layers, each with a measured sensitivity -- the table is in the
+      # test's own header. `CHAOS_REQUIRE_MODEL_TESTS=1` is what stops this
+      # becoming another green skip: with it, a missing model is a failure.
+      #
+      # **The byte-exact golden runs only where a golden for that platform
+      # exists, and today that is `x86_64-windows` only.** It was recorded on a
+      # laptop, so the Windows runner here is the first other machine to check
+      # it -- if the two disagree, that is a real finding about how stable this
+      # output is across machines, and it should be read rather than silenced.
+      # Linux and macOS run the other three layers and say they have no golden.
+      - name: The forward pass still computes what it computed
+        shell: bash
+        env:
+          GGML_LIB_DIR: ${{ github.workspace }}/ggml-libs
+          CHAOS_TEST_MODEL: ${{ github.workspace }}/test-model/Qwen2-0.5B-Instruct-Q4_K_M.gguf
+          CHAOS_REQUIRE_MODEL_TESTS: "1"
+        run: cargo test --release -p chaos-run --test forward_pass_is_not_broken -- --nocapture
+
+      # **The window, opened like a person opens it.**
+      #
+      # v0.0.21 shipped with the mode knob painted underneath nine live child
+      # windows: the app opened onto a screen with nothing usable, every unit
+      # test passed, and `run-through.ps1` reported a clean pass -- because it
+      # drives pages with `WM_COMMAND`, which goes neither through the rail nor
+      # through the knob, so it walked an app that had never left its launch
+      # screen. Nothing in CI touched the window at all.
+      #
+      # This presses RETURN and counts client-rects that are actually on screen
+      # (`IsWindowVisible` is not 'on screen' -- `layout` parks unreachable rail
+      # buttons at -3200,-3200). On this laptop: **0 at open, 12 after RETURN**.
+      #
+      # Deliberately not `run-through.ps1`, which documents its own hang modes
+      # -- BROWSE and CHANGE MODE open modal dialogs and the next SendMessageW
+      # never returns. A script that can hang can wedge a job for six hours.
+      # `timeout-minutes` is the belt to that braces.
+      #
+      # It runs against a throwaway USERPROFILE, because the first version of
+      # it wrote `mode_chosen` into the real settings file and then measured a
+      # different thing on the second run.
+      - name: The window opens and something is on it
+        if: matrix.name == 'windows'
+        timeout-minutes: 5
+        shell: pwsh
+        run: .\scripts\app-smoke.ps1 -TimeoutSeconds 90

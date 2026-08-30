@@ -325,12 +325,52 @@ pub fn field(json: &str, key: &str) -> Option<String> {
 /// Hand-built rather than serialised, because the whole body is three fields and
 /// the workspace has no serialisation crate.
 pub fn chat_body(model: &str, prompt: &str, stream: bool) -> String {
+    chat_body_with(model, prompt, stream, None)
+}
+
+/// A chat request, optionally raising the token cap.
+///
+/// **Without this the node's default silently truncated every long answer.** A
+/// request that asks for a paragraph got one that stopped mid-word, with no
+/// explanation in the output and no flag anywhere to ask for more -- the answer
+/// simply ended, and it read as the model having nothing further to say.
+pub fn chat_body_with(model: &str, prompt: &str, stream: bool, max_tokens: Option<u32>) -> String {
+    let cap = match max_tokens {
+        Some(n) => format!(r#","max_tokens":{n}"#),
+        None => String::new(),
+    };
     format!(
-        r#"{{"model":"{}","stream":{},"messages":[{{"role":"user","content":"{}"}}]}}"#,
+        r#"{{"model":"{}","stream":{}{}, "messages":[{{"role":"user","content":"{}"}}]}}"#,
         escape(model),
         stream,
+        cap,
         escape(prompt)
     )
+}
+
+/// Why generation stopped, from a streamed chunk.
+///
+/// **The node computes this and tests it, and no client ever showed it.** 4e
+/// found an answer that stopped at "Sevent" because the default cap expired
+/// there: nothing said so, so a truncated answer and a finished one look
+/// identical. `"stop"` is the model finishing; `"length"` is the cap, and only
+/// one of those is worth telling somebody about.
+pub fn finish_reason(chunk: &str) -> Option<String> {
+    let chaos_grammar::Json::Obj(top) = chaos_grammar::Json::parse(chunk).ok()? else {
+        return None;
+    };
+    let (_, choices) = top.iter().find(|(k, _)| k == "choices")?;
+    let chaos_grammar::Json::Arr(items) = choices else {
+        return None;
+    };
+    let chaos_grammar::Json::Obj(first) = items.first()? else {
+        return None;
+    };
+    let (_, reason) = first.iter().find(|(k, _)| k == "finish_reason")?;
+    match reason {
+        chaos_grammar::Json::Str(s) => Some(s.clone()),
+        _ => None,
+    }
 }
 
 /// Escape a string for a JSON body.
@@ -535,6 +575,43 @@ mod tests {
         assert!(OWN
             .iter()
             .any(|(v, d)| *v == "scan" && d.contains("NOT BUILT")));
+    }
+
+    /// **The cap reaches the wire, and its absence leaves the body unchanged.**
+    #[test]
+    fn a_token_cap_is_sent_only_when_asked_for() {
+        let plain = chat_body_with("m", "hi", true, None);
+        assert!(!plain.contains("max_tokens"), "{plain}");
+        let capped = chat_body_with("m", "hi", true, Some(220));
+        assert!(capped.contains(r#""max_tokens":220"#), "{capped}");
+        // Still one well-formed object, not two fields glued together.
+        assert!(chaos_grammar::Json::parse(&capped).is_ok(), "{capped}");
+        assert!(chaos_grammar::Json::parse(&plain).is_ok(), "{plain}");
+        // And the old entry point still means what it meant.
+        assert_eq!(chat_body("m", "hi", true), plain);
+    }
+
+    /// **Why generation stopped is read from the shape the node really sends.**
+    ///
+    /// The node computes this and tests it, and no client ever showed it: 4e
+    /// found an answer that stopped at "Sevent" with nothing saying the cap had
+    /// expired, so a truncated answer and a finished one looked identical.
+    #[test]
+    fn the_finish_reason_is_read_and_a_running_chunk_has_none() {
+        let running = r#"{"choices":[{"delta":{"content":" Paris"},"finish_reason":null}]}"#;
+        assert_eq!(finish_reason(running), None, "a null is not a reason");
+        assert_eq!(delta_text(running).as_deref(), Some(" Paris"));
+
+        let capped = r#"{"choices":[{"delta":{},"finish_reason":"length"}]}"#;
+        assert_eq!(finish_reason(capped).as_deref(), Some("length"));
+
+        let done = r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#;
+        assert_eq!(finish_reason(done).as_deref(), Some("stop"));
+
+        // Nothing at all, and rubbish, are both "no reason" rather than a panic.
+        assert_eq!(finish_reason("[DONE]"), None);
+        assert_eq!(finish_reason("{"), None);
+        assert_eq!(finish_reason(r#"{"choices":[]}"#), None);
     }
 
     /// All four shells, and a refusal that names the four.

@@ -22,9 +22,9 @@ green.** Full contents in `STATUS.md`.
 
 | | release | state |
 |---|---|---|
-| L1 | **v0.0.24 — One truth**: one scoreboard, 22 contradictions resolved, dead epics retired | **[~]** in progress |
-| L2 | **v0.0.25 — Guard the binary**: CI runs the correctness suite against a real model | **[x]** E4, E6, E7, E8, E9 all done |
-| L3 | **v0.0.26 — Profile F**, close the 2.02→3.41 GiB/s I/O gap | **[ ]** |
+| L1 | **v0.0.24 — One truth**: one scoreboard, 22 contradictions resolved, dead epics retired | **[x]** merged #151. STATUS 5,144 -> 205 lines, 26 dead tickets retired |
+| L2 | **v0.0.25 — Guard the binary**: CI runs the correctness suite against a real model | **[x]** merged #152. E4, E6, E7, E8, E9 |
+| L3 | **v0.0.26 — Measure before optimising** | **[x]** merged #153-155. `F` is **93% arithmetic** and the router is 31% of it; the expert read is **2.88 GiB/s**, already 84% of the drive; the 3x GPU contradiction is resolved. **Three claims corrected, two of them mine** |
 | L4 | **v0.0.27 — Quality harness**, then the trunk-requant lever | **[ ]** C5 gates it |
 | L5 | **v0.0.28 — Any machine, any model**: quant selection, self-configuration | **[~]** `--auto` exists, T3/T4 open |
 | L6 | **v0.0.29 — Every platform, actually run**: 4 of 9 assets never executed | **[ ]** |

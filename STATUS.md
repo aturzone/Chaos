@@ -36,10 +36,10 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 none of them got a stabilisation period, which is the whole complaint.
 
 ```
-v0.0.24  One truth                    [###-----------------]  15%
-v0.0.25  Guard the binary             [######--------------]  30%
-v0.0.26  Profile F, close the I/O gap [####----------------]  20%
-v0.0.27  Quality harness, then levers [--------------------]   0%
+v0.0.24  One truth                    [####################] 100%  merged #151
+v0.0.25  Guard the binary             [####################] 100%  merged #152
+v0.0.26  Measure before optimising    [####################] 100%  merged #153-155
+v0.0.27  Quality harness, then levers [--------------------]   0%  <- next
 v0.0.28  Any machine, any model       [###########---------]  55%
 v0.0.29  Every platform, actually run [#######-------------]  35%
 v0.0.30  LTS                          [#-------------------]   6%
@@ -53,8 +53,11 @@ Each release's contents and its gate are in the plan; the short form:
 - **v0.0.25 — Guard the binary.** A CI job that runs the correctness suite against a
   real model; `chaos-run` beyond 8 tests; port bound before the model loads;
   `finish_reason` surfaced; the window exercised in CI.
-- **v0.0.26 — Profile F, close the I/O gap.** `F = 0.84 s` was measured once and never
-  decomposed, and it alone caps this machine at 1.19 tok/s.
+- **v0.0.26 — Measure before optimising. Done.** `F` profiled (93% arithmetic, and the
+  **router is 31% of it**), the expert read re-measured at **2.88 GiB/s** — 84% of the
+  drive, so the I/O gap was nearly closed already — and the 3x GPU contradiction
+  resolved. **Three claims were corrected, two of them mine.** The renaming is
+  deliberate: every item on this rung turned out to be a measurement, not a change.
 - **v0.0.27 — The quality harness, then the levers.** Nothing that changes what the
   model computes ships without it.
 - **v0.0.28 — Any machine, any model.** Quant selection, self-configuration, and a

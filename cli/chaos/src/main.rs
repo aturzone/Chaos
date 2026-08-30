@@ -1,8 +1,7 @@
 //! `chaos` — the front door. See `lib.rs` for why it exists and what it promises.
 
 use chaos_cli::{
-    alias_for, chat_body, completions, delta_text, field, log_path, pid_path, read_pid, ALIASES,
-    OWN,
+    alias_for, completions, delta_text, field, log_path, pid_path, read_pid, ALIASES, OWN,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -463,6 +462,34 @@ fn status(args: &[String]) -> i32 {
 
 fn connect(args: &[String]) -> i32 {
     let cfg = chaos_config::Settings::load();
+
+    // **`--max-tokens`, because the answer used to just stop.** The node has a
+    // default cap and this client had no way to raise it, so a request for a
+    // paragraph came back cut mid-word with nothing saying why. Taken out of the
+    // arguments first so it can sit anywhere, including after the prompt.
+    let mut rest: Vec<String> = Vec::new();
+    let mut max_tokens: Option<u32> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--max-tokens" | "-n" => {
+                match args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
+                    Some(n) => max_tokens = Some(n),
+                    None => {
+                        eprintln!("chaos connect: --max-tokens needs a number");
+                        return 2;
+                    }
+                }
+                i += 2;
+            }
+            _ => {
+                rest.push(args[i].clone());
+                i += 1;
+            }
+        }
+    }
+    let args: &[String] = &rest;
+
     let (route, prompt) = match args {
         [] => (cfg.core_addr.clone().unwrap_or_default(), String::new()),
         [route] => (route.clone(), String::new()),
@@ -495,11 +522,12 @@ fn connect(args: &[String]) -> i32 {
     // **The key belongs to the CORE, not to this machine's own server.** A
     // CLIENT stores it as `core_key`; that is the one to send.
     let key = cfg.core_key.clone().or_else(|| cfg.api_key.clone());
-    let body = chat_body(&model, &prompt, true);
+    let body = chaos_cli::chat_body_with(&model, &prompt, true, max_tokens);
     let url = format!("http://{base}/v1/chat/completions");
 
     let mut out = std::io::stdout();
     let mut wrote = false;
+    let mut stopped_because: Option<String> = None;
     let result = chaos_http::post_sse(
         &url,
         &body,
@@ -513,11 +541,23 @@ fn connect(args: &[String]) -> i32 {
                 let _ = out.flush();
                 wrote = true;
             }
+            if let Some(r) = chaos_cli::finish_reason(chunk) {
+                stopped_because = Some(r);
+            }
             true
         },
     );
     if wrote {
         println!();
+    }
+    // **Say when the answer was cut rather than finished.** Only for the cap:
+    // "stop" is the model having said what it had to say, and narrating that
+    // every time would be noise on every answer.
+    if stopped_because.as_deref() == Some("length") {
+        let hint = max_tokens
+            .map(|n| format!("--max-tokens {}", n.saturating_mul(2)))
+            .unwrap_or_else(|| "--max-tokens 512".to_string());
+        eprintln!("[cut off at the token limit -- ask for more with {hint}]");
     }
     match result {
         Ok(_) => 0,

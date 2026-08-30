@@ -134,8 +134,8 @@ pass here is fluent nonsense, never a crash.
 | E5 | GPU tests fail rather than skip when a card is expected | **[~]** `CHAOS_REQUIRE_GPU=1` exists; CI never sets it, and must not — no runner has a card |
 | E6 | The window is exercised in CI | **[ ]** `run-through.ps1` is a local script. v0.0.21 shipped with nine controls over the mode knob and every instrument green |
 | E7 | `chaos-run` has real coverage | **[ ]** 8 tests, and it is the binary most people type |
-| E8 | The port is bound before the model loads | **[ ]** a 144 GB model reads for minutes, then fails on a taken port with the raw OS string |
-| E9 | `finish_reason` reaches `chaos connect` | **[ ]** long answers stop mid-word with no explanation and no flag |
+| E8 | The port is bound before the model loads | **[x]** bound at the top of `serve`, before `Model::open_split`. Two nodes on one port: **refused in 135 ms**, with a message naming the port, `chaos status`, `chaos stop` and `--port` |
+| E9 | `finish_reason` reaches `chaos connect` | **[x]** a capped answer now ends with `[cut off at the token limit -- ask for more with --max-tokens N]`, and `--max-tokens` exists. Only `length` is narrated; `stop` stays silent |
 
 ---
 

@@ -113,9 +113,13 @@ with a claimed lead either — the ranges overlap.
    tripwire**, 16 MiB moves both — which is why there are two output checks and not one.
    The byte-exact golden exists for `x86_64-windows` only; the other platforms run the
    remaining three layers and say so rather than inventing a pass.
-2. **`F = 0.84 s` has never been profiled.** Measured once, 2026-08-16. It caps this
-   machine at 1.19 tok/s regardless of the disk, and the document that relies on it
-   calls this *"the one measurement left worth taking."*
+2. ~~**`F = 0.84 s` has never been profiled.**~~ **Profiled 2026-08-31**, trunk resident,
+   at **0.494 tok/s / 2.0 s per token**. A token is **60% disk** and **40% F**, and inside
+   F the surprise: `compute` (all the arithmetic) is 0.47 s while **`tail` — ggml graph
+   *construction* for `layer_tail` + `moe_routing` — is 0.36 s, about 20% of the whole
+   token spent describing work rather than doing it.** `lts-0-0-0.md` T0.6 predicted 21%
+   and was never acted on. Worth roughly **1.24x** and **free of quality risk**, since it
+   changes when a graph is built, not what is computed.
 3. **The GPU tier is not verified** — the device path fails 1 of 8 parity prompts where
    the CPU path fails none. ~~And the GPU evidence contradicts itself.~~ **Reconciled
    2026-08-31**: both measurements are right and they used different context lengths.

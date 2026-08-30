@@ -95,7 +95,8 @@ Plan and the corrected arithmetic: `docs/graph/backlog/the-big-bang-5-tok-s.md`.
 | C3 | Gate mass carried by experts 4–6 | **[x]** measured: weights 33.5 / 20.6 / 15.0 / 12.1 / 10.1 / **8.8%** against a uniform 16.7% — the tail is **31% of the mass**, so top-3 routing is *bounded, not free*. The source is careful that weight is not contribution, so a perplexity run could still find the tail cheap; what is settled is that it is not the free win it was filed as |
 | C4 | Rung 1 — concurrent expert reads | **[x] already shipped, and the ladder was wrong about it.** `READERS = 8`, `READER_HANDLES = 8`, one file handle per reader. The research node's "the engine reads experts one at a time" is contradicted by the code and by the engine's own 2.02 GiB/s, which QD-1 (1.34) cannot produce |
 | C4b | Close the remaining I/O gap — 2.02 GiB/s achieved against 3.41 available | **[ ]** ~1.69×, and it is tuning, not a missing feature |
-| C5 | **Profile `F`** — the 0.84 s per token that never touches the disk | **[ ]** measured once, never decomposed, and **it alone caps this machine at 1.19 tok/s**. The highest-information measurement left |
+| C5 | **Profile `F`** — the 0.84 s per token that never touches the disk | **[x]** done 2026-08-31, trunk resident: token = **60% disk, 40% F**; inside F, `compute` 0.47 s is the arithmetic and **`tail` 0.36 s is graph *construction*** — 20% of the token describing work rather than doing it. T0.6 predicted 21% and was never acted on |
+| C5b | Build the block graph once, rebind inputs per token | **[ ]** `tail` is **0.36 s of a 1.84 s token** and it constructs graph nodes rather than multiplying anything. ~1.24x, **no quality harness needed** — it changes when a graph is described, not what is computed |
 | C6 | **Quality harness** — logit diff + ≥50 checkable prompts + a threshold agreed first | **[ ]** ← *gates C7 and C8* |
 | C7 | **Requantise the always-read trunk** — it is Q8_0 while the experts are Q4_K | **[ ]** the one lever no V4-Flash document has ever costed. ~7.38 → ~3.91 GiB, and it would fit the 5.11 GiB of free VRAM |
 | C8 | Rung 2 — 2-bit experts | **[ ]** behind C6 |
@@ -141,8 +142,9 @@ pass here is fluent nonsense, never a crash.
 
 ## Next three
 
-1. **C5** — profile `F`, the 0.84 s per token that never touches the disk. It caps this
-   machine at 1.19 tok/s and nobody has opened it. First item of v0.0.26.
+1. **C5b** — build the block graph once and rebind its inputs, instead of reconstructing
+   it per block per token. `tail` is 0.36 s of a 1.84 s token and it is pure overhead;
+   worth ~1.24x with no quality risk. The obvious shape of the fix, not yet costed.
 2. **C5** — profile `F`. It caps this machine at 1.19 tok/s and nobody has opened it.
 3. **C7** — cost the trunk requantisation, behind **C6**. It is the only untried lever
    that moves the ceiling, and the quality risk is real and unmeasured.

@@ -90,7 +90,7 @@ container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 | V4-Flash against llama.cpp, alternating | **0.394 vs 0.39** — parity |
 | Dense path, hand-tuned | **1.30× behind**, and §4a showed the gap is 61% FFN matmul |
 | RAM read, peak / achieved in generation | **30.8** / ~19 GiB/s |
-| NVMe sequential / expert reads / QD-8 | **3.09** / **2.02** / **3.41 GiB/s** |
+| NVMe sequential / expert reads / QD-8 | **3.09** / **2.88** / **3.41 GiB/s** — the expert figure re-measured 2026-08-31 with the trunk resident; the old 1.40/1.88/2.02 were all taken while the trunk was *also* streaming |
 | `tok/s ≈ 19 / resident GiB` | holds across nine models spanning 23× |
 
 **Retracted, do not requote**: *"Proven: Qwen3-30B-A3B"* (`qwen3moe` is not in

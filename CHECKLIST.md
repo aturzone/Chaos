@@ -99,7 +99,7 @@ Plan and the corrected arithmetic: `docs/graph/backlog/the-big-bang-5-tok-s.md`.
 | C6 | **Quality harness** — logit diff + ≥50 checkable prompts + a threshold agreed first | **[ ]** ← *gates C7 and C8* |
 | C7 | **Requantise the always-read trunk** — it is Q8_0 while the experts are Q4_K | **[ ]** the one lever no V4-Flash document has ever costed. ~7.38 → ~3.91 GiB, and it would fit the 5.11 GiB of free VRAM |
 | C8 | Rung 2 — 2-bit experts | **[ ]** behind C6 |
-| C9 | Vulkan generation is 2.2× slower than CPU — why? | **[ ]** and the evidence contradicts itself: `ngl-frontier` measured **1.40× faster** on Qwen3-4B, `ngl-ladder` **0.46×** on the same model eight days later |
+| C9 | Vulkan generation is 2.2× slower than CPU — why? | **[x]** **both measurements are right.** They used different context lengths: short prompt **1.5–2.0× faster** on the card, ~1050-token prompt **0.93×, slower**. `ngl-ladder` had already seen the mechanism without connecting it. The sentence needs its context clause or it is wrong |
 | C10 | 5 tok/s on V4-Flash on this laptop | **[!]** **closed by the disk, not the code.** 137 GiB of experts cannot be resident, so they cross a 3.41 GiB/s drive every token — even *one-bit* experts with a free trunk and zero arithmetic cap at 4.26 tok/s |
 | C11 | 20 tok/s on V4-Flash on this laptop | **[!]** needs 64.4 GiB/s against 30.8 |
 

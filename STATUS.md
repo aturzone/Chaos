@@ -117,9 +117,14 @@ with a claimed lead either — the ranges overlap.
    machine at 1.19 tok/s regardless of the disk, and the document that relies on it
    calls this *"the one measurement left worth taking."*
 3. **The GPU tier is not verified** — the device path fails 1 of 8 parity prompts where
-   the CPU path fails none. And the GPU evidence contradicts itself: `ngl-frontier`
-   measured `-ngl 99` at **1.40× faster** on Qwen3-4B, `ngl-ladder` at **0.46×** on the
-   same model eight days later. Unreconciled.
+   the CPU path fails none. ~~And the GPU evidence contradicts itself.~~ **Reconciled
+   2026-08-31**: both measurements are right and they used different context lengths.
+   Short prompt, this card is **1.5–2.0× faster** than the CPU; at ~1050 tokens it is
+   **0.93×, slower**. So *"Vulkan generation is 2.2× slower"* is a long-context
+   statement and is wrong without that clause. It looked like the explanation for
+   `--auto` picking wrong at long `-n`, **and that was tested and did not reproduce**:
+   `--auto` is ahead at both `-n 16` and `-n 200` with a short prompt. What is still
+   open on the GPU is **parity**, not speed.
 4. **Four of nine published assets have never been run by anyone**: the `.deb`, the
    AppImage and both macOS tarballs. No model has ever been run on macOS or Linux, and
    macOS has no direct-I/O path (`F_NOCACHE` unwired).

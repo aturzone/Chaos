@@ -23,7 +23,7 @@ green.** Full contents in `STATUS.md`.
 | | release | state |
 |---|---|---|
 | L1 | **v0.0.24 — One truth**: one scoreboard, 22 contradictions resolved, dead epics retired | **[~]** in progress |
-| L2 | **v0.0.25 — Guard the binary**: CI runs the correctness suite against a real model | **[~]** E4, E7, E8, E9 done. Still open: **E6, the window in CI** |
+| L2 | **v0.0.25 — Guard the binary**: CI runs the correctness suite against a real model | **[x]** E4, E6, E7, E8, E9 all done |
 | L3 | **v0.0.26 — Profile F**, close the 2.02→3.41 GiB/s I/O gap | **[ ]** |
 | L4 | **v0.0.27 — Quality harness**, then the trunk-requant lever | **[ ]** C5 gates it |
 | L5 | **v0.0.28 — Any machine, any model**: quant selection, self-configuration | **[~]** `--auto` exists, T3/T4 open |
@@ -132,7 +132,7 @@ pass here is fluent nonsense, never a crash.
 | E3 | The auth gate is tested | **[x]** it had zero tests and is the whole of the server's access control |
 | E4 | **CI runs the correctness suite against a real model** | **[x]** a 397 MB Qwen2-0.5B is fetched and verified, and four layers run with `CHAOS_REQUIRE_MODEL_TESTS=1` so a missing model is a failure rather than a skip. Sensitivity measured, not assumed: **1 MiB of zeros in the container moves the byte-exact golden and does *not* move the substring tripwire**, which is why there are two output checks |
 | E5 | GPU tests fail rather than skip when a card is expected | **[~]** `CHAOS_REQUIRE_GPU=1` exists; CI never sets it, and must not — no runner has a card |
-| E6 | The window is exercised in CI | **[ ]** `run-through.ps1` is a local script. v0.0.21 shipped with nine controls over the mode knob and every instrument green |
+| E6 | The window is exercised in CI | **[x]** `scripts/app-smoke.ps1` presses RETURN like a person and counts client-rects on screen: **0 at open, 12 after**. Deliberately not `run-through.ps1`, which documents its own hang modes; a `timeout-minutes` backs that up |
 | E7 | `chaos-run` has real coverage | **[x]** 8 -> 16, and writing them found a systemic defect: **43 flags parsed their value with `.parse().ok()` and silently used the default**, so `-n notanumber` loaded the model and generated 8 tokens. All refused by name now |
 | E8 | The port is bound before the model loads | **[x]** bound at the top of `serve`, before `Model::open_split`. Two nodes on one port: **refused in 135 ms**, with a message naming the port, `chaos status`, `chaos stop` and `--port` |
 | E9 | `finish_reason` reaches `chaos connect` | **[x]** a capped answer now ends with `[cut off at the token limit -- ask for more with --max-tokens N]`, and `--max-tokens` exists. Only `length` is narrated; `stop` stays silent |
@@ -141,9 +141,8 @@ pass here is fluent nonsense, never a crash.
 
 ## Next three
 
-1. **E6** — the window exercised in CI. It is the last of v0.0.25, and the reason it
-   matters is that v0.0.21 shipped with nine controls over the mode knob while every
-   instrument was green.
+1. **C5** — profile `F`, the 0.84 s per token that never touches the disk. It caps this
+   machine at 1.19 tok/s and nobody has opened it. First item of v0.0.26.
 2. **C5** — profile `F`. It caps this machine at 1.19 tok/s and nobody has opened it.
 3. **C7** — cost the trunk requantisation, behind **C6**. It is the only untried lever
    that moves the ceiling, and the quality risk is real and unmeasured.

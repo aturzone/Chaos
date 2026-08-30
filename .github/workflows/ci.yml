@@ -286,3 +286,30 @@ jobs:
           CHAOS_TEST_MODEL: ${{ github.workspace }}/test-model/Qwen2-0.5B-Instruct-Q4_K_M.gguf
           CHAOS_REQUIRE_MODEL_TESTS: "1"
         run: cargo test --release -p chaos-run --test forward_pass_is_not_broken -- --nocapture
+
+      # **The window, opened like a person opens it.**
+      #
+      # v0.0.21 shipped with the mode knob painted underneath nine live child
+      # windows: the app opened onto a screen with nothing usable, every unit
+      # test passed, and `run-through.ps1` reported a clean pass -- because it
+      # drives pages with `WM_COMMAND`, which goes neither through the rail nor
+      # through the knob, so it walked an app that had never left its launch
+      # screen. Nothing in CI touched the window at all.
+      #
+      # This presses RETURN and counts client-rects that are actually on screen
+      # (`IsWindowVisible` is not 'on screen' -- `layout` parks unreachable rail
+      # buttons at -3200,-3200). On this laptop: **0 at open, 12 after RETURN**.
+      #
+      # Deliberately not `run-through.ps1`, which documents its own hang modes
+      # -- BROWSE and CHANGE MODE open modal dialogs and the next SendMessageW
+      # never returns. A script that can hang can wedge a job for six hours.
+      # `timeout-minutes` is the belt to that braces.
+      #
+      # It runs against a throwaway USERPROFILE, because the first version of
+      # it wrote `mode_chosen` into the real settings file and then measured a
+      # different thing on the second run.
+      - name: The window opens and something is on it
+        if: matrix.name == 'windows'
+        timeout-minutes: 5
+        shell: pwsh
+        run: .\scripts\app-smoke.ps1 -TimeoutSeconds 90

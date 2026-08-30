@@ -1,7 +1,7 @@
 ---
 topic: benchmark user RAM/VRAM/SSD and predict MoE tokens/sec pre-download
 status: resolved
-links: [ktransformers-vs-llamacpp-moe-offload-gaps.md, ../backlog/hardware-profiler.md]
+links: [ktransformers-vs-llamacpp-moe-offload-gaps.md, ../history/hardware-profiler.md]
 ---
 ## Findings
 

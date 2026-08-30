@@ -9,6 +9,45 @@ links:
 
 # Rung 1 works. The ladder still does not reach 5.
 
+> ## CORRECTION, 2026-08-31: the diagnosis in this node is wrong.
+>
+> **This node says the engine reads experts one at a time. It does not, and has
+> not for some time.** `core/arch/src/deepseek4_forward.rs` declares
+> `const READERS: usize = 8`, builds one job per slice per tensor (18 jobs of
+> ~4.25 MiB per layer for a single token), round-robins them across reader slots
+> and spawns a thread per slot inside `std::thread::scope`; `core/model/src/lib.rs`
+> holds `READER_HANDLES: usize = 8` **distinct file handles**, opened when the
+> model opens, because *"a synchronous handle is serialised by the OS, so sharing
+> one would leave the drive at queue depth 1 no matter how many threads are
+> spawned."*
+>
+> The project's own measurements said so and were not consulted: the engine reads
+> experts at **2.02 GiB/s** fully resident (`v4flash-ram-frontier`) and **1.88
+> GiB/s** as the standing figure (`hard-won-facts`). **QD-1 in the sweep below is
+> 1.34 GiB/s.** An engine at queue depth 1 cannot read faster than queue depth 1.
+>
+> The 1.40 GiB/s this node reproduces was taken on 2026-08-25 with **3.34 GiB of
+> the trunk still streaming** and 9.28 GiB held by browsers — the same contention
+> the frontier node measured as dropping the expert read from 2.02 to 1.65 GiB/s.
+> **It is a contention number, not a queue-depth number**, and matching it to QD-1
+> was a coincidence read as a confirmation.
+>
+> **What survives.** The sweep itself is good and the drive really does give 2.55x
+> from depth 1 to depth 8. The ceiling argument survives untouched, and so does
+> the correction this node made to the ladder's missing `F`. What does not survive
+> is rung 1 as *pending work*: the remaining headroom is **2.02 against 3.41
+> GiB/s, about 1.69x on the disk portion**, and it is tuning rather than a feature
+> that was never built.
+>
+> **And the rung-0 row below double-uses one number.** It models today's token as
+> `3.22 GiB / 1.34 GiB/s = 2.40 s` of disk plus 0.84 s of compute, giving 0.31
+> tok/s. But **2.40 s is the measured whole token**, of which 1.56 s is disk. The
+> model over-predicts today's token by 35%, and every rung below inherits it.
+>
+> **The lesson, which is the expensive part**: this node inferred what the code
+> does from a benchmark that resembled it, and called that *"the diagnosis
+> confirmed rather than inferred"*. Reading the code takes ten minutes.
+
 **Phase 0 of `the-big-bang-5-tok-s.md` existed to answer two cheap questions
 before any engine code was written for them.** The first is answered, the answer
 is good, and it exposed an error in the plan's own arithmetic that would have

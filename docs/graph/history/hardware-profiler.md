@@ -1,9 +1,27 @@
 ---
 epic: hardware-profiler
-status: open
+status: superseded 2026-08-31 by decisions/stack.md
 note: config-recommendation output overlaps ktransformers' Q2 2026 roadmap — deconflict with upstream before building a competing recommender (../decisions/fork-vs-wrapper.md)
 links: [../research/hardware-profiling.md, ../decisions/fork-vs-wrapper.md]
 ---
+
+> ## SUPERSEDED — retired 2026-08-31, kept for the reasoning only
+>
+> **This epic describes a product that no longer exists.** It was written when
+> Chaos was to be a Python wrapper driving someone else's engine — SGLang or
+> ktransformers — on Linux with an NVIDIA card. `decisions/stack.md` was accepted
+> on 2026-08-03 and settled the opposite: *"Chaos is *the runner*, not a front-end
+> that shells out to someone else's."* What shipped is a Rust workspace with
+> **zero third-party dependencies**, running on Windows against Vulkan.
+>
+> It stayed `status: open` for four weeks after that decision, and an audit on
+> 2026-08-31 found that these five files together carried **26 tickets counted as
+> outstanding work**. Any percentage-complete figure that included them was wrong
+> by about twenty points, in the direction that makes a project look worse than it
+> is — which is its own kind of dishonesty.
+>
+> **Do not schedule anything here.** Some of the *questions* are still good; where
+> one is, it has been re-asked in a live node. This file is history.
 ## Tickets
 - [ ] T1: Implement a portable STREAM-Triad-based RAM bandwidth probe that completes in under 20 seconds and reports sustained MB/s independent of host OS — depends: ../decisions/fork-vs-wrapper.md — evidence: ../research/hardware-profiling.md — acceptance: running the probe three consecutive times on the same idle machine returns bandwidth values within 5% of each other.
 - [ ] T2: Implement a cross-platform VRAM-capacity + GPU-model-string probe (vendor CLI / DXGI / sysfs fallback) that completes in under 5 seconds without running a compute benchmark — depends: ../decisions/fork-vs-wrapper.md — evidence: ../research/hardware-profiling.md — acceptance: the probe returns a non-zero VRAM total and a GPU model string on an NVIDIA target, an AMD target, and a Windows-DXGI-only target.

@@ -1,7 +1,7 @@
 ---
 topic: reproducible tok/s + TTFT + cache-hit-rate benchmarking methodology
 status: resolved
-links: [hardware-profiling.md, ktransformers-vs-llamacpp-moe-offload-gaps.md, ../backlog/benchmark-harness.md]
+links: [hardware-profiling.md, ktransformers-vs-llamacpp-moe-offload-gaps.md, ../history/benchmark-harness.md]
 ---
 ## Findings
 

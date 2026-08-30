@@ -90,7 +90,7 @@ container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 | V4-Flash against llama.cpp, alternating | **0.394 vs 0.39** — parity |
 | Dense path, hand-tuned | **1.30× behind**, and §4a showed the gap is 61% FFN matmul |
 | RAM read, peak / achieved in generation | **30.8** / ~19 GiB/s |
-| NVMe sequential / expert reads / QD-8 | **3.09** / **2.02** / **3.41 GiB/s** |
+| NVMe sequential / expert reads / QD-8 | **3.09** / **2.88** / **3.41 GiB/s** — the expert figure re-measured 2026-08-31 with the trunk resident; the old 1.40/1.88/2.02 were all taken while the trunk was *also* streaming |
 | `tok/s ≈ 19 / resident GiB` | holds across nine models spanning 23× |
 
 **Retracted, do not requote**: *"Proven: Qwen3-30B-A3B"* (`qwen3moe` is not in
@@ -114,12 +114,14 @@ with a claimed lead either — the ranges overlap.
    The byte-exact golden exists for `x86_64-windows` only; the other platforms run the
    remaining three layers and say so rather than inventing a pass.
 2. ~~**`F = 0.84 s` has never been profiled.**~~ **Profiled 2026-08-31**, trunk resident,
-   at **0.494 tok/s / 2.0 s per token**. A token is **60% disk** and **40% F**, and inside
-   F the surprise: `compute` (all the arithmetic) is 0.47 s while **`tail` — ggml graph
-   *construction* for `layer_tail` + `moe_routing` — is 0.36 s, about 20% of the whole
-   token spent describing work rather than doing it.** `lts-0-0-0.md` T0.6 predicted 21%
-   and was never acted on. Worth roughly **1.24x** and **free of quality risk**, since it
-   changes when a graph is built, not what is computed.
+   three runs in one session: **0.494 / 0.510 / 0.511 tok/s**. A token is **60% disk** and
+   **40% F**, and **F is 93% arithmetic** — `compute` 0.44 s, **the router 0.22 s**, graph
+   construction only 0.05 s. (A first pass claimed the reverse by trusting a code comment
+   instead of reading `moe_routing`, which runs `ctx.compute` in its middle; corrected the
+   same day.) **The router is the target**: 5.5 ms in each of the 40 `argsort_top_k`
+   blocks to pick 6 of 256 floats, against **0.000 s** in the 3 hash layers — so it is
+   graph *dispatch*, paid 40 times a token. Doing that selection on the CPU is worth
+   **~1.26x** and is **exact**.
 3. **The GPU tier is not verified** — the device path fails 1 of 8 parity prompts where
    the CPU path fails none. ~~And the GPU evidence contradicts itself.~~ **Reconciled
    2026-08-31**: both measurements are right and they used different context lengths.

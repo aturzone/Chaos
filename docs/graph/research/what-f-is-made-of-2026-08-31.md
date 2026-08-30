@@ -10,6 +10,51 @@ links:
 
 # What F is made of
 
+> ## CORRECTION, same day: the headline below was wrong, and the real answer is better
+>
+> **This node first said "half of F is building a description of the arithmetic".**
+> That is false. `F` is **93% arithmetic**, and the correction changes what to do
+> about it.
+>
+> The mistake was trusting a comment instead of reading a function. The block's
+> closing comment says *"every phase timer above measures graph construction
+> (plus, in `ffn`, the disk read)"* — and `moe_routing`, which the `tail` timer
+> covers, calls **`ctx.compute(&topk, threads())` in its middle**. It has to: the
+> expert reads cannot be issued until the router has said which experts, so that
+> graph is evaluated then and there. The comment did not mention it, and I
+> attributed real arithmetic to overhead.
+>
+> Re-measured with the router timed separately (`route-compute`, added in this
+> commit), averaged over generated tokens:
+>
+> | | seconds | share of F |
+> |---|---|---|
+> | `compute` — the block graph | 0.44 | 62% |
+> | `route-compute` — **the router** | **0.22** | **31%** |
+> | graph construction, all of it | **0.05** | **7%** |
+> | **F** | **0.71** | 100% |
+>
+> So **building the block graph once is worth about 0.05 s, not 0.36 s** — roughly
+> 3% of a token rather than 20%, and not worth doing. C5b is withdrawn.
+>
+> **What replaces it is sharper.** The router costs **0.218 s per token**, and all
+> of it is in the 40 blocks that use `argsort_top_k`; the 3 hash layers, which
+> look routing up by token id, cost **0.000 s**. That is **5.5 ms per block to
+> select the top 6 of 256 floats** — for one token. A partial selection over 256
+> values is microseconds of work, so 5.5 ms is **ggml graph dispatch**, paid 40
+> times per token because each router is its own `compute` call.
+>
+> Doing that selection on the CPU directly, with no graph, would take the token
+> from 1.77 s to about 1.55 s: **0.511 → ~0.645 tok/s, 1.26x**. And unlike the
+> other levers it is **exact** — the top 6 by value is the top 6 by value however
+> it is computed — so the only quality question is tie-breaking order, which is a
+> far smaller thing to check than 2-bit experts. It still needs the harness to
+> confirm, because "should be identical" is what this project retracts.
+>
+> Numbers below this line are from the first run and are left as they were
+> written; the corrected split is the one above. Measured tok/s across three runs
+> in one session: **0.494, 0.510, 0.511**.
+
 **`F` is the part of a V4-Flash token that never touches the disk.** It was
 measured once, on 2026-08-16, at **0.84 s**, and never opened up. That single
 number caps this machine at **1/F = 1.19 tok/s** no matter how fast the drive
@@ -121,3 +166,60 @@ drive at 4.26 tok/s.
   is cumulative rather than a phase. Both read 0.00 here so nothing rests on it,
   but anyone reading those two columns on a machine where they are non-zero
   should look at the code first.
+
+## And the same run closes the other half of the v0.0.26 gate
+
+**The expert read is already at 2.88 GiB/s, and every figure in these documents
+for it is stale and low.**
+
+The run above read **3268 MiB of experts in 1.11 s**. There was no expert cache
+to inflate that: the whole 7.26 GiB budget went to the trunk, and the header
+reports no cache line at all — so every one of those bytes came off the drive.
+
+```
+  3268 MiB / 1.11 s  =  2.88 GiB/s
+```
+
+| quoted where | GiB/s | headroom against 2.88 |
+|---|---|---|
+| `the-big-bang-5-tok-s.md`, rung 1's premise | 1.40 | it is 2.1x past that |
+| `hard-won-facts.md`, the standing figure | 1.88 | 1.5x past |
+| `v4flash-ram-frontier-2026-08-16` | 2.02 | 1.4x past |
+| `chaos-probe` NVMe sequential | 3.09 | **1.07x left** |
+| `chaos-qdbench` QD-8 peak | 3.41 | **1.19x left** |
+
+**This corrects a claim in the v0.0.26 plan, and the claim was mine.** That plan
+said the remaining I/O headroom was *"2.02 GiB/s achieved against 3.41 at QD-8 —
+about 1.69x on the disk portion"*. It is **1.19x**, and on a whole token — where
+the disk is 60% — it is worth **1.10x**, not 1.69x:
+
+```
+  disk per token   1.11 s -> 0.94 s
+  token            1.84 s -> 1.67 s
+  tok/s            0.543 -> 0.600      1.10x
+```
+
+### Why the old numbers were low, which is the useful part
+
+**The expert read rate is not a property of the drive. It is a property of what
+else is using the drive.** Every low figure was taken while part of the
+always-read trunk was *also* streaming: `queue-depth-and-the-real-ceiling`
+records 3.34 GiB of the 7.38 GiB trunk streaming on every token when it saw
+1.40 GiB/s, and `v4flash-ram-frontier` measured 2.02 resident against 1.65 with
+a 1.53 GiB shortfall. Here the trunk is resident, so the drive is doing expert
+reads and nothing else, and it goes nearly as fast as `chaos-qdbench` says it
+can.
+
+So *"Chaos reads experts at 1.40 GiB/s"* is not a fact about Chaos. It is a fact
+about a machine with 6 GiB free, and it should always have carried that clause.
+
+### What is left that carries no quality risk
+
+| lever | worth | needs the harness? |
+|---|---|---|
+| build the block graph once (`tail`, 0.36 s) | ~1.24x | **no** |
+| the last of the I/O headroom | ~1.10x | **no** |
+| both | **~1.4x**, 0.494 -> ~0.70 tok/s | no |
+
+Everything past that changes what the model computes, and none of it may ship
+until the quality harness exists. And none of it reaches 5.

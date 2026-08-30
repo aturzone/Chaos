@@ -10,6 +10,51 @@ links:
 
 # What F is made of
 
+> ## CORRECTION, same day: the headline below was wrong, and the real answer is better
+>
+> **This node first said "half of F is building a description of the arithmetic".**
+> That is false. `F` is **93% arithmetic**, and the correction changes what to do
+> about it.
+>
+> The mistake was trusting a comment instead of reading a function. The block's
+> closing comment says *"every phase timer above measures graph construction
+> (plus, in `ffn`, the disk read)"* — and `moe_routing`, which the `tail` timer
+> covers, calls **`ctx.compute(&topk, threads())` in its middle**. It has to: the
+> expert reads cannot be issued until the router has said which experts, so that
+> graph is evaluated then and there. The comment did not mention it, and I
+> attributed real arithmetic to overhead.
+>
+> Re-measured with the router timed separately (`route-compute`, added in this
+> commit), averaged over generated tokens:
+>
+> | | seconds | share of F |
+> |---|---|---|
+> | `compute` — the block graph | 0.44 | 62% |
+> | `route-compute` — **the router** | **0.22** | **31%** |
+> | graph construction, all of it | **0.05** | **7%** |
+> | **F** | **0.71** | 100% |
+>
+> So **building the block graph once is worth about 0.05 s, not 0.36 s** — roughly
+> 3% of a token rather than 20%, and not worth doing. C5b is withdrawn.
+>
+> **What replaces it is sharper.** The router costs **0.218 s per token**, and all
+> of it is in the 40 blocks that use `argsort_top_k`; the 3 hash layers, which
+> look routing up by token id, cost **0.000 s**. That is **5.5 ms per block to
+> select the top 6 of 256 floats** — for one token. A partial selection over 256
+> values is microseconds of work, so 5.5 ms is **ggml graph dispatch**, paid 40
+> times per token because each router is its own `compute` call.
+>
+> Doing that selection on the CPU directly, with no graph, would take the token
+> from 1.77 s to about 1.55 s: **0.511 → ~0.645 tok/s, 1.26x**. And unlike the
+> other levers it is **exact** — the top 6 by value is the top 6 by value however
+> it is computed — so the only quality question is tie-breaking order, which is a
+> far smaller thing to check than 2-bit experts. It still needs the harness to
+> confirm, because "should be identical" is what this project retracts.
+>
+> Numbers below this line are from the first run and are left as they were
+> written; the corrected split is the one above. Measured tok/s across three runs
+> in one session: **0.494, 0.510, 0.511**.
+
 **`F` is the part of a V4-Flash token that never touches the disk.** It was
 measured once, on 2026-08-16, at **0.84 s**, and never opened up. That single
 number caps this machine at **1/F = 1.19 tok/s** no matter how fast the drive

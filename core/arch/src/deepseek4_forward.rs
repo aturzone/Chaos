@@ -1877,7 +1877,28 @@ fn moe_routing<'c>(
         )?;
         ctx.argsort_top_k(&biased, n_used as i32)?
     };
+    // **The router runs here, in the middle of what looks like graph building.**
+    //
+    // This is a synchronisation point and not an optional one: the expert reads
+    // cannot be issued until the router has said which experts, so the graph
+    // must be evaluated now rather than folded into the block's one `compute`
+    // at the end. Everything else in this function describes work; this line
+    // does it.
+    //
+    // It is timed separately because the block line's `tail` column covers
+    // `layer_tail` **and** this, and reading that column as construction cost
+    // -- which the comment at the end of the block invites -- attributes real
+    // arithmetic to overhead. That mistake was made on 2026-08-31 and caught
+    // by reading this function instead of the comment.
+    let t_route = std::time::Instant::now();
     ctx.compute(&topk, threads())?;
+    if std::env::var("CHAOS_BLOCK_TIMING").is_ok() {
+        eprintln!(
+            "  block {il:>2}  route-compute {:.3}s (argsort_top_k over {} experts)",
+            t_route.elapsed().as_secs_f64(),
+            n_expert,
+        );
+    }
     let ids = topk.to_vec_i32();
     if std::env::var("CHAOS_ROUTING").is_ok() {
         record_routing(il, n_expert as usize, &ids);
@@ -2553,7 +2574,11 @@ pub fn block(
 
     let out = ctx.dsv4_hc_post(&ffn_out, &streams, &ffn_gates.post, &ffn_gates.comb)?;
     // The block builds one graph and evaluates it here, so every phase timer
-    // above measures graph *construction* (plus, in `ffn`, the disk read). This
+    // above measures graph *construction* -- **with two exceptions that matter**:
+    // `ffn` also contains the expert disk read, and `tail` also contains
+    // `moe_routing`'s own `compute`, which runs the router because the expert
+    // reads cannot be issued until it has. Set `CHAOS_BLOCK_TIMING` and the
+    // `route-compute` line separates that out. This
     // is the only line where arithmetic actually happens, and leaving it inside
     // the residual hid the fact that a V4-Flash token is 55% disk and 29% this.
     let t_phase = std::time::Instant::now();

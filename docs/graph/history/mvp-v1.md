@@ -1,8 +1,26 @@
 ---
 milestone: mvp-v1
-status: open
+status: superseded 2026-08-31 by decisions/stack.md
 links: [../research/mvp-scope.md, ../decisions/fork-vs-wrapper.md, wrapper-core.md]
 ---
+
+> ## SUPERSEDED — retired 2026-08-31, kept for the reasoning only
+>
+> **This epic describes a product that no longer exists.** It was written when
+> Chaos was to be a Python wrapper driving someone else's engine — SGLang or
+> ktransformers — on Linux with an NVIDIA card. `decisions/stack.md` was accepted
+> on 2026-08-03 and settled the opposite: *"Chaos is *the runner*, not a front-end
+> that shells out to someone else's."* What shipped is a Rust workspace with
+> **zero third-party dependencies**, running on Windows against Vulkan.
+>
+> It stayed `status: open` for four weeks after that decision, and an audit on
+> 2026-08-31 found that these five files together carried **26 tickets counted as
+> outstanding work**. Any percentage-complete figure that included them was wrong
+> by about twenty points, in the direction that makes a project look worse than it
+> is — which is its own kind of dishonesty.
+>
+> **Do not schedule anything here.** Some of the *questions* are still good; where
+> one is, it has been re-asked in a live node. This file is history.
 ## v1 milestone
 
 Scope: DeepSeek-class MoE (MLA) on Linux+NVIDIA only, per ../research/mvp-scope.md.

@@ -25,6 +25,33 @@ links:
 > **What is achievable is 0.43 -> about 1.0 tok/s**, and it is worth doing.
 > `research/queue-depth-and-the-real-ceiling-2026-08-26.md` has the numbers,
 > and the one measurement left that could move them.
+>
+> **CORRECTED AGAIN, 2026-08-31, and this one is a false premise rather than a
+> missing term.** Rung 1 below — *"issue the 6 experts of a layer as concurrent
+> reads"* — **is already implemented, and was before this plan was written.**
+> `READERS = 8`, `READER_HANDLES = 8` distinct file handles, a thread per reader
+> slot inside `std::thread::scope` (`deepseek4_forward.rs`, `core/model/src/lib.rs`).
+> The engine's measured 2.02 GiB/s is above the 1.34 GiB/s a queue-depth-1 engine
+> gets, which is the arithmetic that should have caught this without opening the
+> file. Remaining headroom is **2.02 against 3.41 GiB/s, about 1.69x on the disk
+> portion**, and the rung-0 row in §3 over-predicts today's token by 35% because
+> it reuses the number 2.40 for two different quantities.
+>
+> **And the ceiling has a hole nobody has looked through.** Every row here treats
+> the 7.38 GiB always-read trunk as a constant. The container carries that trunk
+> at **Q8_0 while the routed experts are Q4_K** — twice the precision, on the
+> bytes that are read *every single token*. The only trunk-requantisation study
+> in the repository killed the idea **for Kimi-K3, on the grounds that K3's trunk
+> was already 4-bit**, which is not true here. A Q4 trunk is roughly 3.91 GiB and
+> would also fit the 5.11 GiB of free VRAM, which is the capacity objection that
+> closed trunk-in-VRAM. Neither has been costed. The quality risk is real and
+> unmeasured — K3's QAT covered experts only — which is a reason to measure it
+> rather than a reason to assume either answer.
+>
+> **None of this reaches 5 on this laptop.** 137 GiB of experts cannot be
+> resident, so they cross a 3.41 GiB/s drive every token: even *one-bit* experts
+> with a free trunk and zero arithmetic cap at **4.26 tok/s**. That argument needs
+> no assumption about the trunk and no estimate of F.
 
 
 
@@ -188,7 +215,7 @@ already reports this. The plan needs it enforced during measurement runs, and
 | **`--op-offload`** | 19% slower | `op-offload-cannot-pay-2026-08-16` |
 | **Pinned hot set, expert factorisation, contextual sparsity** | measured dead | `hard-won-facts.md` |
 | **Parallel-experts port** | V4-Flash's routed arithmetic is <5% of a token | `parallel-experts-do-not-transfer` |
-| **The GPU** | 6 GB VRAM against 137 GiB of experts; and the measured device path is **2.2× slower at generation** than the CPU even when the model fits entirely in VRAM | `ngl-ladder-2026-08-24` |
+| **The GPU** *(qualified 2026-08-31)* | 6 GB VRAM against 137 GiB of experts, and V4-Flash's 7.38 GiB trunk does not fit either. The generation figure quoted here as settled is **not** settled: `ngl-ladder-2026-08-24` measured 0.46x on Qwen3-4B and says in the same breath *"do not quote this as 'the GPU is slower at generation'... nobody has looked at why"*, while `ngl-frontier-2026-08-16` measured **1.40x faster** on the same model eight days earlier. **Two measurements, one model, 3x apart, unreconciled** | `ngl-ladder-2026-08-24`, `ngl-frontier-2026-08-16` |
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 topic: ktransformers vs llama.cpp MoE-offload — gaps for solo/small-team use
 status: resolved-with-corrections
-links: [../backlog/gap-closure.md, moe-landscape-2026-08.md, waste-engine-verified.md]
+links: [../history/gap-closure.md, moe-landscape-2026-08.md, waste-engine-verified.md]
 ---
 
 > **CORRECTION BLOCK — 2026-08-02. Later wins; original text below is kept unedited.**

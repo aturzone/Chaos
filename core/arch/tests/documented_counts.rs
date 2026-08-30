@@ -103,6 +103,33 @@ fn the_readme_quotes_the_real_number_of_verified_architectures() {
             "README.md still claims {wrong} architectures somewhere: {stale:?}"
         );
     }
+
+    // **And the progress bar, which is a different sentence for the same fact.**
+    //
+    // This check used to look only for the prose phrasing, so when the count went
+    // from 13 to 14 the sentence was corrected and the bar nine lines above it was
+    // not. The file then stated two different architecture counts in one screen,
+    // in the most-read document in the repository, and a green CI run coexisted
+    // with it for three days. A count is only guarded where it is *written*, not
+    // where it was most convenient to guard.
+    let bar = readme
+        .lines()
+        .find(|l| l.trim_start().starts_with("Architectures"))
+        .expect("README.md has no Architectures row in the coverage block");
+    let claimed = bar
+        .split_whitespace()
+        .rev()
+        .find_map(|w| w.parse::<usize>().ok())
+        .or_else(|| {
+            bar.split_whitespace()
+                .find_map(|w| w.trim_end_matches('%').parse::<usize>().ok())
+        });
+    assert!(
+        bar.contains(&format!("{n} of the")),
+        "the README's Architectures bar disagrees with VERIFIED_ARCHITECTURES ({n}).\n\
+         The row reads: {bar}\n\
+         Parsed a count of {claimed:?}. Fix the bar and the sentence together."
+    );
 }
 
 /// **The binary count in `CLAUDE.md` is the number of `[[bin]]` targets.**
@@ -326,4 +353,48 @@ fn every_binary_reaches_every_platform() {
 
 fn nl_sep() -> String {
     String::from(char::from(10)) + "  - "
+}
+
+/// **The documents that must be accurate about where the code lives, are.**
+///
+/// `NOTICE` described the ggml FFI as a `crates/` path -- twice -- and
+/// `SECURITY.md` sent security researchers to two more. There is no `crates/`
+/// directory. The first was found and fixed by the licence audit on 2026-08-28;
+/// the second survived three more days **because the fix was a sentence and not
+/// a mechanism**, and nothing looked at the other file with the same job.
+///
+/// These four files are the ones a stranger reads to decide what this is and
+/// where to look: the licence, the security policy, the front page and the
+/// contribution guide. A path in any of them that leads nowhere is worse than no
+/// path at all.
+#[test]
+fn no_document_points_at_a_directory_that_does_not_exist() {
+    // Real crate paths as they appear in prose. A bare `crates/` on a line that
+    // explains the old layout is history, not a pointer, and is left alone.
+    let dead = "crates/chaos-";
+    let mut found: Vec<String> = Vec::new();
+    for doc in ["NOTICE", "SECURITY.md", "README.md", "CONTRIBUTING.md"] {
+        for (i, line) in read(doc).lines().enumerate() {
+            if line.contains(dead) {
+                found.push(format!("{doc}:{} {}", i + 1, line.trim()));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "these lines name a crates/ path, and there is no crates/ directory:\n  {}",
+        found.join("\n  ")
+    );
+
+    // And the directories those files *should* name all exist, so this fails
+    // loudly if the layout moves again rather than going quietly stale.
+    for dir in [
+        "core/ggml",
+        "core/io",
+        "core/arch",
+        "cli/chaos",
+        "network/serve",
+    ] {
+        assert!(root().join(dir).is_dir(), "{dir} does not exist any more");
+    }
 }

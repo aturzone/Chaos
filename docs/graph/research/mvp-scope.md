@@ -1,14 +1,14 @@
 ---
 topic: realistic v1 scope for solo dev + Claude Code (post-ADR)
 status: resolved
-links: [../decisions/fork-vs-wrapper.md, hardware-profiling.md, benchmarking-methodology.md, ../backlog/wrapper-core.md, ../backlog/mvp-v1.md]
+links: [../decisions/fork-vs-wrapper.md, hardware-profiling.md, benchmarking-methodology.md, ../history/wrapper-core.md, ../history/mvp-v1.md]
 ---
 ## Findings
 
 ### Assumptions (corrected by Atur 2026-07-28)
 - Team = **solo (Atur) + Claude Code** — supersedes the earlier 1-2-dev guess. One self-taught dev's part-time hours; no second track of work ever runs in parallel.
 - **Claude Code throughput is budget-capped ($20/mo plan)**: rolling usage windows limit heavy agent runs. Observed costs in this project: ~50-150k subagent tokens per research-grade run, ~50-70k per planner run; implementation tickets with test/debug cycles will cost more, not less. Honest planning number: **~2-3 Claude-driven tickets per calendar week**, less in weeks with real-hardware debugging — not team-week velocity. Weeks in the milestone plan are paced on this cap.
-- The original "4-6 weeks" was a team-velocity estimate; solo + budget-capped, the same v1 cut re-paces to **~8 calendar weeks** (see ../backlog/mvp-v1.md), with a scope re-check at the week-4 midpoint rather than a week-6 buffer.
+- The original "4-6 weeks" was a team-velocity estimate; solo + budget-capped, the same v1 cut re-paces to **~8 calendar weeks** (see ../history/mvp-v1.md), with a scope re-check at the week-4 midpoint rather than a week-6 buffer.
 - T0 (gap-closure #21) and hardware-profiler T7 (#14, calibration) both require hands-on access to a real MoE-capable rig (multi-channel RAM, a GPU that runs kt-kernel/SGLang, a working ktransformers install) starting week 1 — if Atur doesn't have this yet, it is the actual week-1 blocker, ahead of any code task.
 - Week-1 risk is entirely front-loaded on T0: it's a GATE (blocks gap-closure T1-T7 per gap-closure.md) and its outcome changes what v1 even is (see fail-path below) — nothing else in gap-closure should be scheduled ahead of it.
 - Assumes DeepSeek-class MoE (MLA attention) is the reachable local test model in some quantized form — unverified against Atur's actual hardware budget; a smaller MoE (e.g. Qwen-MoE class) may be the practical dev-loop target even if DeepSeek-class is the eventual README headline (see open questions).

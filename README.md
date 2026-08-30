@@ -21,7 +21,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-959%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-960%20passing-brightgreen">
 </p>
 
 ---
@@ -221,7 +221,7 @@ CLI flags         91%  [##################..]  165 of llama.cpp's 182
 Chat templates    96%  [###################.]  52 of its 54 names
 Tokenizers        83%  [################....]  5 of 6 families
 Samplers          80%  [################....]  16 of 20
-Architectures      9%  [#...................]  13 of the 141 it declares
+Architectures     10%  [##..................]  14 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
 Browser UI        33%  [######..............]  2 of 6 things a chat UI needs
 V4-Flash speed     8%  [#...................]  0.43 of 5 tok/s

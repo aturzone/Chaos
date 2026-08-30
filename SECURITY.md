@@ -2,15 +2,20 @@
 
 ## Supported versions
 
-Chaos is at **v0.0.0**, a preview. Only the latest release and `main` receive
-fixes. There is no long-term support branch yet, despite the LTS ambition in the
-roadmap.
+Chaos is a preview. **Only the newest release and `main` receive fixes**, and
+there is no long-term support branch yet -- v0.0.30 is the release being built
+to that standard, and this section changes when it lands.
 
 | version | supported |
 |---|---|
 | `main` | ✅ |
-| 0.0.0 | ✅ |
-| anything earlier | ❌ (none exists) |
+| the newest release | ✅ |
+| anything earlier | ❌ upgrade first, then report |
+
+**A version is not named here on purpose.** This file said "Chaos is at
+**v0.0.0**" through twenty-three releases -- the one document a stranger reads
+to decide whether a project is maintained, claiming it had never shipped. A
+number in prose is a number that goes stale; the rule does not.
 
 ## Reporting a vulnerability
 
@@ -41,9 +46,13 @@ are therefore:
 - Any way to make Chaos write outside paths the user explicitly named. Chaos
   opens model files **read-only** and should never write to them.
 
-`crates/chaos-ggml` contains `unsafe` FFI by necessity, and
-`crates/chaos-io`'s aligned buffers use raw allocation. Both are the places to
-look.
+`core/ggml` contains `unsafe` FFI by necessity, and `core/io`'s aligned buffers
+use raw allocation. Both are the places to look.
+
+(Until 2026-08-31 both paths named a `crates/` directory that does not exist,
+so this file sent security researchers somewhere unreachable. `NOTICE` had the
+same defect and was fixed on 2026-08-28; this is the other file whose job is to
+be accurate about where the code lives, and a test now checks both.)
 
 ## What is out of scope
 

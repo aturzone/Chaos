@@ -1,5 +1,5 @@
 ---
-topic: the router's 0.22 s is the BF16 gate matmul, not the top-k sort — so moving the selection to the CPU saves nothing
+topic: the router's 0.22 s is the block tail computed TWICE — not the top-k sort, and not the BF16 dtype. The filename is stale and kept so links do not rot.
 status: resolved
 links:
   - what-f-is-made-of-2026-08-31.md
@@ -8,6 +8,58 @@ links:
 ---
 
 # The router is a BF16 matmul
+
+> ## CORRECTION, same day: it is not the dtype either. It is computed twice.
+>
+> **The title of this node is wrong** and the fix it proposed (C5d, convert the
+> BF16 gate weight at load) is dead alongside the one it replaced. Both were
+> killed by measuring instead of reasoning, which is now the fourth time in a row.
+>
+> `core/ggml/tests/router_matmul_dtypes.rs` times that exact matmul, 4096 x 256
+> against one token, 200 repetitions, warm-up discarded:
+>
+> | dtype | ms/matmul | GFLOP/s |
+> |---|---|---|
+> | F32 | 0.1503 | 13.96 |
+> | BF16 | **0.1501** | 13.97 |
+>
+> **BF16 is 1.00x F32, and both take 0.15 ms — not 6.4 ms.** A 43x gap between
+> the isolated matmul and what the engine pays means the 6.4 ms was never the
+> matmul.
+>
+> ### What it actually is
+>
+> `ctx.compute(&topk)` does not evaluate the router. It evaluates **everything
+> `topk` depends on**, and that chain reaches back through `probs` to `logits` to
+> `ffn_norm` — which is `layer_tail`'s output. So it computes the block's tail,
+> and then the block's own `ctx.compute(&out)` at the end computes it **again**.
+>
+> The three hash layers prove it, because their `topk` is `get_rows(tid2eid, tok)`
+> and depends on the token ids alone:
+>
+> | per block | hash (0-2) | argsort (3-42) |
+> |---|---|---|
+> | `route-compute` | 0.0000 | **0.0055** |
+> | final `compute` | 0.0100 | **0.0101** |
+>
+> **If the early evaluation had done that work early rather than extra, the final
+> compute would be smaller by about 0.0055. It is identical.** The 40 argsort
+> blocks each pay 5.5 ms twice; the 3 hash blocks pay once.
+>
+> ### So the fix is neither of the two that were filed
+>
+> It is **do not recompute**. After `ctx.compute(&topk)`, the values in
+> `ffn_norm`, `probs3` and `topk` are already correct; copying them into fresh
+> leaf tensors (`ggml_new_tensor` with no op) before the downstream graph is
+> built would stop ggml walking back through the tail a second time. That is a
+> few thousand floats copied against 5.5 ms of arithmetic saved per block.
+>
+> **Worth 0.221 s of a 1.980 s token — 1.13x — and exact**, since copying a
+> computed value changes nothing numerically. It goes behind the quality gate's
+> *exact* bar and should come back 100% byte-identical. Filed as **C5e**.
+>
+> Everything below this line is the superseded reasoning, kept because the two
+> dead ends are worth not re-walking.
 
 `what-f-is-made-of` found the router costing **0.22 s of a V4-Flash token** —
 5.5 ms in each of the 40 blocks that use `argsort_top_k`, against **0.000 s** in

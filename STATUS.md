@@ -74,7 +74,7 @@ Each release's contents and its gate are in the plan; the short form:
 
 ## The honest scoreboard
 
-**Current**: **972 tests** (0 failed, 42 ignored — the V4-Flash set needs the
+**Current**: **973 tests** (0 failed, 42 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 
@@ -126,12 +126,15 @@ with a claimed lead either — the ranges overlap.
    instead of reading `moe_routing`, which runs `ctx.compute` in its middle; corrected the
    same day.) **The router is the target**: 5.5 ms in each of the 40 `argsort_top_k`
    blocks to pick 6 of 256 floats, against **0.000 s** in the 3 hash layers — so it is
-   graph *dispatch*, paid 40 times a token. Doing that selection on the CPU was
-   filed as the fix and is **dead**: `CHAOS_ROUTE_SPLIT` shows the BF16 `mul_mat`
-   costs 0.256 s and `argsort_top_k` costs **~0**. The real candidate is the
-   **4096x256 BF16 matmul at 6.4 ms** — untested, and the ceiling on removing the
-   router entirely is **1.13x**, not the 1.26x first claimed (which divided a
-   block-sum by a wall-clock).
+   graph *dispatch*, paid 40 times a token. Two fixes were filed for it and
+   **both are dead, each killed by a measurement before it was built**: a CPU top-k
+   (the sort costs ~0) and converting the BF16 gate weight (**F32 0.1503 ms vs BF16
+   0.1501 ms — 1.00x**, and 43x faster than the engine pays). **The real cause is
+   that the block tail is computed twice**: `ctx.compute(&topk)` reaches back
+   through `ffn_norm` into `layer_tail`, and the final `compute` redoes it — the
+   argsort blocks' final compute is 0.0101 s against the hash blocks' 0.0100 s, so
+   the early evaluation was extra, not early. Fix is to copy the computed tensors
+   into leaves (C5e): **1.13x, exact**.
 3. **The GPU tier is not verified** — the device path fails 1 of 8 parity prompts where
    the CPU path fails none. ~~And the GPU evidence contradicts itself.~~ **Reconciled
    2026-08-31**: both measurements are right and they used different context lengths.

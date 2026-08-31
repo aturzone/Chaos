@@ -1859,6 +1859,24 @@ fn moe_routing<'c>(
     let probs = ctx.sqrt(&ctx.softplus(&logits)?)?;
     let probs3 = ctx.reshape_3d(&probs, 1, n_expert, nt)?;
 
+    // **A probe, off by default, that says which half of the router costs the
+    // 5.5 ms.** `route-compute` covers `mul_mat` on a **BF16** gate weight plus
+    // softplus, sqrt, add and `argsort_top_k`; the three hash layers, whose
+    // `topk` depends on none of that, cost 0.000 s, which is how we know the
+    // cost is work rather than dispatch.
+    //
+    // Computing `probs` here costs an extra evaluation, so this is behind its own
+    // variable rather than `CHAOS_BLOCK_TIMING`: it changes the thing it
+    // measures, and a probe that ships is a probe that lies about the baseline.
+    if std::env::var("CHAOS_ROUTE_SPLIT").is_ok() {
+        let t = std::time::Instant::now();
+        ctx.compute(&probs, threads())?;
+        eprintln!(
+            "  block {il:>2}  route-probs {:.3}s (BF16 mul_mat + softplus + sqrt)",
+            t.elapsed().as_secs_f64(),
+        );
+    }
+
     let topk = if il < config.hash_layer_count {
         let tok = ctx.new_i32_1d(nt)?;
         tok.set_i32(tokens)?;

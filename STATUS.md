@@ -126,8 +126,12 @@ with a claimed lead either — the ranges overlap.
    instead of reading `moe_routing`, which runs `ctx.compute` in its middle; corrected the
    same day.) **The router is the target**: 5.5 ms in each of the 40 `argsort_top_k`
    blocks to pick 6 of 256 floats, against **0.000 s** in the 3 hash layers — so it is
-   graph *dispatch*, paid 40 times a token. Doing that selection on the CPU is worth
-   **~1.26x** and is **exact**.
+   graph *dispatch*, paid 40 times a token. Doing that selection on the CPU was
+   filed as the fix and is **dead**: `CHAOS_ROUTE_SPLIT` shows the BF16 `mul_mat`
+   costs 0.256 s and `argsort_top_k` costs **~0**. The real candidate is the
+   **4096x256 BF16 matmul at 6.4 ms** — untested, and the ceiling on removing the
+   router entirely is **1.13x**, not the 1.26x first claimed (which divided a
+   block-sum by a wall-clock).
 3. **The GPU tier is not verified** — the device path fails 1 of 8 parity prompts where
    the CPU path fails none. ~~And the GPU evidence contradicts itself.~~ **Reconciled
    2026-08-31**: both measurements are right and they used different context lengths.

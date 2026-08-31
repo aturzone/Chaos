@@ -60,3 +60,11 @@ android/app/src/main/jniLibs/
 # goes stale silently. Release CI regenerates it; a local `gradlew assemble`
 # without it still works, and BrandActivity falls back to the node.
 android/app/src/main/assets/brand/
+
+# The quality gate's baselines. **Per-machine and per-build, deliberately not
+# shared.** A baseline is what *this* engine did before *this* change, so it is
+# recorded minutes before it is compared against; a committed one would be
+# somebody else's build on somebody else's SIMD path, and the first difference
+# would be read as a regression. `scripts/quality-gate.sh` records one on
+# demand and says so.
+quality-baseline/

@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# The gate that stands between "faster" and "broken".
+#
+# **Nothing that changes what the model computes may ship without passing this**,
+# and `CHECKLIST.md` has said so since the ladder was written: *"C6 is not
+# optional. It changes what the model computes, and a wrong forward pass here is
+# fluent nonsense, never a crash."*
+#
+# `the-big-bang-5-tok-s.md` §5 asks for three things and this is all three:
+#
+#   1. a diff against the baseline on a fixed prompt set;
+#   2. fifty prompts with answers checkable without reading prose;
+#   3. **a threshold agreed before the runs**, so the decision is not made after
+#      seeing the speed.
+#
+# # The thresholds, and why there is more than one
+#
+# Atur's decision, 2026-08-31: **different bars per lever**, because these are
+# different kinds of change and one bar would be wrong for both.
+#
+#   exact   The change must not alter the answer at all. Selecting the top 6 of
+#           256 by value is the top 6 by value however it is computed, so the
+#           only legitimate difference is tie-breaking order. **100% of answers
+#           byte-identical**, and any difference must be shown to be a tie before
+#           it is accepted -- by a human, not by this script.
+#
+#   lossy   The change is known to alter the arithmetic: 2-bit experts, top-k
+#           routing, a requantised trunk. **>= 95% of answers byte-identical, no
+#           checkable answer that was right may become wrong, and perplexity may
+#           not rise by more than 1%.**
+#
+# The perplexity band is the part that catches a change which keeps the greedy
+# path and wrecks the distribution underneath it -- 95% agreement with a doubled
+# perplexity is not a faster model, it is a worse one that happens to agree.
+#
+# **1% is a judgement and it is deliberately tight.** Verified against 1 MiB of
+# zeros written into a container: 22.0% identical, four checkable answers lost,
+# and perplexity 1.0708 -> 1.0832, a **1.16% rise**. So the band is set just
+# below a change that is unambiguously damage -- which means the first *legitimate*
+# lever to fail it will fail it narrowly.
+#
+# When that happens, argue it with the numbers and move the constant in a commit
+# that says why. **Do not widen it in the same change it is blocking**, and do not
+# re-record the baseline to make a comparison pass; both turn the gate into a
+# formality, which is the one failure mode it cannot survive.
+#
+# # Why byte-identical text is the same thing as top-1 agreement
+#
+# At `--temp 0` generation is greedy, so the emitted text **is** the sequence of
+# top-1 tokens. Comparing the text compares the argmax at every position, with no
+# logit plumbing and nothing to get subtly wrong in the harness itself. §5 asked
+# for "top-1 agreement rate"; this is that, measured the cheap way.
+#
+# What it does not give is KL divergence, which needs the distributions. That is
+# why the perplexity band is here: it is the distribution check, taken from the
+# facility `chaos-run --perplexity` already has.
+#
+#   # record what the model does today, before changing anything
+#   bash scripts/quality-gate.sh --model M.gguf --record
+#
+#   # after the change
+#   bash scripts/quality-gate.sh --model M.gguf --lever exact
+#   bash scripts/quality-gate.sh --model M.gguf --lever lossy
+#
+# Exit 0 if the bar for that lever is met, 1 if it is not, and 2 if the harness
+# could not run -- which is never reported as a pass.
+set -uo pipefail
+
+cd "$(git rev-parse --show-toplevel)" || exit 2
+
+# ---- the thresholds, declared before any run -------------------------------
+EXACT_MIN_IDENTICAL=100      # per cent
+LOSSY_MIN_IDENTICAL=95       # per cent
+LOSSY_MAX_PPL_RISE=1.0       # per cent
+TOKENS=12                    # generated per prompt
+# **Declared, not defaulted.** `chaos-run`'s own default is 512, which is what
+# `llama-perplexity` uses and is right for comparing the two engines. Here both
+# sides are Chaos, so what matters is that the baseline and the comparison use
+# the *same* chunk -- and 512 silently measures nothing on a corpus under 512
+# tokens, which is how the first run of this script reported "could not be
+# measured" while the real message was sitting in stderr.
+PPL_CHUNK=128
+
+MODEL=""
+LEVER=""
+RECORD=0
+PROMPTS="scripts/quality-prompts.tsv"
+BASE=""
+PPL_CORPUS=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model)    MODEL="${2:-}"; shift 2 ;;
+    --lever)    LEVER="${2:-}"; shift 2 ;;
+    --record)   RECORD=1; shift ;;
+    --prompts)  PROMPTS="${2:-}"; shift 2 ;;
+    --baseline) BASE="${2:-}"; shift 2 ;;
+    --ppl)      PPL_CORPUS="${2:-}"; shift 2 ;;
+    --tokens)   TOKENS="${2:-}"; shift 2 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$MODEL" ] || { echo "usage: quality-gate.sh --model <gguf> [--record | --lever exact|lossy]" >&2; exit 2; }
+[ -f "$MODEL" ] || { echo "no such model: $MODEL" >&2; exit 2; }
+[ -f "$PROMPTS" ] || { echo "no such prompt set: $PROMPTS" >&2; exit 2; }
+if [ "$RECORD" -eq 0 ] && [ "$LEVER" != "exact" ] && [ "$LEVER" != "lossy" ]; then
+  echo "--lever must be exact or lossy (or pass --record)" >&2; exit 2
+fi
+
+EXE="target/release/chaos-run"
+[ -f "$EXE.exe" ] && EXE="$EXE.exe"
+[ -f "$EXE" ] || { echo "build it first: cargo build --release --bin chaos-run" >&2; exit 2; }
+
+STEM=$(basename "$MODEL"); STEM="${STEM%.gguf}"
+[ -n "$BASE" ] || BASE="quality-baseline/$STEM"
+
+# ---- run the prompt set ----------------------------------------------------
+
+# Strip comments and blank lines once, so the count is the real count.
+LIVE=$(mktemp); trap 'rm -f "$LIVE" "$OUT" 2>/dev/null' EXIT
+grep -v '^#' "$PROMPTS" | grep -v '^[[:space:]]*$' > "$LIVE"
+N=$(wc -l < "$LIVE" | tr -d ' ')
+if [ "$N" -lt 50 ]; then
+  echo "the prompt set has $N usable lines and the bar is fifty." >&2
+  echo "A gate with a short prompt set is a gate that agrees with anything." >&2
+  exit 2
+fi
+echo "model    $MODEL"
+echo "prompts  $N, $TOKENS tokens each"
+echo
+
+OUT=$(mktemp)
+: > "$OUT"
+right=0
+while IFS=$'\t' read -r expected prompt; do
+  [ -n "${prompt:-}" ] || continue
+  answer=$("$EXE" "$MODEL" "$prompt" -n "$TOKENS" --temp 0 --no-perf 2>/dev/null \
+           | tr '\n' ' ' | sed 's/  */ /g')
+  # Everything after the echoed prompt is the answer.
+  gen=${answer#*"$prompt"}
+  hit=no
+  case "$(printf '%s' "$gen" | tr '[:upper:]' '[:lower:]')" in
+    *"$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"*) hit=yes; right=$((right+1)) ;;
+  esac
+  printf '%s\t%s\t%s\n' "$hit" "$expected" "$gen" >> "$OUT"
+done < "$LIVE"
+
+got=$(wc -l < "$OUT" | tr -d ' ')
+if [ "$got" -ne "$N" ]; then
+  echo "ran $got of $N prompts -- the harness failed, which is not a pass." >&2
+  exit 2
+fi
+echo "checkable answers correct: $right of $N"
+
+# ---- perplexity, when a corpus is given -----------------------------------
+ppl=""
+if [ -n "$PPL_CORPUS" ] && [ -f "$PPL_CORPUS" ]; then
+  ppl_out=$("$EXE" "$MODEL" -f "$PPL_CORPUS" --perplexity --ppl-chunk "$PPL_CHUNK" 2>&1)
+  ppl=$(printf '%s' "$ppl_out" | grep -oE 'perplexity [0-9]+\.[0-9]+' | head -1 | awk '{print $2}')
+  if [ -n "$ppl" ]; then
+    echo "perplexity: $ppl  (chunk $PPL_CHUNK)"
+  else
+    # **Say why, not that.** The first version printed "could not be measured"
+    # and swallowed a perfectly clear message from chaos-run -- the corpus was
+    # 273 tokens against a 512-token chunk, so no chunk reached two tokens. A
+    # check that hides its own reason for not running is the shape of bug this
+    # whole gate exists to catch.
+    echo "perplexity: NOT MEASURED. chaos-run said:"
+    printf '%s' "$ppl_out" | tail -2 | sed 's/^/  /'
+  fi
+fi
+
+# ---- record ----------------------------------------------------------------
+if [ "$RECORD" -eq 1 ]; then
+  mkdir -p "$BASE"
+  cp "$OUT" "$BASE/answers.tsv"
+  printf '%s\n' "$right" > "$BASE/checkables-correct.txt"
+  [ -n "$ppl" ] && printf '%s\n' "$ppl" > "$BASE/perplexity.txt"
+  echo
+  echo "RECORDED $BASE/"
+  echo "  Record a baseline only from a build you believe. A baseline taken from a"
+  echo "  broken engine freezes the breakage in and every later run agrees with it."
+  exit 0
+fi
+
+# ---- compare ---------------------------------------------------------------
+[ -f "$BASE/answers.tsv" ] || {
+  echo "no baseline at $BASE/answers.tsv -- record one first with --record" >&2
+  exit 2
+}
+
+base_right=$(cat "$BASE/checkables-correct.txt" 2>/dev/null || echo 0)
+identical=0
+regressed=""
+line=0
+while IFS=$'\t' read -r hit expected gen; do
+  line=$((line+1))
+  b=$(sed -n "${line}p" "$BASE/answers.tsv")
+  b_hit=$(printf '%s' "$b" | cut -f1)
+  b_gen=$(printf '%s' "$b" | cut -f3-)
+  [ "$gen" = "$b_gen" ] && identical=$((identical+1))
+  if [ "$b_hit" = "yes" ] && [ "$hit" = "no" ]; then
+    regressed="$regressed
+  $expected -- was right, now: $gen"
+  fi
+done < "$OUT"
+
+pct=$(awk "BEGIN{printf \"%.1f\", 100*$identical/$N}")
+echo "byte-identical answers:    $identical of $N  ($pct%)"
+echo "checkables in baseline:    $base_right"
+[ -n "$regressed" ] && echo "REGRESSED checkable answers:$regressed"
+
+fail=0
+case "$LEVER" in
+  exact)
+    echo
+    echo "bar: exact -- $EXACT_MIN_IDENTICAL% byte-identical required"
+    if [ "$identical" -ne "$N" ]; then
+      echo "FAIL: $((N-identical)) answer(s) changed."
+      echo "      An exact lever must not change the answer. If every difference is"
+      echo "      a genuine tie, say which and why -- in the commit, with the logits."
+      echo "      Do not re-record the baseline to make this pass."
+      fail=1
+    fi
+    ;;
+  lossy)
+    echo
+    echo "bar: lossy -- >=$LOSSY_MIN_IDENTICAL% identical, no checkable regression, perplexity +<=$LOSSY_MAX_PPL_RISE%"
+    awk "BEGIN{exit !($pct < $LOSSY_MIN_IDENTICAL)}" && {
+      echo "FAIL: $pct% identical, below $LOSSY_MIN_IDENTICAL%."; fail=1; }
+    [ -n "$regressed" ] && { echo "FAIL: a checkable answer that was right is now wrong."; fail=1; }
+    if [ -n "$ppl" ] && [ -f "$BASE/perplexity.txt" ]; then
+      b_ppl=$(cat "$BASE/perplexity.txt")
+      rise=$(awk "BEGIN{printf \"%.2f\", 100*($ppl-$b_ppl)/$b_ppl}")
+      echo "perplexity: $b_ppl -> $ppl  (${rise}%)"
+      awk "BEGIN{exit !($rise > $LOSSY_MAX_PPL_RISE)}" && {
+        echo "FAIL: perplexity rose ${rise}%, over the $LOSSY_MAX_PPL_RISE% band."
+        echo "      95% agreement with a worse distribution is not a faster model."
+        fail=1; }
+    else
+      # **Not silently excused.** A missing distribution check is a missing
+      # third of this gate, and a lossy lever is exactly where it matters.
+      echo "WARNING: no perplexity comparison -- pass --ppl <corpus> and record one."
+      echo "         For a lossy lever this is a hole in the gate, not a detail."
+    fi
+    ;;
+esac
+
+echo
+if [ "$fail" -ne 0 ]; then
+  echo "GATE FAILED. The change does not ship, and no tok/s number from it may be quoted."
+  exit 1
+fi
+echo "GATE PASSED for a $LEVER lever."

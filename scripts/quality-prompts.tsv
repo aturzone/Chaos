@@ -1,0 +1,84 @@
+# The quality harness's prompt set. One per line: <expected>TAB<prompt>
+#
+# **Fifty prompts, each with an answer that is checkable without reading prose.**
+# `the-big-bang-5-tok-s.md` §5 asks for exactly this: "a fixed prompt set with
+# checkable answers ... extended to 50 prompts where a wrong answer is
+# recognisable without a human reading prose."
+#
+# # These are NOT a knowledge test, and the distinction is the whole design
+#
+# A 0.5B model says the capital of Japan is Kyoto and that two plus two equals
+# three. If the gate demanded correct answers it would fail every small model on
+# day one and be switched off.
+#
+# So the baseline records **which of these the model gets right**, and the gate
+# requires that **none of those regress**. A model that never knew an answer is
+# not penalised for still not knowing it; a model that knew one and stops
+# knowing it is exactly what a broken forward pass looks like.
+#
+# The `<expected>` column is a substring, matched case-insensitively, against the
+# text generated *after* the prompt.
+#
+# # A known false positive, stated rather than hidden
+#
+# Substring matching cannot tell an answer from an option. On the first
+# recorded baseline, Qwen2-0.5B answered *"The capital of Italy is ____. A. Rome
+# B. Florence C."* and scored a hit on `Rome` -- it emitted a multiple-choice
+# question, not an answer.
+#
+# **This is tolerable because of what the column is for.** The checkable column
+# is the *secondary* signal; the primary one is byte-identical output, which
+# catches any change to that text whether or not the substring happens to sit in
+# it. A false positive here can only make the gate slightly less sensitive, never
+# let a changed answer through -- and the alternative, curating fifty prompts
+# that no model turns into a quiz, is a much larger job for a smaller return.
+Paris	The capital of France is
+Rome	The capital of Italy is
+Berlin	The capital of Germany is
+Madrid	The capital of Spain is
+Lisbon	The capital of Portugal is
+Vienna	The capital of Austria is
+Ottawa	The capital of Canada is
+Canberra	The capital of Australia is
+Cairo	The capital of Egypt is
+Tehran	The capital of Iran is
+Pacific	The largest ocean on Earth is the
+Nile	The longest river in Africa is the
+Everest	The highest mountain on Earth is
+Sahara	The largest hot desert in the world is the
+Antarctica	The coldest continent on Earth is
+H2O	The chemical symbol for water is
+Au	The chemical symbol for gold is
+Fe	The chemical symbol for iron is
+oxygen	The gas that makes up about 21% of Earth's atmosphere is
+carbon	The element with atomic number 6 is
+east	The sun rises in the
+seven	The number of days in a week is
+twelve	The number of months in a year is
+four	The number of sides on a square is
+three	The number of sides on a triangle is
+sixty	The number of seconds in a minute is
+365	The number of days in a common year is
+100	The number of degrees Celsius at which water boils at sea level is
+zero	Water freezes at how many degrees Celsius?
+nine	The number of planets in the solar system is
+Shakespeare	The author of the play Romeo and Juliet is
+Orwell	The author of the novel Nineteen Eighty-Four is
+Tolkien	The author of The Lord of the Rings is
+Einstein	The physicist who proposed the theory of general relativity was
+Newton	The scientist who formulated the laws of motion and universal gravitation was
+Curie	The scientist who won Nobel Prizes in both physics and chemistry was
+Darwin	The naturalist who wrote On the Origin of Species was
+Turing	The mathematician who devised a test for machine intelligence was
+Mozart	The composer of the opera The Magic Flute was
+Beethoven	The composer who wrote nine symphonies and went deaf was
+blue	Mixing the colours yellow and blue produces green, and the sky on a clear day is
+white	The colour produced by mixing all wavelengths of visible light is
+red	The colour of a ripe tomato is
+green	The colour of most healthy plant leaves is
+heart	The organ that pumps blood around the body is the
+lungs	The organs used for breathing are the
+brain	The organ that processes thought and controls the body is the
+water	The liquid that covers about 71% of Earth's surface is
+sun	The star at the centre of our solar system is the
+moon	The natural satellite that orbits the Earth is the

@@ -25,7 +25,7 @@ green.** Full contents in `STATUS.md`.
 | L1 | **v0.0.24 — One truth**: one scoreboard, 22 contradictions resolved, dead epics retired | **[x]** merged #151. STATUS 5,144 -> 205 lines, 26 dead tickets retired |
 | L2 | **v0.0.25 — Guard the binary**: CI runs the correctness suite against a real model | **[x]** merged #152. E4, E6, E7, E8, E9 |
 | L3 | **v0.0.26 — Measure before optimising** | **[x]** merged #153-155. `F` is **93% arithmetic** and the router is 31% of it; the expert read is **2.88 GiB/s**, already 84% of the drive; the 3x GPU contradiction is resolved. **Three claims corrected, two of them mine** |
-| L4 | **v0.0.27 — Quality harness**, then the trunk-requant lever | **[ ]** C5 gates it |
+| L4 | **v0.0.27 — Quality harness**, then the levers | **[~]** the harness is in (C6). Next: **C5c the router**, behind the *exact* bar |
 | L5 | **v0.0.28 — Any machine, any model**: quant selection, self-configuration | **[~]** `--auto` exists, T3/T4 open |
 | L6 | **v0.0.29 — Every platform, actually run**: 4 of 9 assets never executed | **[ ]** |
 | L7 | **v0.0.30 — LTS**: the parity gate, the competitive claim, a support policy | **[ ]** |
@@ -98,7 +98,7 @@ Plan and the corrected arithmetic: `docs/graph/backlog/the-big-bang-5-tok-s.md`.
 | C5 | **Profile `F`** — the 0.84 s per token that never touches the disk | **[x]** done 2026-08-31, trunk resident, three runs (0.494 / 0.510 / 0.511 tok/s). Token = **60% disk, 40% F**, and **F is 93% arithmetic**: `compute` 0.44 s, **the router 0.22 s**, construction only 0.05 s. A first pass said the opposite by trusting a comment instead of reading `moe_routing`, which runs `ctx.compute` in its middle |
 | C5b | ~~Build the block graph once~~ | **[!] withdrawn same day.** Re-measured with the router timed separately: graph construction is **0.05 s of F's 0.71 s**, not 0.36 s. Worth ~3% of a token, not 20% |
 | C5c | Select the top-6 experts on the CPU instead of through a ggml graph | **[ ]** the router costs **0.218 s/token, 5.5 ms in each of the 40 argsort blocks** — to pick 6 of 256 floats. The 3 hash layers cost **0.000 s**, so it is graph **dispatch**, paid 40 times a token. Worth **~1.26x** (0.511 → ~0.645), and it is **exact** — the top 6 by value is the top 6 however computed — so only tie-breaking needs checking |
-| C6 | **Quality harness** — logit diff + ≥50 checkable prompts + a threshold agreed first | **[ ]** ← *gates C7 and C8* |
+| C6 | **Quality harness** — ≥50 checkable prompts + thresholds agreed first | **[x]** `scripts/quality-gate.sh`. **Different bars per lever** (Atur, 2026-08-31): *exact* needs **100% byte-identical**, *lossy* needs **≥95% identical, no checkable regression, perplexity +≤1%**. Byte-identical greedy text **is** top-1 agreement, so no logit plumbing. Verified against 1 MiB of zeros: **22.0% identical, 4 checkables lost, perplexity +1.16%** — all three fired independently |
 | C7 | **Requantise the always-read trunk** — it is Q8_0 while the experts are Q4_K | **[ ]** the one lever no V4-Flash document has ever costed. ~7.38 → ~3.91 GiB, and it would fit the 5.11 GiB of free VRAM |
 | C8 | Rung 2 — 2-bit experts | **[ ]** behind C6 |
 | C9 | Vulkan generation is 2.2× slower than CPU — why? | **[x]** **both measurements are right.** They used different context lengths: short prompt **1.5–2.0× faster** on the card, ~1050-token prompt **0.93×, slower**. `ngl-ladder` had already seen the mechanism without connecting it. The sentence needs its context clause or it is wrong |

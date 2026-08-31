@@ -39,7 +39,7 @@ none of them got a stabilisation period, which is the whole complaint.
 v0.0.24  One truth                    [####################] 100%  merged #151
 v0.0.25  Guard the binary             [####################] 100%  merged #152
 v0.0.26  Measure before optimising    [####################] 100%  merged #153-155
-v0.0.27  Quality harness, then levers [--------------------]   0%  <- next
+v0.0.27  Quality harness, then levers [########------------]  40%  <- harness in
 v0.0.28  Any machine, any model       [###########---------]  55%
 v0.0.29  Every platform, actually run [#######-------------]  35%
 v0.0.30  LTS                          [#-------------------]   6%
@@ -58,8 +58,11 @@ Each release's contents and its gate are in the plan; the short form:
   drive, so the I/O gap was nearly closed already — and the 3x GPU contradiction
   resolved. **Three claims were corrected, two of them mine.** The renaming is
   deliberate: every item on this rung turned out to be a measurement, not a change.
-- **v0.0.27 — The quality harness, then the levers.** Nothing that changes what the
-  model computes ships without it.
+- **v0.0.27 — The quality harness, then the levers.** `scripts/quality-gate.sh` is in,
+  with **different bars per lever** (Atur's call): *exact* changes must be 100%
+  byte-identical, *lossy* ones need ≥95% plus no checkable regression plus perplexity
+  within 1%. Verified against 1 MiB of zeros — all three checks fired. Next is the
+  router (C5c), which goes behind the *exact* bar.
 - **v0.0.28 — Any machine, any model.** Quant selection, self-configuration, and a
   prediction that holds across the range. **This is the claim that is actually ours.**
 - **v0.0.29 — Every platform, actually run.** Four of nine published assets have never

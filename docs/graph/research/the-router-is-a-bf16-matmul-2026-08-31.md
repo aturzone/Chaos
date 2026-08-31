@@ -58,6 +58,33 @@ links:
 > computed value changes nothing numerically. It goes behind the quality gate's
 > *exact* bar and should come back 100% byte-identical. Filed as **C5e**.
 >
+> ### C5e's shape, and the trap in it
+>
+> Reading `layer_tail` confirms the boundary is where it needs to be: it returns
+> `(streams, ffn_norm, gates)`, and **`ffn_norm` depends on both of the others** —
+> `ffn_norm` ← `collapsed = dsv4_hc_pre(streams, gates.pre)`, and `gates` ← `mixes`
+> ← `streams`. So a compute that needs `ffn_norm` evaluates the whole of
+> `layer_tail`, and after `ctx.compute(&topk)` every tensor the rest of the block
+> wants is already correct: `ffn_norm`, `streams`, `gates.post`, `gates.comb`,
+> plus `probs3` and `topk`. Six small tensors — 4096 x nt is the largest.
+>
+> **And the trap: this is only true for 40 of the 43 blocks.** In the three hash
+> layers `topk` is `get_rows(tid2eid, tok)` and depends on the token ids alone, so
+> `ctx.compute(&topk)` computes *nothing* of `layer_tail` — which is exactly why
+> they measure 0.000 s. **Copying those tensors into leaves there would copy
+> uninitialised memory**, and the result would be fluent nonsense rather than a
+> crash: the single worst failure mode this project has.
+>
+> So the change is conditional on `il >= config.hash_layer_count`, the same
+> predicate that already chooses the routing scheme. It is a two-branch change in
+> a function that already has those two branches, which is the good news; the bad
+> news is that getting the condition backwards is invisible until a diff.
+>
+> **It must be verified on V4-Flash through the quality gate's *exact* bar**, which
+> means recording a 50-prompt baseline before the change and comparing after — two
+> runs of roughly twenty minutes each on a machine with the trunk resident. Not a
+> change to make and eyeball.
+>
 > Everything below this line is the superseded reasoning, kept because the two
 > dead ends are worth not re-walking.
 

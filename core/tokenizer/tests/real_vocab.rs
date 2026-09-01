@@ -185,8 +185,27 @@ fn chat_formats_are_detected_from_real_containers() {
     use chaos_tokenizer::{ChatFormat, Message};
     let cases = [
         (
+            // **GlmEdge, not Zephyr, and llama.cpp is the reason.** This case
+            // said `Zephyr` until 2026-09-01 and had not run since the detector
+            // was deliberately changed to match llama.cpp's Falcon-3/GLMEdge
+            // branch, which is checked *before* zephyr there. Zephyr appends the
+            // EOS between turns and llama.cpp does not.
+            //
+            // Verified against the oracle rather than argued. `llama-completion`
+            // on this container prints its own rendered example:
+            //
+            //   <|system|>
+            //   You are a helpful assistant<|user|>
+            //   Hello<|assistant|>
+            //
+            // and `chaos-run --chat` renders the same framing for a bare user
+            // turn: `<|user|>`, a newline, the text, `<|assistant|>`, and no
+            // `</s>` anywhere. The
+            // detector reaches GLMEdge rather than Falcon-3 because tinyllama's
+            // template writes `eos_token` as a variable and never a literal
+            // `</s>`, which is the substring that branch turns on.
             "C:/Projects/models/tinyllama/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-            ChatFormat::Zephyr,
+            ChatFormat::GlmEdge,
         ),
         (
             "C:/Projects/models/llama32-1b/Llama-3.2-1B-Instruct-Q4_K_M.gguf",

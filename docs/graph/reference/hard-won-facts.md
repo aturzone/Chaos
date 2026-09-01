@@ -967,4 +967,22 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   buffer *inside* the timing loop, so that arm read what it had just written and
   measured 2.84x instead of 3.25x. Both arms must read a buffer written once, and
   it is worth checking which direction the mistake would have pushed the answer.
+- **`flash_attn_ext` honours strides, so `cont` on the KV was never needed.** The
+  same call with `permute(kv)` and with `cont(permute(kv))` gives **byte-identical**
+  output. Deleting the two `cont`s is worth **+7.1% at 4031 tokens and +2.5% at
+  500**, winning all six alternating pairs. Storing the cache in the kernel's
+  layout would be worth about 4% more and costs a great deal more work.
+- **An instrument measures an operation; an engine measures a schedule.** The
+  instrument above predicted the `cont` removal at **+25%** and the engine gave
+  **+7.1%** — wrong by 3.5x, because in the engine the copy sits in one realized
+  graph and the bytes it writes are read by the kernel immediately afterwards, so
+  most of its cost was already hidden. **Ratios between an instrument's arms
+  transfer; absolute savings do not.** The two instruments that held up
+  (`router_matmul_dtypes`, `trunk_mat_vec_dtypes`) were only ever used for ratios.
+- **`cargo test -- --ignored` against real containers finds things CI cannot.** CI
+  runs it with no models on disk, so all 42 skip and its own comment admits it
+  "exercises the skip path". Run it with `CHAOS_MODELS` pointed at real models
+  before believing a green suite: doing so found TinyLlama's chat format detecting
+  as `GlmEdge` instead of `Zephyr`, which renders every TinyLlama chat prompt with
+  the wrong template.
 

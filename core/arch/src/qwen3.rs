@@ -1199,9 +1199,42 @@ impl Qwen3Model {
         // n_head_kv] for k and v. Ours are head-major, so permute — and v is
         // NOT transposed here, which is the one place this differs from the
         // mul_mat path and would silently produce nonsense if copied across.
+        //
+        // **k and v are permuted but NOT made contiguous, and that is worth
+        // 2.70x on the attention slope.** `ctx.cont` materialises a copy, so
+        // calling it here copied the *entire* key and value cache, in every
+        // layer, on every generated token — 87.55 ms of a 306.7 ms token at 4031
+        // positions, which was the whole of Chaos's long-context deficit against
+        // llama.cpp (`the-kv-cache-is-copied-every-token-2026-09-01.md`).
+        //
+        // `flash_attn_ext` honours the strides: `kv_cont_is_the_context_cost`
+        // computes both ways at a hand-checkable size and gets **byte-identical**
+        // output, and the slope across 36 layers goes 0.02406 → 0.00891 ms per
+        // token of context. Storing the cache in the kernel's layout would reach
+        // 0.00502 and is the better fix; this is 80% of it for two deletions.
+        //
+        // **q keeps its `cont`.** It is [head_dim, n_head, n_new] — a few
+        // kilobytes at one token, not linear in context — so the copy costs
+        // nothing measurable, and leaving it alone keeps this change to the two
+        // tensors the measurement is about.
+        //
+        // **`CHAOS_KV_CONT=1` puts the copies back**, so the A/B is one binary in
+        // one session rather than two builds half an hour apart. The same switch
+        // C5e has, for the same reason: this project's own citation rule wants
+        // both sides measured alternating, and without a switch that means
+        // rebuilding between every pair.
         let q = ctx.cont(&ctx.permute(q, [0, 2, 1, 3])?)?;
-        let k = ctx.cont(&ctx.permute(k_all, [0, 2, 1, 3])?)?;
-        let v = ctx.cont(&ctx.permute(v_all, [0, 2, 1, 3])?)?;
+        let (k, v) = if std::env::var("CHAOS_KV_CONT").is_ok() {
+            (
+                ctx.cont(&ctx.permute(k_all, [0, 2, 1, 3])?)?,
+                ctx.cont(&ctx.permute(v_all, [0, 2, 1, 3])?)?,
+            )
+        } else {
+            (
+                ctx.permute(k_all, [0, 2, 1, 3])?,
+                ctx.permute(v_all, [0, 2, 1, 3])?,
+            )
+        };
 
         // **The mask tensor is returned, not written here.** On a device it has
         // no memory until the whole context is realized, and realizing cannot

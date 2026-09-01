@@ -1,6 +1,6 @@
 ---
-topic: the dense path copies the whole KV cache every token to satisfy flash attention's layout — measured at 3.25x the attention slope, and removing it would close the long-context gap
-status: resolved as a diagnosis; the fix is not built
+topic: the dense path copied the whole KV cache every token; the copies are gone, byte-identical, worth 7.1% at 4031 tokens — and the instrument over-predicted that by 3.5x, which is the lesson
+status: resolved, and shipped — with the projection corrected downward by 3.5x
 links:
   - long-context-parity-qwen3-4b-2026-09-01.md
   - ../backlog/lts-parity-criteria.md
@@ -67,7 +67,59 @@ measured 2.84x. With both arms reading a buffer written once, it measures
 running in the direction of what was being tested, which is the worst direction
 for one to run in.
 
-## What the fix would be worth — projected, not measured
+## Shipped, and the projection was wrong by 3.5x
+
+**`flash_attn_ext` honours the strides.** `does_flash_attn_ext_accept_a_strided_kv`
+hands it `permute(kv)` with no `cont` at a hand-checkable size and gets
+**byte-identical** output, so the copies were never load-bearing — and the fix is
+**two deletions**, not the cache-layout change described below.
+
+Timed three ways at Qwen3-4B's shape, slope per token of context across 36 layers:
+
+```
+  cont (what it did)    0.02406 ms
+  kernel layout         0.00502 ms    4.79x better  -- a layout change
+  strided, no cont      0.00891 ms    2.70x better  -- two deletions
+```
+
+So the two deletions were predicted to recover 80% of what a layout change would,
+worth about **61 ms of a 306.7 ms token** at 4031 positions — 3.26 to **~4.07
+tok/s**.
+
+**The engine gained 7.1%, not 25%.** Alternating in one binary
+(`CHAOS_KV_CONT=1` restores the copies), three pairs at each length:
+
+| | with `cont` | without | |
+|---|---|---|---|
+| 500 tokens | 7.12 / 7.17 / 6.78 | **7.45 / 7.30 / 6.90** | +2.5% |
+| 4031 tokens | 3.23 / 3.19 / 3.26 | **3.46 / 3.47 / 3.44** | **+7.1%** |
+
+**Without wins all six pairs**, which is what makes 2.5% believable at all. An
+earlier single-run comparison had suggested the change *hurt* short context by
+3.6%; three alternating pairs show the opposite, and that is the difference
+between one run and a protocol.
+
+Against llama.cpp at 4031: **1.38x behind becomes 1.32x.** Real, consistent,
+byte-identical — and a long way from the projection.
+
+### Why the instrument over-predicted, and what to take from it
+
+The instrument timed the `cont` in isolation, in a fresh arena, as its own graph
+evaluation. In the engine the copy sits inside one realized graph beside
+everything else, and the bytes it writes are read by the kernel immediately
+afterwards — so much of the copy's cost is already hidden behind work the engine
+was doing anyway.
+
+**An instrument measures an operation; an engine measures a schedule.** The ratio
+between two arms of an instrument transfers; the absolute saving does not. Both
+earlier instruments in this repository were used for ratios only
+(`router_matmul_dtypes` to kill a dtype theory, `trunk_mat_vec_dtypes` to kill
+another) and both held up. This one was used for a *projection* and was wrong by
+3.5x. The projection was labelled a projection, which is why this is a correction
+rather than a retraction — but the label is not a substitute for measuring the
+engine.
+
+## What the fix was projected to be worth — superseded by the section above
 
 Removing the copy saves **0.02001 ms per token of context** across the 36 layers.
 At 4031 tokens that is **80.7 ms** off a token that currently takes 306.7 ms:
@@ -83,9 +135,13 @@ numbers*, not a measurement of a fixed engine, and it is written here as a
 projection. The three retractions in this repository from 2026-09-01 were all
 projections stated as findings; this one says which it is.
 
-## Why it is not a two-line fix
+## Why the *layout* change is still not a two-line fix
 
-The `cont` is a symptom. The cause is that the KV cache is **stored** head-major,
+The remaining 4.79x-vs-2.70x gap needs the cache stored differently, and that is
+the change described here. It is worth about another 4% on top of what shipped,
+and it is a great deal more work.
+
+The cause is that the KV cache is **stored** head-major,
 `[head_dim, n_kv_head, n_total]`, and flash attention wants
 `[head_dim, n_total, n_kv_head]`. The fix is to store it the other way round, and
 that reaches:
@@ -103,13 +159,18 @@ So it is a real change to the one path every model takes, and it must go through
 the quality gate's **exact** bar — a reordering of storage should not alter a
 single logit, and if it does, something else is wrong.
 
-**Filed, not built.** The measurement is the deliverable here; the fix wants a
-session that starts fresh rather than one that has been running all night.
+**Filed, not built** — and now worth less than it looked, since the two deletions
+already took the 2.70x of it that was cheap.
 
-## The one thing to check first
+## The thing that was checked first, and settled it
 
-Whether ggml's `flash_attn_ext` will accept a **non-contiguous** k and v directly,
-or whether `cont` is genuinely required. If it accepts strided inputs, the copy
-may be removable without touching the cache's layout at all — which would be a
-much smaller change than the one above. The comment says ggml *wants* that shape;
-it does not say the kernel refuses a view of it.
+Whether `flash_attn_ext` would accept a **non-contiguous** k and v. It does, and
+byte-identically — which is what turned a fourteen-architecture change into two
+deletions. The comment in `qwen3.rs` said ggml *wants* that shape; it never said
+the kernel refuses a view of it, and nobody had asked.
+
+**Verification of what shipped**: the quality gate's *exact* bar on Qwen3-4B,
+**50 of 50 byte-identical**; 986 tests; and the container-backed `--ignored` suite
+run against real models, 32 of 33 passing — the one failure is a **chat-template
+detection bug in `chaos-tokenizer`**, which cannot see this change (that crate
+depends on `chaos-gguf` and `chaos-model` only) and is filed separately.

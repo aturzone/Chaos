@@ -81,7 +81,7 @@ minute, and that is now how it is checked.
 | B8 | **HELPER actually does work** — a CORE routes experts to it | **[ ]** protocol done, routing not |
 | B9 | macOS: a window | **[!]** none exists; CLI + CORE is the route today |
 | B10 | Linux: a window | **[!]** none exists; CLI + CORE is the route today |
-| B11 | macOS or Linux has run a model **at all** | **[ ]** they build and pass unit tests in CI; no model has ever been run on either, and macOS has no direct-I/O path |
+| B11 | macOS or Linux has run a model **at all** | **[~]** **Linux: done 2026-09-01**, Debian 12 in a container — Qwen2-0.5B at **50.01 tok/s** and **DeepSeek-V4-Flash, the 144 GB one**, degraded only by the container's 7.6 GiB and saying so precisely. The whole suite passes there too: **991 passed, 0 failed, 42 ignored, clippy and fmt clean** — the same counts as Windows. **And it could not have worked before**: cmake names the archives `libggml-base.a` on Linux and both build scripts looked only for `ggml-base.a`, so the README's own instructions produced a file the error message said was missing. CI never saw it because it stages the archives with `sed 's/^lib//'`. **macOS still untested**, and still has no direct-I/O path |
 
 ## C. Speed — the ladder to 5 tok/s
 
@@ -154,6 +154,9 @@ pass here is fluent nonsense, never a crash.
    experts only, which is a reason to expect trunk sensitivity rather than to assume it.
 2. **T3 / T4** — quant selection and self-configuration (v0.0.28). `--auto` exists and
    is **2.14x slower at `-n 200`**, measured and unfixed; that is the bug, not the feature.
-3. **v0.0.29** — run a model on macOS and Linux, install the `.deb` and the AppImage, and
+3. **v0.0.29** — **Linux is done** (a model ran, and the suite passes with Windows's exact
+   counts). Left: macOS, and installing the `.deb` and the AppImage — which cannot be
+   downloaded here, because `release-assets.githubusercontent.com` resets TLS while
+   `api.github.com` answers in 0.34 s. Also
    put the APK on a real phone. **Four of nine published assets have never been executed
    by anyone**, which is the largest untested surface in the project.

@@ -888,4 +888,21 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   the weight is partly in cache across the repetitions. The engine reads each
   block's weights once per token and will do worse. Use such a bench for **ratios
   between dtypes**, never for an absolute rate.
+- **The attention arithmetic is evaluated inside the phase called `tail`.** In
+  `deepseek4_forward`, `attn_out` feeds `layer_tail`'s `dsv4_hc_post`, which feeds
+  `ffn_norm`, which the router's own `compute` needs — so the whole attention graph
+  is evaluated there, and the `attn` column's 0.000 s means only that *building* it
+  is free. Reading `tail` as hyper-connection work produced a published "88% is the
+  hyper-connection algebra" that is really **8%**; attention is **40%** and the
+  expert matmuls the other **40%**. `CHAOS_ATTN_SPLIT` and `CHAOS_FFN_SPLIT` are the
+  probes that separate them.
+- **Freezing a computed subgraph into a leaf is an instrument, not just an
+  optimisation.** It is the only way to time one part of a block's single graph
+  without the next evaluation redoing it, and the split it produces cross-checks to
+  within 3% of the unsplit total — which is what makes the shares trustworthy
+  rather than an artefact of the measuring.
+- **The first run after a `cargo build` is a cold page cache and it is worth
+  discarding — by name, on the record.** Three times in two days it produced an
+  outlier: 0.606 and 0.633 tok/s against a 0.724 median, and an attention share of
+  52% against a real 40%. Take the median of three and say which one you dropped.
 

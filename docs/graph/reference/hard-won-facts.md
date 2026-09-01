@@ -1030,4 +1030,24 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   becomes `C:/Program Files/Git/script.sh`; and Docker Desktop's file sharing
   served a **stale** copy of an edited mounted script twice in a row — pipe the
   script in with `bash -s < file` instead of mounting it.
+- **There is an Android SDK on this machine, at `C:\Android\sdk`.** adb, the
+  emulator, an `android-34 google_apis x86_64` image, build-tools 34.0.0, an AVD —
+  installed for an unrelated project. **No NDK.** So the Android tier is testable
+  here, and "the SDK cannot be installed on this network" is out of date.
+- **An arm64-only APK installs on the android-34 x86_64 emulator**, because that
+  image reports `ro.product.cpu.abilist = x86_64,arm64-v8a` and ships ARM
+  translation. It installs as `primaryCpuAbi=arm64-v8a` with `ndk_translation`
+  mapped. **Read `abilist`, not `abi`**, before concluding an APK cannot be run.
+- **A backtrace of one `<anonymous:...>` frame is translated JIT code, and names
+  nothing.** Entering a mode in the APK SIGSEGV'd at 0x0 with exactly that, and
+  with `libchaos_android.so` never mapped — so it cannot be attributed to Chaos.
+  **An emulator running ARM translation is the wrong instrument for a native
+  crash**; a real arm64 device gives a backtrace that names a library.
+- **`release.yml` builds `-DANDROID_ABI=arm64-v8a` only.** Adding `x86_64` costs a
+  few megabytes and buys an APK that can be smoke-tested on any emulator and in
+  CI, where every runner is x86_64.
+- **Boot someone else's AVD with `-read-only`.** Installs and uninstalls then live
+  in a throwaway overlay and the AVD on disk is untouched. `adb root` works on a
+  `google_apis` (non-playstore) image, which is what makes `/proc/<pid>/maps`
+  readable for another app.
 

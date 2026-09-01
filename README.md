@@ -13,7 +13,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-979%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-983%20passing-brightgreen">
 </p>
 
 > **This file carries three things and nothing else**: the progress bars, the
@@ -86,16 +86,16 @@ depth 8), **CPU only**, nothing else running.
 
 ```
 model                  container   resident    tok/s   what the number is
-DeepSeek-V4-Flash      144.44 GiB   7.38 GiB    0.598   144 GB generating in 15.7 GiB of RAM
-Qwen3-30B-A3B           17.28 GiB  17.28 GiB     4.07   a smaller MoE; --force, its diff has 1 FAIL
-Qwen3-4B                 2.33 GiB   2.33 GiB     8.32   dense, fits with room to spare
-Falcon3-1B               0.98 GiB   0.98 GiB    21.40   dense, small
-Qwen2-0.5B               0.37 GiB   0.37 GiB    32.56   the ceiling: nothing to stream, nothing to wait for
+DeepSeek-V4-Flash      144.44 GiB   7.38 GiB    0.728   144 GB generating in 15.7 GiB of RAM
+Qwen3-30B-A3B           17.28 GiB  17.28 GiB     4.41   a smaller MoE; --force, its diff has 1 FAIL
+Qwen3-4B                 2.33 GiB   2.33 GiB     8.27   dense, fits with room to spare
+Falcon3-1B               0.98 GiB   0.98 GiB    22.31   dense, small
+Qwen2-0.5B               0.37 GiB   0.37 GiB    32.00   the ceiling: nothing to stream, nothing to wait for
 ```
 
-Three runs each, median reported. Four of the five agreed within 4%; Qwen3-30B-A3B
-spread **20%**, and it is the row to trust least: at 17.28 GiB it is the one model here
-that neither fits comfortably nor streams freely.
+Three runs each, median reported. Four agreed within 6%. **V4-Flash spread 25%**, and
+that is a cold page cache on the first run after a build rather than the model being
+erratic — its three alternating passes against a fixed configuration agree to within 1%.
 
 **Your machine is not this machine, and Chaos will say so before you download
 anything.** `chaos-model-info <model> --budget <GiB>` predicts tok/s from the resident
@@ -139,7 +139,7 @@ Samplers          80%  [################....]  16 of 20
 Architectures     10%  [##..................]  14 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
 Browser UI        33%  [######..............]  2 of 6 things a chat UI needs
-V4-Flash speed    11%  [##..................]  0.598 of 5 tok/s
+V4-Flash speed    14%  [##..................]  0.728 of 5 tok/s
 ```
 
 "Verified" here means diffed, and **every one of the 14 architectures was diffed against

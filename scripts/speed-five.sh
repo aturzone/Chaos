@@ -122,11 +122,20 @@ while IFS=$'\t' read -r label path predict extra; do
     s=$(printf '%s\n' "$out" | grep -E '^generated? +[0-9]+ tokens' | tail -1 \
         | grep -oE '[0-9]+\.[0-9]+ tok/s' | grep -oE '^[0-9]+\.[0-9]+')
     if [ -z "$s" ]; then
-      # **Say what it said.** A row that silently reads "--" hides a refused
-      # architecture, a missing shard or an out-of-memory abort as if it were
-      # slowness.
-      note=$(printf '%s' "$out" | grep -iE 'refus|error|abort|cannot|no such' | head -1 | cut -c1-60)
-      [ -n "$note" ] || note="no tok/s line in the output"
+      # **Say what it said, and do not curate which sentences count.**
+      #
+      # This used to grep the output for a keyword list -- refus|error|abort|... --
+      # and print "no tok/s line in the output" when none matched. It then did
+      # exactly that for five rows in a row while `chaos-run` was printing
+      #
+      #   chaos-run: -n wants a number, and got "64\r".
+      #
+      # which names the problem completely and contains none of those words. A
+      # harness that filters the runner's own diagnostic through a guess at what
+      # failures look like will hide the failures nobody guessed. So: the last
+      # non-empty line, whatever it says.
+      note=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-72)
+      [ -n "$note" ] || note="the runner printed nothing at all"
       break
     fi
     speeds="$speeds $s"
@@ -144,7 +153,12 @@ while IFS=$'\t' read -r label path predict extra; do
   spread=$(printf '%s\n' $speeds | sort -g | awk '{a[NR]=$1} END{if (a[1]>0) printf "%.0f%% spread", 100*(a[NR]-a[1])/a[1]; else print "--"}')
   printf '%-20s %8s %9s %9s %9s   %s\n' "$label" "$median" "$RUNS" "$before" "${load:---}" "$spread"
   rows="$rows$label|$median|$predict"$'\n'
-done < "$TABLE"
+# **`tr -d '\r'` is not decoration.** Git checks this file out with CRLF endings on
+# Windows, so without it `$predict` is `16\r`, `-n "16\r"` reaches the runner, and
+# `chaos-run` refuses the flag by name -- correctly, since v0.0.25 made a flag whose
+# value will not parse a hard error rather than a silent default. Five rows read
+# `--` for two entire runs because of one invisible byte.
+done < <(tr -d '\r' < "$TABLE")
 
 echo
 echo "---- the block README.md carries, verbatim ----"

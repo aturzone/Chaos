@@ -3320,7 +3320,10 @@ const DEFAULT_PREFILL_BLOCK: usize = 2048;
 /// VRAM left for activations, KV and arenas once the weights are placed.
 const AUTO_VRAM_MARGIN: u64 = 1 << 30;
 /// Where the expert-cache curve flattens.
-const AUTO_CACHE_CEILING: u64 = 6 << 30;
+/// Where the expert-cache curve stops paying. Defined in `chaos_plan` beside
+/// the sizing rule that respects it, and named here because the dense
+/// planner's message quotes it.
+const AUTO_CACHE_CEILING: u64 = chaos_plan::EXPERT_CACHE_CEILING;
 
 fn auto_plan(model: &Model, config: &Qwen3Config) -> AutoPlan {
     let mut why = Vec::new();
@@ -5070,6 +5073,26 @@ fn run_deepseek4(
             0
         }
         Some(b) => b,
+        // **Not zero.** With the always-read set resident the routed experts are
+        // still read from disk on every token, and caching a few of them is worth
+        // 1.20x here. See `default_expert_cache` for the measured curve and for
+        // why this is sized from total RAM rather than free RAM.
+        None if shortfall == 0 => {
+            let total = machine.ram_total_bytes.unwrap_or(0);
+            let want = chaos_plan::expert_cache_bytes(total, report.loaded_bytes);
+            if want > 0 {
+                chaos_arch::info!(
+                    "cache      {:.2} GiB chosen for you: {:.1} GiB of RAM, {:.2} resident,",
+                    want as f64 / GIB,
+                    total as f64 / GIB,
+                    report.loaded_bytes as f64 / GIB
+                );
+                chaos_arch::info!(
+                    "cache      5 GiB reserved. --cache N overrides, --cache 0 turns it off."
+                );
+            }
+            want
+        }
         None => 0,
     };
     if expert_budget > 0 {
@@ -5079,9 +5102,18 @@ fn run_deepseek4(
             expert_budget as f64 / GIB
         );
     } else if shortfall == 0 && expert_cache_budget.is_none() {
-        chaos_arch::info!("cache      off. The always-read set fits, so --cache <GiB> is now");
-        chaos_arch::info!("cache      worth measuring: a cached step reads 6 experts per layer,");
-        chaos_arch::info!("cache      not the ~123 a long prefill does.");
+        // **This used to invite an unbounded guess** -- "--cache <GiB> is now
+        // worth measuring" -- and the obvious guesses were the bad ones: on this
+        // machine 5 GiB measured 0.505 tok/s and 6 GiB measured 0.352, against
+        // 0.603 with no cache at all. A number is chosen for the user now
+        // (`default_expert_cache`), so reaching this line means there was no room
+        // for one, and saying which resource ran out is more use than a hint.
+        chaos_arch::info!(
+            "cache      off: after {:.2} GiB resident there is no room for one",
+            report.loaded_bytes as f64 / GIB
+        );
+        chaos_arch::info!("cache      on this machine. --cache N forces one anyway; expect it to");
+        chaos_arch::info!("cache      cost speed, because the memory comes out of the page cache.");
     }
     let fw = fw;
     if !fw.indexer_is_exact(tokens.len()) {

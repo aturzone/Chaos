@@ -23,6 +23,7 @@ chaos-gguf = { path = "../../core/gguf" }
 chaos-ggml = { path = "../../core/ggml" }
 chaos-io = { path = "../../core/io" }
 chaos-model = { path = "../../core/model" }
+chaos-plan = { path = "../../core/plan" }
 chaos-probe = { path = "../../core/probe" }
 chaos-grammar = { path = "../../core/grammar" }
 chaos-jinja = { path = "../../core/jinja" }

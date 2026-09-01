@@ -145,6 +145,7 @@ dependencies = [
  "chaos-io",
  "chaos-jinja",
  "chaos-model",
+ "chaos-plan",
  "chaos-probe",
  "chaos-tokenizer",
 ]

@@ -696,9 +696,6 @@ const RAW_RING: i64 = 1024;
 /// generation went to 0.267 tok/s, *below* the 0.296 it was meant to fix. The
 /// per-call work is now an atomic load and a branch.
 fn threads() -> usize {
-    use std::sync::OnceLock;
-    static GEN: OnceLock<usize> = OnceLock::new();
-    static BAT: OnceLock<usize> = OnceLock::new();
     if BATCH.load(std::sync::atomic::Ordering::Relaxed) > 1 {
         *BAT.get_or_init(|| env_threads("CHAOS_THREADS_BATCH").unwrap_or_else(all_cores))
     } else {
@@ -708,6 +705,36 @@ fn threads() -> usize {
         // one thread costs 13% — and erring high cost 1.28x.
         *GEN.get_or_init(|| env_threads("CHAOS_THREADS").unwrap_or_else(|| all_cores().min(4)))
     }
+}
+
+/// The two thread counts, at module scope so [`thread_budget`] can report them.
+///
+/// They were `static` inside [`threads`], which made them unreachable from the
+/// caller -- so this path could not print what it had chosen, and the dense path
+/// could. That asymmetry is not cosmetic: it is what let a reader (me, for an
+/// hour on 2026-09-01) conclude from one degraded run that `-t` was being
+/// ignored here. It is not; `run` bridges it through `CHAOS_THREADS` before this
+/// path is reached, and the comment there says so.
+static GEN: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+static BAT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+/// What [`threads`] will use, so the caller can print it. `(generation, prefill)`.
+///
+/// **Reported rather than assumed.** The dense path prints its two thread counts
+/// and this path printed nothing, so on a 144 GB model there was no way to see
+/// what it had picked -- and `-t 1` against `-t 4` is only about 12% here, well
+/// inside this model's run-to-run spread, so the flag's effect is not visible
+/// from the tok/s line either. Reading the value is the only way to know.
+///
+/// Calling this **fixes** the two counts, since it initialises the `OnceLock`s.
+/// That is correct at the one call site -- immediately before the first forward
+/// pass, after `run` has bridged `-t` into the environment -- and would be wrong
+/// anywhere earlier.
+pub fn thread_budget() -> (usize, usize) {
+    (
+        *GEN.get_or_init(|| env_threads("CHAOS_THREADS").unwrap_or_else(|| all_cores().min(4))),
+        *BAT.get_or_init(|| env_threads("CHAOS_THREADS_BATCH").unwrap_or_else(all_cores)),
+    )
 }
 
 /// Tokens in the pass currently being evaluated, set once by [`forward`].

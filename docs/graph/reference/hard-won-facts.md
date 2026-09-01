@@ -992,4 +992,22 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   hour once `llama-completion`'s own rendered example was compared — identical
   framing to Chaos's, no `</s>` in either. **Read the implementation before
   believing the test**, and settle it against the oracle rather than by argument.
+- **`-t` and `-tb` DO reach the deepseek4 path**, bridged through `CHAOS_THREADS`
+  and `CHAOS_THREADS_BATCH` at the top of `run` — whose own comment says a flag
+  reaching only some graph evaluations *"would make -t look ineffective on exactly
+  the paths that matter"*. Verified over three pairs: `-t 1` gives 0.384 / 0.371 /
+  0.360 against `-t 4`'s 0.434 / 0.397 / 0.407. **Do not re-file this as a
+  swallowed flag** — it was, once, for an hour, on the strength of a single
+  degraded run.
+- **A missing report is not cosmetic: it causes wrong diagnoses.** That path
+  printed no `threads` line while the dense path did, and `-t 1` against `-t 4` is
+  only ~12% on V4-Flash — inside its run-to-run spread — so neither the header nor
+  the tok/s line could show what was chosen. The absence of the line is what made
+  a false conclusion survive an hour. **If a knob matters, print what it resolved
+  to.**
+- **One run of V4-Flash is never evidence.** The claimed 6x thread effect was a
+  single `CHAOS_THREADS=1` run taken *after* three other runs of the same model
+  had left the machine short of memory: 0.089 tok/s, against 0.36–0.43 when
+  measured properly. This model's spread across a session is wide enough to
+  manufacture any conclusion. Three alternating pairs, or nothing.
 

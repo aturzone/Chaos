@@ -982,7 +982,14 @@ compiling**, and three of these were believed fixed before a pixel was measured.
 - **`cargo test -- --ignored` against real containers finds things CI cannot.** CI
   runs it with no models on disk, so all 42 skip and its own comment admits it
   "exercises the skip path". Run it with `CHAOS_MODELS` pointed at real models
-  before believing a green suite: doing so found TinyLlama's chat format detecting
-  as `GlmEdge` instead of `Zephyr`, which renders every TinyLlama chat prompt with
-  the wrong template.
+  before believing a green suite: doing so found a **stale expectation** in
+  `real_vocab.rs` that had been unrunnable long enough that git history cannot say
+  how long.
+- **A failing assertion says the two sides disagree, never which one is wrong.**
+  That stale test expected TinyLlama's chat format to be `Zephyr`; the detector
+  answered `GlmEdge`, **deliberately**, with fifteen lines of comment saying it
+  matches llama.cpp. It was filed as a user-facing bug and retracted within the
+  hour once `llama-completion`'s own rendered example was compared — identical
+  framing to Chaos's, no `</s>` in either. **Read the implementation before
+  believing the test**, and settle it against the oracle rather than by argument.
 

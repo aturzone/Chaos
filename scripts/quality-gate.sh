@@ -130,15 +130,51 @@ echo "model    $MODEL"
 echo "prompts  $N, $TOKENS tokens each"
 echo
 
+# **What the answer is, and what this got wrong for its whole first day.**
+#
+# With stderr discarded, `chaos-run` prints exactly two things on stdout: the
+# completion, behind an `output` marker, and a `generate N tokens in Ns (X tok/s,
+# Ys per token)` line. That second line is a **timing**, so it differs on every
+# run of any build -- and the first version of this loop kept it. The consequence
+# was not a wrong number, it was a gate that **could not pass**: comparing a build
+# against itself would have reported 0 of 50 byte-identical, and the first exact
+# lever to reach it did (C5e, whose text was in fact identical).
+#
+# It survived because the harness was only ever validated against *damage*, where
+# a failure looks like a failure whichever way it is caused. The same shape of bug
+# as `is_contiguous` in `core/ggml`, found the same day: a check tested in one
+# direction only.
+#
+# The second defect: `${answer#*"$prompt"}` was meant to strip an echoed prompt,
+# and `chaos-run` never echoes one. So it did nothing at all -- except on the rows
+# where the completion happened to quote the prompt back, where it silently threw
+# away the front of the answer. The recorded baseline's first row was
+# ` Paris.", generate 11 tokens...` for exactly that reason.
+#
+# Both are fixed here: drop the trailing `generate` line if that is what the last
+# line is, strip the `output` marker from the first, and collapse the rest.
+extract() {
+  sed '${/^generate  /d;}' \
+    | sed '1s/^output *//' \
+    | tr '\n' ' ' | sed 's/  */ /g; s/ *$//'
+}
+
 OUT=$(mktemp)
 : > "$OUT"
 right=0
 while IFS=$'\t' read -r expected prompt; do
   [ -n "${prompt:-}" ] || continue
-  answer=$("$EXE" "$MODEL" "$prompt" -n "$TOKENS" --temp 0 --no-perf 2>/dev/null \
-           | tr '\n' ' ' | sed 's/  */ /g')
-  # Everything after the echoed prompt is the answer.
-  gen=${answer#*"$prompt"}
+  gen=$("$EXE" "$MODEL" "$prompt" -n "$TOKENS" --temp 0 --no-perf 2>/dev/null | extract)
+  # **An empty completion is a harness failure, not an answer.** A model that
+  # printed nothing and a model that printed the wrong thing are both "not
+  # identical", and reporting the first as the second is how a broken run gets
+  # read as a quality regression.
+  if [ -z "$gen" ]; then
+    echo "no completion for prompt: $prompt" >&2
+    echo "The runner printed nothing on stdout. That is the harness or the" >&2
+    echo "binary, not the model, and it is not a comparison." >&2
+    exit 2
+  fi
   hit=no
   case "$(printf '%s' "$gen" | tr '[:upper:]' '[:lower:]')" in
     *"$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"*) hit=yes; right=$((right+1)) ;;

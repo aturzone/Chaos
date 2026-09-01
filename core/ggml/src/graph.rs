@@ -1897,14 +1897,35 @@ impl Tensor<'_> {
 
     /// True when the elements are laid out back to back, so a flat read is
     /// equivalent to a strided one.
+    ///
+    /// # This was off by one dimension, and said no to everything
+    ///
+    /// The expected stride for dimension `d` is `nb[0] * ne[0] * .. * ne[d-1]`,
+    /// and the loop accumulated `ne[d]` instead -- so it compared `nb[1]`
+    /// against `nb[0]` and returned `false` for **every tensor with more than
+    /// one row**, a freshly allocated one included. Nothing broke, because the
+    /// only two callers are [`Self::to_vec_f32`] and [`Self::to_vec_i32`] and
+    /// the answer sent them down the strided path, which is correct for a
+    /// contiguous tensor as well -- just element by element, four multiplies and
+    /// an unaligned read each, where a `memcpy` would do. So this cost speed on
+    /// every block boundary of every architecture and was invisible.
+    ///
+    /// It survived because the three tests here all assert a **view** is *not*
+    /// contiguous, which the broken version answered correctly by accident.
+    /// `a_fresh_tensor_is_contiguous_at_every_rank` is the missing direction.
+    ///
+    /// **Quantised tensors report `false` and that is deliberate.** For those
+    /// `nb[0]` is a block's bytes rather than an element's, so this arithmetic
+    /// does not apply; both callers read `f32`/`i32` only, so a conservative
+    /// `false` costs nothing and a clever `true` would be a wrong `memcpy`.
     pub fn is_contiguous(&self) -> bool {
         let (ne, nb) = self.dims_and_strides();
         let mut expect = nb[0];
         for d in 1..4 {
+            expect *= ne[d - 1].max(1) as usize;
             if ne[d] > 1 && nb[d] != expect {
                 return false;
             }
-            expect *= ne[d].max(1) as usize;
         }
         true
     }
@@ -1986,6 +2007,35 @@ mod tests {
         // from the offset. Same length, same types, no error.
         let flat: Vec<f32> = (2..8).map(|v| v as f32).collect();
         assert_ne!(tail.to_vec_f32(), flat);
+    }
+
+    /// A freshly allocated tensor is contiguous, at every rank.
+    ///
+    /// **The direction nothing tested.** Three tests above assert a view is not
+    /// contiguous, and a function that always returns `false` passes all three.
+    /// `is_contiguous` did exactly that for two months: the stride it expected
+    /// was accumulated one dimension late, so it compared `nb[1]` against
+    /// `nb[0]`. Every `to_vec_f32` in the engine took the element-by-element
+    /// path as a result -- correct answers, four multiplies and an unaligned
+    /// read per float, on the boundary of every block of every model.
+    #[test]
+    fn a_fresh_tensor_is_contiguous_at_every_rank() {
+        let ctx = Context::new(ARENA).expect("context");
+        assert!(ctx.new_f32_1d(7).expect("1d").is_contiguous());
+        assert!(ctx.new_f32_2d(4, 3).expect("2d").is_contiguous());
+        assert!(ctx.new_f32_3d(4, 3, 2).expect("3d").is_contiguous());
+        assert!(ctx.new_f32_4d(4, 3, 2, 5).expect("4d").is_contiguous());
+        assert!(ctx.new_i32_2d(6, 5).expect("i32").is_contiguous());
+        // A trailing dimension of 1 is still contiguous -- the shape `freeze`
+        // builds for a 2-D source is `new_f32_4d(ne0, ne1, 1, 1)`.
+        assert!(ctx.new_f32_4d(4, 3, 1, 1).expect("padded").is_contiguous());
+        // And a reshape of a contiguous tensor stays contiguous, which is what
+        // `probs3` is.
+        let t = ctx.new_f32_2d(256, 2).expect("t");
+        assert!(ctx
+            .reshape_3d(&t, 1, 256, 2)
+            .expect("reshape")
+            .is_contiguous());
     }
 
     /// The 3-D case, which is the one the Q projection actually uses: 2 of

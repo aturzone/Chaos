@@ -2,6 +2,7 @@
 topic: the router's 0.22 s is the block tail computed TWICE — not the top-k sort, and not the BF16 dtype. The filename is stale and kept so links do not rot.
 status: resolved
 links:
+  - the-tail-computed-once-2026-08-31.md
   - what-f-is-made-of-2026-08-31.md
   - v4flash-repacking-2026-08-10.md
   - ../reference/hard-won-facts.md
@@ -10,6 +11,12 @@ links:
 # The router is a BF16 matmul
 
 > ## CORRECTION, same day: it is not the dtype either. It is computed twice.
+>
+> **C5e is now built, measured and gated: 1.120x on V4-Flash generation, exact,
+> 50 of 50 answers byte-identical.** The outcome, the mechanism proved inside one
+> run, and a second bug found while testing the helper are in
+> `the-tail-computed-once-2026-08-31.md`. Read that one for what happened; this
+> one is kept for the two dead ends it records.
 >
 > **The title of this node is wrong** and the fix it proposed (C5d, convert the
 > BF16 gate weight at load) is dead alongside the one it replaced. Both were

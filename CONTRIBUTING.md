@@ -44,7 +44,7 @@ The project's record on reasoning ahead of measurement is **nought for four**:
 ```bash
 export GGML_LIB_DIR=/path/to/llama.cpp/build/ggml/src
 cargo build --release
-cargo test --release              # 973 tests
+cargo test --release              # 979 tests
 cargo test --release -- --ignored # 42 more, need a real model on disk
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
@@ -65,6 +65,39 @@ The `--ignored` tests read from real GGUF containers and are skipped silently
 when the file is absent, so they are safe to run without the model. If you have
 one, run them: they are what verify the forward pass against llama.cpp's own
 element sums, and they catch the class of bug that produces plausible output.
+
+## Changing what the model computes
+
+**Nothing that changes the arithmetic ships without `scripts/quality-gate.sh`.** It
+runs fifty prompts with checkable answers against a recorded baseline, and the bar
+depends on the kind of change — Atur's call, 2026-08-31:
+
+- **exact** — the answer must not change at all: **100% byte-identical.** A change
+  that only stops recomputing something, or reorders work that cannot reorder a
+  sum, goes here.
+- **lossy** — the arithmetic is known to change: **>= 95% identical, no checkable
+  answer that was right may become wrong, and perplexity within +1%.**
+
+```bash
+bash scripts/quality-gate.sh --model M.gguf --record        # before the change
+bash scripts/quality-gate.sh --model M.gguf --lever exact   # after it
+```
+
+**Validate the gate in both directions before trusting it.** It reported 0 of 50
+byte-identical for a change whose output was in fact identical, because it kept the
+non-deterministic `generate ... tok/s` line in every recorded answer — so it could
+not have passed a comparison of a build against **itself**. It had only ever been
+checked against a deliberately corrupted container, where a failure looks like a
+failure whichever way it is caused. Both directions are cheap on Qwen2-0.5B:
+
+```bash
+bash scripts/quality-gate.sh --model qwen2.gguf --record
+bash scripts/quality-gate.sh --model qwen2.gguf --lever exact   # must be 100%
+```
+
+**And do not re-record a baseline to make a comparison pass.** The one legitimate
+reason to re-record is that the recorded strings were never the model's answers —
+say so explicitly when you do.
 
 ## What good looks like here
 

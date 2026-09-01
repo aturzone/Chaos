@@ -823,3 +823,32 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   named the download cache twice — once from the setting, once by default — and
   survived it only because the second pass skipped every label it had already
   seen. Deduplicating a path list wants a set.
+- **A check tested only where it should say "no" may only ever say "no."** Two
+  instances the same afternoon, 2026-08-31. `Tensor::is_contiguous` accumulated the
+  expected stride one dimension late, so it answered `false` for **every** tensor
+  with more than one row — and its three tests all asserted that a *view* is **not**
+  contiguous, which a function returning a constant `false` passes. And
+  `quality-gate.sh` kept the non-deterministic `generate ... tok/s` line in every
+  recorded answer, so it **could not have passed a build against itself**; it had
+  only been validated against 1 MiB of zeros, where a failure looks like a failure
+  whichever way it is caused. **Assert the direction you believe, not only the one
+  that fails**, and validate a gate by running it against an unchanged build.
+- **ggml has no notion of "already computed."** `ggml_build_forward_expand` walks
+  every ancestor of the root it is handed and evaluates all of them, so a value
+  produced by an earlier `compute` in the same context is derived again by the
+  next one. The only way to stop it is to hand the second graph a **leaf** —
+  `ggml_new_tensor` with no op — holding that value. This cost V4-Flash 5.5 ms in
+  each of 40 blocks, 11% of every token, because the router's own `compute` reaches
+  back through `ffn_norm` into the whole block tail. `Context::compute_many` takes
+  several roots at once and is how work is *moved* into that first evaluation
+  rather than added to it.
+- **Freezing a value is only safe where that value has actually been computed.**
+  The same fix applied to V4-Flash's three hash layers would copy uninitialised
+  arena: their `topk` is `get_rows(ffn_gate_tid2eid, tok)` and depends on the token
+  ids alone, so the router's `compute` evaluates *nothing* of the tail there — which
+  is exactly why those three blocks measure 0.000 s. The result would be fluent
+  nonsense, not a crash. **Check what a compute's root actually depends on before
+  assuming what it left behind**, and note that a sibling of an ancestor is not an
+  ancestor: `gates.post` and `gates.comb` hang off `mixes` and are *not* reachable
+  from `topk`.
+

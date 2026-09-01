@@ -6,47 +6,35 @@
 
 <p align="center">
   <strong>Run models that do not fit in your RAM.</strong><br>
-  Keeps the always-read weights resident, streams the routed experts from disk.
-</p>
-
-<p align="center">
-  <em>On one 15.7 GiB laptop, CPU only: <strong>28 tok/s</strong> on Qwen2-0.5B,
-  <strong>21 tok/s</strong> on Falcon3-1B,<br>and a <strong>144 GB</strong>
-  model generating at 0.43 tok/s in 15.7 GiB of RAM.<br>
-  <sub>Medians of three, re-measured 2026-08-28. The first two were 31 and 20,
-  which were the best and the worst of their runs.</sub></em>
+  The always-read weights stay resident; the routed experts stream from disk, per token.
 </p>
 
 <p align="center">
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-973%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-979%20passing-brightgreen">
 </p>
+
+> **This file carries three things and nothing else**: the progress bars, the
+> document map, and tok/s for five fixed models with the machine that produced
+> them named. Everything else lives one click away. `scripts/check-readme.sh`
+> enforces it, and CI runs that.
 
 ---
 
-## Start here
+## Install
 
-**1. Install.**
+One file per platform from [Releases](https://github.com/aturzone/Chaos/releases).
 
-Every platform gets a file from
-[Releases](https://github.com/aturzone/Chaos/releases). Pick the one for yours.
-
-| you have | download | what it does |
-|---|---|---|
-| **Windows** | `Chaos-vX.Y.Z-windows-x86_64-Setup.exe` | double-click; per-user, no admin rights |
-| **Debian / Ubuntu** | `chaos_X.Y.Z_amd64.deb` | `sudo apt install ./chaos_*.deb` |
-| **any Linux** | `Chaos-vX.Y.Z-linux-x86_64.AppImage` | one file, `chmod +x` and run |
-| **Linux on ARM** | `Chaos-vX.Y.Z-linux-arm64.tar.gz` | a Pi or an Ampere box; unpack, then the copy below |
-| **macOS (Apple silicon)** | `Chaos-vX.Y.Z-macos-arm64.tar.gz` | unpack, then the copy below |
-| **macOS (Intel)** | `Chaos-vX.Y.Z-macos-x86_64.tar.gz` | unpack, then the copy below |
-| **Windows / Linux, no installer** | the `.zip` / `.tar.gz` | unpack it yourself |
-
-The Windows installer carries every binary inside it: no archive to unpack, no
-PowerShell, no administrator rights. It puts Chaos on your PATH and adds a Start
-Menu entry, and it says whether it is installing or updating before you press the
-button.
+| you have | download |
+|---|---|
+| **Windows** | `Chaos-vX.Y.Z-windows-x86_64-Setup.exe` — double-click, per-user, no admin rights |
+| **Debian / Ubuntu** | `chaos_X.Y.Z_amd64.deb` — `sudo apt install ./chaos_*.deb` |
+| **any Linux** | `Chaos-vX.Y.Z-linux-x86_64.AppImage` — one file, `chmod +x` and run |
+| **Linux on ARM** | `Chaos-vX.Y.Z-linux-arm64.tar.gz` |
+| **macOS** | `Chaos-vX.Y.Z-macos-arm64.tar.gz` or `-macos-x86_64.tar.gz` |
+| **Android** | `Chaos-vX.Y.Z.apk` — a client for a node on your network |
 
 From an archive, copy the binaries yourself:
 
@@ -54,167 +42,94 @@ From an archive, copy the binaries yourself:
 sudo install -m 755 Chaos-*/chaos-* /usr/local/bin/ && mkdir -p ~/.chaos/models
 ```
 
-**No telemetry.** Chaos sends nothing anywhere: no analytics, no crash
-reporting, and no phoning home. The one request it makes on its own is the
-window's update check against a static JSON file, which `CHAOS_NO_UPDATE_CHECK`
-turns off. `Cargo.lock` has **22 packages and all 22 are crates in this
-repository** — there is no third-party dependency to audit. `SECURITY.md` records
-what a running node *does* expose, measured.
+**No telemetry and no dependencies.** `Cargo.lock` holds 22 packages and all 22 are
+crates in this repository, so there is nothing third-party to audit. The one request
+Chaos makes on its own is the window's update check against a static JSON file, which
+`CHAOS_NO_UPDATE_CHECK` turns off; `chaos update` asks on demand instead.
 
-**The window is Windows-only.** `chaos-app` is written against Win32, so the
-Linux and macOS builds are the command-line tools -- `chaos-run`, `chaos-serve`,
-`chaos-probe`, `chaos-pull`, `chaos-draw` and the rest. `chaos-serve` speaks the OpenAI API, so
-any client works on every platform.
+**The window is Windows-only.** Every platform gets the command-line tools, and
+`chaos-serve` speaks the OpenAI API, so any client works everywhere.
 
-**2. Get a model.** Ask Chaos for one:
+## Run
 
 ```bash
-chaos-pull --list          # 13 models, with the size that actually matters
-chaos-pull qwen3-4b        # ~2.5 GB, a good first one
+chaos-pull --list                      # the catalogue, with the size that actually matters
+chaos-pull qwen3-4b                    # ~2.5 GB, a good first one
+chaos-run                              # lists the models you have
+chaos-run qwen3 "The capital of France is" -n 16
+chaos-run qwen3 "write a haiku" --auto # reads your machine and configures itself
+chaos-probe                            # what can this machine run, and what should you close?
+chaos-serve qwen3 --port 8080          # OpenAI API plus a chat page, both compiled in
+chaos-draw "a red apple on a white table" -o apple.png
 ```
 
-...or drop any `.gguf` into `~/.chaos/models` (`%USERPROFILE%\.chaos\models` on
-Windows). Nothing is downloaded unless you ask for it.
+You never type a path, and for a model split across five shards you never work out
+which shard to open.
 
-**3. Run it.**
+**Read the second column of `chaos-pull --list`, not the first.** A 155 GB
+Mixture-of-Experts model streams on a 16 GB machine; a 20 GB dense one does not,
+because a dense container has no routed experts to leave on disk.
 
-```bash
-chaos-run                                   # lists the models you have
-chaos-run qwen3 "The capital of France is"  # any unique part of a name works
-```
+**A model whose architecture has never been diffed against llama.cpp is refused by
+name** — a wrong forward pass produces fluent nonsense rather than an error, so the
+default is refusal and `--force` is the override.
 
-That is the whole thing. You never type a path, and for a model split across
-five shards you never work out which shard to open.
+## Speed
 
-```bash
-chaos-run qwen3 "write a haiku" -n 64 --auto   # --auto reads your machine and configures itself
-chaos-probe                                    # what can this machine run, and what should you close?
-chaos-serve qwen3 --port 8080                  # then open http://127.0.0.1:8080
-```
+**Five fixed models, measured 2026-09-01 in one session, on a machine with nothing
+else running.** The set is fixed in `scripts/speed-five.tsv` so this month's table can
+be compared with last month's; regenerate the numbers with `bash scripts/speed-five.sh`
+and never by hand.
 
-**Or use the window.** `chaos-app` on Windows is a native application: pick a
-model, load it, chat, download more. Two colours, no dependencies, a real Win32
-window rather than a browser in a frame.
+Machine: **i7-13650HX, 14 cores, 15.7 GiB RAM**, SK Hynix NVMe (3.41 GiB/s at queue
+depth 8), **CPU only**, nothing else running.
 
 ```
-INSTALLED  AVAILABLE      v4flash UD-Q4_K_XL  155 GB [5 files]  needs 7.92 GB - streams
-                          qwen3-32b Q4_K_M    19.8 GB           needs 19.8 GB - too big
+model                  container   resident    tok/s   what the number is
+DeepSeek-V4-Flash      144.44 GiB   7.38 GiB    0.598   144 GB generating in 15.7 GiB of RAM
+Qwen3-30B-A3B           17.28 GiB  17.28 GiB     4.07   a smaller MoE; --force, its diff has 1 FAIL
+Qwen3-4B                 2.33 GiB   2.33 GiB     8.32   dense, fits with room to spare
+Falcon3-1B               0.98 GiB   0.98 GiB    21.40   dense, small
+Qwen2-0.5B               0.37 GiB   0.37 GiB    32.56   the ceiling: nothing to stream, nothing to wait for
 ```
 
-**Read the second column, not the first.** A 155 GB model streams on a 16 GB
-machine; a 20 GB dense one does not, because a dense container has no routed
-experts to leave on disk.
+Three runs each, median reported. Four of the five agreed within 4%; Qwen3-30B-A3B
+spread **20%**, and it is the row to trust least: at 17.28 GiB it is the one model here
+that neither fits comfortably nor streams freely.
 
-**And it draws.** `chaos-draw` runs a diffusion pipeline the same way — four
-files, 16.7 GB, none of which has to fit in memory at once.
+**Your machine is not this machine, and Chaos will say so before you download
+anything.** `chaos-model-info <model> --budget <GiB>` predicts tok/s from the resident
+set *your* machine would carry; the law behind it, across nine models spanning 23x in
+size, is `tok/s ~= 19 / resident GiB`, with `chaos-membench` for the constant.
 
-```bash
-chaos-pull ideogram-4 ideogram-4-uncond qwen3-vl-8b flux2-vae
-chaos-draw "a red apple on a white table" --grid 64 --steps 20 -o apple.png
-```
-
-Qwen3-VL-8B turns the prompt into conditioning, two copies of Ideogram 4 — the
-conditional model and a separately trained unconditional twin — denoise a latent,
-and the FLUX.2 autoencoder turns it into pixels.
-
-> **Colour and scene follow the prompt; object form is still imperfect.** Said
-> here because a diffusion pipeline that is subtly wrong produces a *plausible*
-> picture, so "it drew something" is not evidence. What is measured: the
-> autoencoder round-trips real photographs at **36.09–40.89 dB** (with the check
-> ablated three ways first — each deliberate bug still produced a recognisable
-> image), the text encoder answers `" Paris"` at logit 22.58, and the denoiser
-> scores **0.85 velocity cosine** against a real latent.
->
-> **Describe the picture, do not just name it.** Lighting, background and a
-> colour palette move the denoiser **11.3x** as far as a bare phrase, over
-> eight latents. The JSON shape is not what does it — a phrase wrapped in an
-> empty structured frame measures **0.9x**, which is nothing.
-
-**`chaos-serve` gives you a window as well as a socket.** Open its address in a
-browser and you get a chat interface; point a coding agent at
-`/v1/chat/completions` and it gets the OpenAI API. Same process, same model
-loaded once. The page is compiled into the binary — no CDN, no fonts, no
-install, and it works with the network cable out.
-
-<details>
-<summary>Two things about your first run, both deliberate</summary>
-
-- **It will be slow once, if it uses the GPU.** ggml compiles its Vulkan shaders
-  on first use and the driver caches them afterwards. Measured: 1.63 tok/s on the
-  first `--auto` run, **9.0–9.6 tok/s on every run after**. Nothing is wrong.
-- **A model whose architecture has never been diffed against llama.cpp is
-  refused by name.** That includes `qwen3moe`, so Qwen3-30B-A3B needs `--force`.
-  A wrong forward pass produces fluent nonsense rather than an error, so the
-  default is refusal.
-</details>
-
----
-
-## What it actually does
-
-Chaos runs a **144 GB** Mixture-of-Experts model on a **15.7 GiB** laptop and
-produces correct text, by never loading the model. The weights every token needs
-stay in RAM; the routed experts — most of the container, of which a token uses
-six of 256 — are read from disk as routing selects them.
-
-```console
-$ chaos-run deepseek "The capital of France is" -n 8
-model      deepseek4 (direct (cache bypassed))
-shape      43 blocks, 4096 embd, 64 heads, 256 experts (6 used, 1 shared)
-resident   loaded 534 tensors, 7.24 GiB of 7.24 GiB budget in 4.9s (1.58 GB/s)
-           0.14 GiB did not fit and will be re-read from disk on EVERY token (~0.1s each)
-           closing these would free up to 1.19 GiB:
-             claude.exe                   1.19 GiB (12 processes)
-           that is enough to make the whole model resident.
-prefill    5 tokens in 8.0s (0.63 tok/s)
-output      Paris.
-generate   7 tokens in 16.4s (0.428 tok/s, 2.3s per token)
-```
-
-That resident block is the point. It is not a progress bar: it is the size of
-your shortfall, what it costs per token, and which processes would fix it.
-
-## How fast, honestly
-
-**Every row was measured with both engines alternating in one session**, because
-this machine drifts by up to 25% with its own state. Command lines and raw output
-for each:
-[`where-we-stand-vs-llamacpp-2026-08-16.md`](docs/graph/research/where-we-stand-vs-llamacpp-2026-08-16.md).
-
-| | Chaos | llama.cpp | |
-|---|---:|---:|---|
-| DeepSeek-V4-Flash (144 GB), prefill ms/token | **1640** | 1679 | parity |
-| DeepSeek-V4-Flash, generation | **0.394** | 0.39 | parity |
-| Qwen3-30B-A3B, generation | 3.03–3.86 | 3.35 | parity |
-| Qwen3-4B, generation, both at defaults | **8.01** | 6.52 | 1.23x ahead |
-| Qwen3-4B, generation, both hand-tuned | 7.64 | **9.16** | 1.20x behind |
-
-**Out of the box we lead because we measure your machine and llama.cpp uses a
-fixed default. Given equal care on both sides llama.cpp is faster on dense
-models.** On models that stream from disk, the two are level.
-
-If you want the fastest local inference today, use
-[llama.cpp](https://github.com/ggml-org/llama.cpp). Chaos is worth your time if
-you want an engine that owns residency and tells you the truth about your
-machine.
-
-<details>
-<summary>Three claims that are retracted and must not be repeated</summary>
-
-- ~~"Chaos runs models larger than RAM and llama.cpp cannot."~~ It can, with
-  `--no-repack`. Larger-than-RAM is not the differentiator.
-- ~~"Generation is ~2x behind on Qwen3-30B."~~ Re-measured alternating: parity.
-- ~~"On V4-Flash: prefill 1.62x behind, generation 3-4x behind."~~ That stood in
-  this README for nine days. Re-measured: parity on both. It is a correction in
-  our favour, which is not better — and the discarded warm-up in that session
-  read llama.cpp at 0.23 tok/s, which would have made it a 1.7x *lead*. It is
-  not one.
-</details>
+**Against llama.cpp:** parity on everything that streams, 1.20–1.27x behind on the
+dense path when both are hand-tuned, 1.23x ahead out of the box because Chaos measures
+your machine and llama.cpp uses a fixed default. Every row was taken with both engines
+alternating in one session — command lines and raw output in
+`docs/graph/research/where-we-stand-vs-llamacpp-2026-08-16.md`. If you want the fastest
+local inference today, use [llama.cpp](https://github.com/ggml-org/llama.cpp). Chaos is
+worth your time if you want an engine that owns residency and tells you the truth about
+your machine.
 
 ## Progress
 
-Every bar is a ratio of two counted things, both named. Filled cells are floored,
-never rounded up.
+**The road to v0.0.30**, the release built to LTS standard. Nothing is tagged until its
+gate is green — 23 releases went out in 21 days once, and none of them got a
+stabilisation period.
+
+```
+  v0.0.24  One truth                     100%  [####################]  merged
+  v0.0.25  Guard the binary              100%  [####################]  merged
+  v0.0.26  Measure before optimising     100%  [####################]  merged
+  v0.0.27  Quality harness, then levers    70%  [##############......]  first lever through
+  v0.0.28  Any machine, any model          55%  [###########.........]  quant + self-config open
+  v0.0.29  Every platform, actually run    35%  [#######.............]  4 of 9 assets never run
+  v0.0.30  LTS                              6%  [#...................]  1 of 18 parity cells met
+```
+
+**Coverage against llama.cpp.** Every bar is a ratio of two counted things, both named;
+filled cells are floored, never rounded up. The first four are enforced by tests rather
+than counted by hand, which is why they have stopped drifting.
 
 ```
 CLI flags         91%  [##################..]  165 of llama.cpp's 182
@@ -224,169 +139,35 @@ Samplers          80%  [################....]  16 of 20
 Architectures     10%  [##..................]  14 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
 Browser UI        33%  [######..............]  2 of 6 things a chat UI needs
-V4-Flash speed     8%  [#...................]  0.43 of 5 tok/s
+V4-Flash speed    11%  [##..................]  0.598 of 5 tok/s
 ```
 
-Where those numbers come from, in the same order: 17 flags are declined with a
-written reason and **0 are unrecognised**; the two missing templates are Hunyuan
-variants; the tokenizer families are BPE, SPM, WordPiece, Unigram and RWKV; the
-sampler audit was 2026-08-11; **every one of the 14 architectures was diffed
-against llama.cpp at 8 prompts**, which is what counts as verified here; the
-Vulkan device path is bound but **not** verified — it fails 1 of those 8 prompts
-where the CPU path fails none; and the UI **sends and streams**, with no model
-picker, stop button, saved history or sampler controls.
+"Verified" here means diffed, and **every one of the 14 architectures was diffed against
+llama.cpp at 8 prompts.** The Vulkan device path is bound but **not** verified: it fails
+1 of those 8 where the CPU path fails none.
 
-The first four are enforced by tests rather than counted by hand
-(`refused_flags_decline`, `jinja_agrees_with_families`), which is why they have
-stopped drifting.
-
-The last bar is the honest one, and **its target changed on 2026-08-25 because
-the machine was finally measured instead of argued about.**
-
-`chaos-membench` reads **30.8 GiB/s** from this laptop's RAM at its best — 43% of
-the 76.8 GB/s DDR5-4800 claims on paper. A V4-Flash token reads **3.22 GiB** of
-experts (43 blocks x 6 routed x 12.8 MiB). So:
-
-```
-20 tok/s  ->  64.4 GiB/s needed      30.8 available   2.1x short
- 5 tok/s  ->  16.1 GiB/s needed      30.8 available   fits
-```
-
-**20 tok/s was never a code problem** — it needs a memory bus twice this wide,
-and that is why `kimi-k3-in-c`'s 128 GB workstation, model entirely in RAM and
-the disk switched off, still takes 5.6 s/token. **5 tok/s fits inside this
-machine's bandwidth**, so that is the target now, and
-[the plan to reach it](docs/graph/backlog/the-big-bang-5-tok-s.md) is written
-with every rung's arithmetic and every closed lever listed.
-
-The lead it opened: experts are read at **1.40 GiB/s** from an NVMe that does
-**3.09 GiB/s** sequential. That is 45% of the drive, and unlike the RAM number it
-is not near peak — 12.8 MiB reads issued one at a time cannot fill an NVMe's
-queue.
-
-**And the law that falls out of it**, across nine models spanning 23x in size:
-
-```
-tok/s  ≈  19 / resident GiB
-```
-
-which is how the headline numbers at the top of this file are predicted as well
-as measured — and how you can predict your own machine, with
-`chaos-membench` for the constant.
-
-So here is the thing nobody had published — **tok/s against resident RAM for a
-144 GB model**, which Chaos can sweep because it owns residency where an `mmap`
-engine cannot be told to use exactly N GiB:
-
-```
-    RAM     experts resident    tok/s
-   16 GB           ~3%          0.42   <- measured on the laptop above
-   64 GB          ~38%          0.55
-  128 GB          ~85%          0.93
-  160 GB          100%          1.19   <- the ceiling, nothing left to stream
-```
-
-**Holding the whole model in RAM is worth 2.9x, not 48x.** That is a useful
-answer even though it is not the hoped-for one, and it is the kind of thing this
-project exists to tell you before you spend money.
-[`v4flash-ram-frontier-2026-08-16.md`](docs/graph/research/v4flash-ram-frontier-2026-08-16.md)
-has the sweep, the fit (R² = 0.997) and the controls.
-
-## How the repository is laid out
-
-Grouped by what a crate is *for*, which is the shape the Rust book's workspace
-chapter shows:
-
-```
-Chaos/
-├── Cargo.toml
-├── core/      the engine: containers, ggml, IO, residency, architectures, images
-├── cli/       chaos-run -- a model, a prompt, a terminal
-├── network/   chaos-serve -- the OpenAI API and a browser page
-└── gui/       the Windows window, and the installer that carries every binary
-```
-
-Everything used to sit in one flat `crates/`, which said nothing about which of
-fourteen crates to read first. **The crate names did not change with the
-directories** — `core/gguf` is still the `chaos-gguf` package — so `cargo build
--p chaos-gguf`, every binary name, and every `use chaos_gguf::` mean exactly
-what they did before.
-
-`core/` bottom to top: `build` (build-script helpers) · `gguf` (containers) ·
-`ggml` (the FFI) · `io` (cache-bypassing reads) · `probe` (hardware) · `plan`
-(prediction, residency) · `model` (sharding, the catalogue, releases) ·
-`tokenizer` · `grammar` · `jinja` · `arch` (the forward pass) · `image`
-(diffusion, PNG, safetensors).
-
-## Build from source
-
-```bash
-# ggml once -- Chaos borrows its kernels rather than rewriting years of SIMD work
-git clone https://github.com/ggml-org/llama.cpp
-cmake -S llama.cpp -B llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
-cmake --build llama.cpp/build --config Release -j
-
-git clone https://github.com/aturzone/Chaos && cd Chaos
-export GGML_LIB_DIR=$PWD/../llama.cpp/build/ggml/src
-cargo build --release
-```
-
-Clean clone to working binaries: **23 s**. Twelve of the thirteen crates CI
-checks build without `GGML_LIB_DIR` at all -- `chaos-arch` is the one that needs
-it, and it must fail with instructions rather than a wall of import errors. Both
-halves are tested. **`cargo install --path cli/chaos` therefore works on a
-machine that has never compiled a line of C**: the `chaos` front door, its
-settings reader and its HTTP client need no ggml.
-
-<details>
-<summary><strong>Windows</strong> — GNU toolchain, not MSVC</summary>
-
-```powershell
-rustup default stable-x86_64-pc-windows-gnu
-# install MSYS2, then put C:\msys64\mingw64\bin on PATH (for libgomp)
-$env:GGML_LIB_DIR = "C:/path/to/llama.cpp/build/ggml/src"
-cargo build --release
-```
-
-`cannot find -lgomp` means MSYS2's `mingw64/bin` is not on PATH. Git Bash has its
-own `/mingw64` which is **not** MSYS2's and has no `gcc` — check `which gcc`.
-
-**MSYS2 is needed to build, not to run**: the GNU C++ and OpenMP runtimes link
-statically, so the `.exe` runs on a machine that has never seen it. Linked
-dynamically it died with `0xC0000135` before `main`, printing nothing.
-
-`.cargo/config.toml` sets `link-self-contained=no` and must stay — MSYS2 gcc
-16.1.0 dropped symbols rustup's bundled `crt2.o` still references.
-</details>
-
-<details>
-<summary><strong>GPU</strong> — a second ggml build</summary>
-
-The CPU build has no Vulkan archive, and the GPU tests **skip** rather than fail
-without a card, so a green run proves nothing about the device path. Build ggml
-again with `-DGGML_VULKAN=ON` into its own directory and point `GGML_LIB_DIR`
-there for any work touching `--device`, `-ngl` or `-ot`.
-</details>
-
-## Going deeper
+## Document map
 
 | | |
 |---|---|
-| [`STATUS.md`](STATUS.md) | the scoreboard, what works, what is left. Read before quoting any number |
-| [`docs/graph/INDEX.md`](docs/graph/INDEX.md) | every working note, one line each. Many record measurements that **refuted** the idea that motivated them |
-| [`CHANGELOG.md`](CHANGELOG.md) | including the retractions |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **a performance claim is not citable until the competing command line and its output are in a document** |
+| `STATUS.md` | the scoreboard. Read it before quoting any number |
+| `CHECKLIST.md` | the tick-list: what is done, what is not, and why |
+| `CHANGELOG.md` | every release, including the retractions |
+| `CONTRIBUTING.md` | how to build and test, and the citation rule |
+| `SECURITY.md` | what a running node exposes, measured |
+| `docs/graph/INDEX.md` | every working note, one line each — start here |
+| `docs/graph/research/` | measurements. Many refuted the idea that motivated them |
+| `docs/graph/backlog/` | what is planned, with a definition of done for each |
+| `docs/graph/decisions/` | the choices that are settled, and what they superseded |
+| `docs/graph/reference/hard-won-facts.md` | read before proposing any optimisation |
+| `docs/graph/history/` | superseded, kept rather than deleted |
 
-If you read only three notes:
-[`v4flash-has-no-slack`](docs/graph/research/v4flash-has-no-slack-2026-08-10.md)
-(four attempts to find redundancy in a 144 GB model, four negatives),
-[`the-plateau-was-ours`](docs/graph/research/the-plateau-was-ours-2026-08-10.md)
-(two "facts" that were ceilings we had built), and
-[`threads-were-never-plumbed`](docs/graph/research/threads-were-never-plumbed-2026-08-10.md)
-(a sweep whose knob was disconnected, and therefore indistinguishable from a flat
-response).
+The code, grouped by what a crate is *for*: `core/` the engine — containers, ggml, I/O,
+residency, architectures, images · `cli/` the front door and the runner · `network/` the
+server and the worker · `gui/` the Windows window and the installer · `android/` the JNI
+bridge · `scripts/` the checks CI runs.
 
 ## Licence
 
-Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Chaos distributes no
-model weights. Models are yours to obtain, under their own licences.
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Chaos distributes no model
+weights; models are yours to obtain, under their own licences.

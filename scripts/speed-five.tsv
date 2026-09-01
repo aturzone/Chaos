@@ -1,0 +1,29 @@
+# The five models the README's speed table always reports. One per line:
+#
+#   <label>  TAB  <name-or-path>  TAB  <-n>  TAB  <extra flags>
+#
+# **Five, fixed, and spanning the whole range Chaos claims to cover** — Atur's
+# rule, 2026-08-31: one huge, two medium, one small, one fast. A speed table with
+# a different set each time is a table nobody can compare against last month's.
+#
+#   v4flash    144.44 GiB   streams 3.22 GiB of experts per token from disk
+#   qwen3moe    17.28 GiB   streams a little: routed experts, trunk resident
+#   qwen3-4b     2.33 GiB   dense, fits with room to spare
+#   falcon3      0.98 GiB   dense, small
+#   qwen2        0.37 GiB   the ceiling case: nothing to stream, nothing to wait for
+#
+# `-n` differs per model on purpose. A short run on a fast model measures the
+# load, not the generation; a long run on V4-Flash measures the same 2 s token
+# forty times over and costs half an hour. Each is the smallest count whose
+# three runs agreed within the machine's own drift when the harness was written.
+#
+# **`--force` on qwen3moe is not optional and not a wart**: `qwen3moe` is not in
+# `VERIFIED_ARCHITECTURES` — its eight-prompt diff came back 1 FAIL — so the
+# runner refuses it by name. It is in this table because it is the second
+# streaming model on the machine, and the flag is here so the table is honest
+# about which rows are verified architectures and which are not.
+DeepSeek-V4-Flash	/c/Projects/models/v4flash/DeepSeek-V4-Flash-UD-Q4_K_XL-00001-of-00005.gguf	16
+Qwen3-30B-A3B	/c/Projects/models/qwen3moe/Qwen3-30B-A3B-Q4_K_M.gguf	32	--force
+Qwen3-4B	/c/Projects/models/qwen3-4b/Qwen3-4B-Q4_K_M.gguf	64
+Falcon3-1B	/c/Projects/models/falcon3/Falcon3-1B-Instruct-q4_k_m.gguf	64
+Qwen2-0.5B	/c/Projects/models/qwen2/Qwen2-0.5B-Instruct-Q4_K_M.gguf	64

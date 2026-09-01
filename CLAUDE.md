@@ -195,8 +195,15 @@ item; if one is not done, say which and why.**
   default there regardless (1.20x); threads, batch, I/O and device do not.
 - [x] **5. An Android app, `.apk` with every release.** A *client*; Phase B
   (models on the phone) is blocked — `dl.google.com` 404s this whole network,
-  so the SDK cannot be installed here and CI is the only build. **Never run on
-  a phone.** `backlog/android-app.md`.
+  so CI is the only build. **But the SDK claim is out of date**: a complete
+  SDK sits at `C:\Android\sdk` from another project (adb, emulator,
+  android-34 x86_64, build-tools; no NDK). **The published APK installs and
+  launches on that emulator** — its arm64 lib runs because API 34's x86_64
+  image lists `x86_64,arm64-v8a`. It then **SIGSEGVs on entering a mode, in a
+  single anonymous translated frame with `libchaos_android.so` never mapped**,
+  which cannot be pinned on Chaos. **Still never run on a phone**, and that is
+  the one-minute experiment that would settle it:
+  `research/the-apk-installs-and-launches-2026-09-01.md`.
 - [ ] **6. Devices as resources — one model, many machines.** An activation is
   **16 KB**, a token's experts are **3.3 GB**, so expert-parallel costs ~66 ms
   of network to replace ~1560 ms of disk. **Send the work to the weights, never

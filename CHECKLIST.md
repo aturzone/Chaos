@@ -123,7 +123,7 @@ pass here is fluent nonsense, never a crash.
 | D4 | README: version badge, the speed claims | **[x]** badge was 14 releases stale |
 | D5 | Install → update → uninstall, models untouched | **[x]** every release — **on Windows only** |
 | D5b | **Update from inside an old version** | **[x]** every release v0.0.12–v0.0.22 compiled from its own tag resolves today's; v0.0.5–v0.0.11 have no updater at all. `scripts/check-old-updaters.sh` |
-| D6 | The APK on **real hardware** | **[ ]** emulator only — needs Atur's phone |
+| D6 | The APK runs from a **published** artefact | **[~]** **2026-09-01**: the published v0.0.21 APK installs and launches on an android-34 x86_64 emulator -- its arm64 lib runs because that image lists `x86_64,arm64-v8a` -- and renders the real dial UI (`Displayed ... +3s71ms`, screenshot in the node). It then **SIGSEGVs on entering a mode**, in one anonymous translated frame with `libchaos_android.so` never mapped, which is not attributable to Chaos. **A real arm64 device settles it in a minute.** `../research/the-apk-installs-and-launches-2026-09-01.md` |
 | D7 | Image: step-count default | **[ ]** Atur's aesthetic call |
 | D8 | The `.deb` and the AppImage installed **anywhere** | **[ ]** never, by anybody |
 | D9 | A **real camera** on the mark and the reader | **[ ]** everything else in the chain is proven: **210 of 210** at 3–12 px/module across 30 angles, **0 wrong strings**, `scripts/scan-sweep.js` |

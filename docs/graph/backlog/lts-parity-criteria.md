@@ -68,10 +68,12 @@ measured back to back in one session with both command lines recorded.
 |---|---|---|---|
 | load / time-to-first-token | 1.25x behind | — | — |
 | prefill tok/s | 1.25x behind | **ahead** @565, @2206 | **38.5 vs 111.2 — 2.9x behind** |
-| generation tok/s | 0.37 vs 0.39 | 1.07 vs 2.16 | **4.27 vs 5.90 — 1.38x behind** (Llama-3.2-1B: 10.12 vs 12.91, 1.28x) |
+| generation tok/s | **UNMEASURABLE HERE** — Chaos **0.696** ±1%, llama.cpp **0.16–0.47** across 8 runs of one command line, drifting down within every sequence even with Chaos never started. No ratio published: best gives 1.70x, alternating median 2.32x, worst 4.35x. `../research/the-v4flash-parity-cell-does-not-reproduce-2026-09-01.md` | 1.07 vs 2.16 | **4.27 vs 5.90 — 1.38x behind** (Llama-3.2-1B: 10.12 vs 12.91, 1.28x) |
 | memory footprint at equal speed | **ours, by design** | ours | — |
 | long-context generation | untested | untested | untested |
 | **quality (perplexity)** | untested | untested | **33.6434 vs 34.0293 — 1.13%** |
+
+**A cell can also be `unmeasurable here`, and one now is.** That is a third state beside `done` and `gap`, and it needs the same thing a `won't` needs: a reason written down. V4-Flash generation is the first — llama.cpp's figure on this container ranges **0.16 to 0.47 tok/s** for the same command line on the same machine, so alternating against it measures the operating system rather than the engines. Chaos's own figure is stable to 1%. Closing it needs a machine where a 144 GB working set does not fight a 15.7 GiB page cache, not more repetitions.
 
 **Quality is measured now, and it was the largest untested claim in this
 document.** `chaos-run --ppl-chunk N` reports perplexity using llama.cpp's

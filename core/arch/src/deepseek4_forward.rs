@@ -2672,6 +2672,33 @@ pub fn block(
     )?;
     let attn_secs = t_phase.elapsed().as_secs_f64();
 
+    // **The companion probe to `CHAOS_FFN_SPLIT`, and it settles where the
+    // arithmetic really is.**
+    //
+    // `attn` above measures graph construction only, and reads 0.000 s, which
+    // invites the conclusion that attention is free. It is not: `attn_out` feeds
+    // `layer_tail`'s `dsv4_hc_post`, which feeds `ffn_norm`, which the router's
+    // `compute` needs -- so **the whole attention graph is evaluated inside what
+    // the block line calls `tail`**. That is why `tail` costs 0.2 s a token while
+    // every hyper-connection op in it is a handful of thousand multiply-adds.
+    //
+    // With this set, `attn_out` is computed and frozen first, so `tail` is left
+    // with the hyper-connections and the router alone. Off by default for the same
+    // reason as the others: it changes the thing it measures.
+    let attn_out = if std::env::var("CHAOS_ATTN_SPLIT").is_ok() {
+        let t = std::time::Instant::now();
+        ctx.compute(&attn_out, threads())?;
+        eprintln!(
+            "  block {il:>2}  attn-compute {:.4}s ({} heads, window {})",
+            t.elapsed().as_secs_f64(),
+            config.n_head,
+            config.sliding_window,
+        );
+        freeze(&ctx, &attn_out)?
+    } else {
+        attn_out
+    };
+
     let t_phase = std::time::Instant::now();
     let (streams, ffn_norm, ffn_gates) = layer_tail(fw, &ctx, &weights, il, &e, &attn_out, nt)?;
     let (w_scaled, ids) = moe_routing(fw, &ctx, &weights, il, &ffn_norm, &ffn_gates, tokens)?;
@@ -2711,6 +2738,38 @@ pub fn block(
         nt,
     )?;
     let ffn_secs = t_phase.elapsed().as_secs_f64();
+
+    // **A probe, off by default, that says what is inside the final `compute`.**
+    //
+    // The block builds one graph and evaluates it once, so no phase timer can see
+    // the split between the FFN -- the six routed experts plus the always-read
+    // shared one -- and everything else. That gap is why two numbers were
+    // published and retracted on 2026-09-01: `ffn` minus the expert read was read
+    // as "the expert arithmetic" and it is nothing of the kind, because the expert
+    // matmuls are evaluated *here*, not in the phase that builds them.
+    //
+    // With `CHAOS_FFN_SPLIT` set, `ffn_out` is computed on its own and then frozen
+    // into a leaf, so the final `compute` is left with `dsv4_hc_post` alone and
+    // the two costs separate cleanly. **Freezing is what makes it clean**: without
+    // it the final compute would walk back through `ffn_out` and do the whole FFN
+    // a second time, which is the exact bug C5e fixed one layer up.
+    //
+    // Behind its own variable rather than `CHAOS_BLOCK_TIMING`, because two graph
+    // evaluations are not one: this changes the thing it measures, and a probe
+    // that ships is a probe that lies about the baseline.
+    let ffn_out = if std::env::var("CHAOS_FFN_SPLIT").is_ok() {
+        let t = std::time::Instant::now();
+        ctx.compute(&ffn_out, threads())?;
+        eprintln!(
+            "  block {il:>2}  ffn-compute {:.4}s ({} routed + {} shared expert matmuls)",
+            t.elapsed().as_secs_f64(),
+            config.n_expert_used * 3,
+            config.n_expert_shared * 3,
+        );
+        freeze(&ctx, &ffn_out)?
+    } else {
+        ffn_out
+    };
 
     let out = ctx.dsv4_hc_post(&ffn_out, &streams, &ffn_gates.post, &ffn_gates.comb)?;
     // The block builds one graph and evaluates it here, so every phase timer

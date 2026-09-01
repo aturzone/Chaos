@@ -280,20 +280,38 @@ arithmetic 0.478 s** per token. The disk term cross-checks a second way — 71.7
 the disk entirely is worth about **2.5x from here and no more**; after that `F` has
 to fall roughly **3x**.
 
-**What is inside `F` is not known, and two claims about it were withdrawn the same
-day they were written.** The phase timers stop at the boundary of one ggml graph
-evaluation, so how the 0.478 s divides between the routed experts, attention, the
-LoRA projections and the hyper-connections cannot be read off them — *"the routed
-expert matmuls are 0.004 s"* came from subtracting the expert read from the `ffn`
-phase, which covers construction plus the read and **not** the expert arithmetic.
-Both that and *"88% is the hyper-connection algebra"* are retracted.
+### And `F` is now split, which closes the argument
 
-What is bounded, by `trunk_mat_vec_dtypes`: a `[4096, 2048]` mat-vec against one
-token is **F32 0.609 ms, BF16 0.296, Q8_0 0.219**. So the always-read shared expert
-is ~28 ms a token, about **6%** of the arithmetic — and **Q8_0 is 0.36x F32's time
-while carrying a quarter of the bytes**, so the dtype is not the problem and C7's
-*"move the trunk to a dtype that has a kernel"* argument is dead. The next
-measurement is an instrument that can see **inside** `final compute`.
+`what-is-inside-the-final-compute-2026-09-01.md`. Two probes, each computing one
+subgraph alone and freezing it, cross-checked against the unsplit total (0.484–0.494
+against 0.472–0.489, so under 3% of instrument effect):
+
+| per generated token | seconds | share of `F` |
+|---|---|---|
+| attention | 0.197 | **40%** |
+| expert matmuls (6 routed + 1 shared) | 0.199 | **40%** |
+| hyper-connections + router | 0.040 | 8% |
+| qkv construction | 0.043 | 9% |
+| residual write-back | 0.003 | 0.6% |
+
+**Two earlier guesses were wrong in opposite directions and both are retracted**:
+*"88% is the hyper-connection algebra"* (it is 8%) and *"the routed expert matmuls
+are 0.004 s"* (they are 40%). Both came from attributing a phase timer to a
+subsystem without reading what falls between the two `Instant`s — `attn_out` feeds
+`layer_tail`, which feeds `ffn_norm`, so **the whole attention graph is evaluated
+inside the phase called `tail`.**
+
+**`F` is work, not waste.** Attention is ~22 M multiply-accumulates a block, which
+lands near 3.1 ms at this machine's ~14 GFLOP/s mat-vec rate against 4.6 ms
+measured; 21 `[4096, 2048]` products a block at 0.219 ms each is also 4.6 ms. No
+factor of ten is hiding in either. So **5 tok/s here would need the arithmetic
+2.4x faster than the memory system allows, with the disk switched off entirely** —
+a hardware statement, and the first to rest on a measured decomposition of `F`.
+
+The dtype is not the problem either: `trunk_mat_vec_dtypes` measures **F32 0.609 ms,
+BF16 0.296, Q8_0 0.219**, so Q8_0 is the *fastest* of the three and C7's *"move the
+trunk to a dtype that has a kernel"* argument is dead. What survives of C7 is the
+cache cliff.
 
 **Best honest case remains roughly 1.5–2 tok/s on this machine, and that is not 5.**
 It will keep being said plainly rather than missed quietly.

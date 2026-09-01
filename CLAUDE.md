@@ -173,9 +173,11 @@ item; if one is not done, say which and why.**
   0.509, after C5e and defaulting the expert cache — both exact, both gated. A
   generated token is now **0.815 s of expert read plus 0.478 s of arithmetic**;
   remove the disk entirely and this machine lands at **1.5–1.8 tok/s**, so the
-  arithmetic is the binding constraint. **What is inside it is unknown** — the phase
-  timers stop at one graph evaluation, and two claims about the split were retracted
-  the day they were made. The 4.26 tok/s "one-bit expert" figure is a *disk*
+  arithmetic is the binding constraint — and it is now **split**: attention **40%**,
+  expert matmuls **40%**, hyper-connections and router **8%**. Both halves run near
+  this memory system's rate, so **`F` is work, not waste**, and 5 tok/s would need
+  it 2.4x faster with the disk off. Two earlier guesses about the split were
+  retracted the day they were made. The 4.26 tok/s "one-bit expert" figure is a *disk*
   bound and must not be quoted as the ceiling.
   **Do not report progress without a measurement.**
 - [x] **2. The image generator, with model selection.** Orientation, seed,

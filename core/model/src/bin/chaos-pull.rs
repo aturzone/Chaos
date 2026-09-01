@@ -161,12 +161,68 @@ fn run(
         list();
         return Ok(ExitCode::from(2));
     };
+    // **The machine is probed before the quant is chosen, not after.** It used to
+    // be the other way round: `quants.first()` picked whatever the catalogue
+    // listed first, and the plan below then *advised* "pick a smaller quant" while
+    // holding every number needed to pick one. On a machine with 4.75 GiB usable
+    // that chose `qwen3.8-27b UD-Q4_K_XL` at 16.35 GiB resident, with
+    // `UD-Q2_K_XL` at 9.15 GiB in the same entry.
+    let machine = chaos_probe::Machine::probe(dir, false);
+    // Leave room for the compute arenas and the expert slices in flight.
+    let usable = machine.usable_ram_for_weights(2 << 30);
+    // Captured before the shadow below, which replaces the Option with the Quant.
+    let asked_for_quant = quant.is_some();
     let quant = match quant {
         Some(q) => entry
             .quant(q)
             .ok_or_else(|| format!("{} has no quant {q:?}", entry.name))?,
-        None => entry.quants.first().ok_or("no quants in catalogue")?,
+        None => entry.quant_for(usable).ok_or("no quants in catalogue")?,
     };
+    // Say it chose, and say what it passed over. A silent choice is the same
+    // opacity as a silent default -- and if the pick is not the biggest on offer,
+    // the reason is a number the user can check.
+    if !asked_for_quant && entry.quants.len() > 1 {
+        let biggest = entry
+            .quants
+            .iter()
+            .max_by_key(|q| q.always_read_bytes)
+            .expect("non-empty");
+        if biggest.name != quant.name {
+            // **Two cases, and saying the wrong one is worse than saying nothing.**
+            // `quant_for` returns the largest that fits, or the smallest when none
+            // does. The first draft of this message printed "fits your N GiB" in
+            // both, so it announced that 9.15 GiB fitted 3.94 -- a confidently
+            // wrong sentence about the very number the user is here to check.
+            let fits = quant.always_read_bytes <= usable;
+            if fits {
+                println!(
+                    "quant      chose {} of the {} on offer: {:.2} GiB resident fits your {:.2} GiB.",
+                    quant.name,
+                    entry.quants.len(),
+                    gib(quant.always_read_bytes),
+                    gib(usable)
+                );
+                println!(
+                    "           {} is larger at {:.2} GiB and would stream from disk.",
+                    biggest.name,
+                    gib(biggest.always_read_bytes)
+                );
+            } else {
+                println!(
+                    "quant      chose {}, the smallest of the {} on offer. **None fits**",
+                    quant.name,
+                    entry.quants.len()
+                );
+                println!(
+                    "           your {:.2} GiB: this one needs {:.2} GiB and the largest needs {:.2}.",
+                    gib(usable),
+                    gib(quant.always_read_bytes),
+                    gib(biggest.always_read_bytes)
+                );
+            }
+            println!("           --quant NAME overrides this.");
+        }
+    }
 
     let files = entry.files(quant);
     std::fs::create_dir_all(dir)?;
@@ -198,7 +254,6 @@ fn run(
         .collect();
     let remaining = quant.bytes.saturating_sub(have);
 
-    let machine = chaos_probe::Machine::probe(dir, false);
     let plan = Plan {
         entry,
         quant,
@@ -206,11 +261,11 @@ fn run(
         total_bytes: quant.bytes,
         remaining_bytes: remaining,
         disk_free_bytes: machine.storage.free_bytes,
-        // Leave room for the compute arenas and the expert slices in flight.
-        usable_ram_bytes: machine.usable_ram_for_weights(2 << 30),
+        usable_ram_bytes: usable,
     };
 
     print_plan(&plan, dir, have);
+    print_prediction(&plan);
 
     if !plan.fits_on_disk() {
         eprintln!(
@@ -323,7 +378,27 @@ fn print_plan(plan: &Plan, dir: &Path, have: u64) {
             gib(plan.shortfall_bytes())
         );
         println!("           re-read from disk on every token, which is slow.");
-        println!("           Close some applications, or pick a smaller quant.");
+        // **Do not tell someone to do what has already been done.** When the
+        // chosen quant is the smallest in the entry there is nothing smaller to
+        // pick, and saying so anyway is the kind of advice that makes a tool feel
+        // like it is not paying attention.
+        let smallest = plan
+            .entry
+            .quants
+            .iter()
+            .min_by_key(|q| q.always_read_bytes)
+            .map(|q| q.name);
+        if smallest == Some(plan.quant.name) && plan.entry.quants.len() > 1 {
+            println!(
+                "           This is already the smallest of the {} quants on offer,",
+                plan.entry.quants.len()
+            );
+            println!("           so closing applications is the only thing left.");
+        } else if plan.entry.quants.len() > 1 {
+            println!("           Close some applications, or pick a smaller quant.");
+        } else {
+            println!("           Close some applications; this model has one quant.");
+        }
     }
 }
 
@@ -468,4 +543,68 @@ fn fetch(
         }
     }
     Ok(())
+}
+
+/// The tok/s this machine should expect, **when there is a number worth saying**.
+///
+/// T3 asks `chaos-pull` to "say the prediction out loud before a 144 GB
+/// download". The documented law is `tok/s ~= 19 / resident GiB`, and this prints
+/// it **only where it is calibrated**, because it is wrong in two directions that
+/// matter and a confident wrong number is worse than none.
+///
+/// Measured on this machine 2026-09-01, five models in one session:
+///
+/// ```text
+///   model            resident   law   measured
+///   Qwen3-4B          2.33 GiB  8.15      8.27   dense, 1% out
+///   Falcon3-1B        0.98     19.4      22.31   dense, 13% out
+///   Qwen2-0.5B        0.37     51.4      32.00   dense, 60% OVER
+///   Qwen3-30B-A3B     0.93     20.4       4.41   MoE, 4.6x OVER
+///   DeepSeek-V4-Flash 7.38      2.57      0.728  MoE, 3.5x OVER
+/// ```
+///
+/// So it holds for **dense** containers of roughly 1--24 GiB resident, and fails
+/// badly below a gigabyte (there is a floor the law does not model) and on any
+/// **streaming MoE**, where the disk term dominates and resident size says almost
+/// nothing about speed.
+///
+/// **A container is streaming when its always-read set is far below its total.**
+/// That is the discriminator the catalogue already carries: a dense file has
+/// `always_read_bytes` within a few per cent of `bytes`, and V4-Flash has 7.38 GiB
+/// against 155 GB. No new data is needed, and no guess about architecture names.
+fn print_prediction(plan: &Plan) {
+    const GIB_F: f64 = (1u64 << 30) as f64;
+    let resident_gib = plan.quant.always_read_bytes as f64 / GIB_F;
+    // Bytes, not GiB: `bytes` is decimal GB from the catalogue and
+    // `always_read_bytes` is binary, so compare them as raw byte counts.
+    let streams = (plan.quant.always_read_bytes as f64) < 0.7 * plan.quant.bytes as f64;
+
+    if streams {
+        println!(
+            "speed      not predicted: this container streams ({:.2} GiB always-read of",
+            resident_gib
+        );
+        println!(
+            "           {:.1} GB total), so its speed is set by the disk rather than by",
+            plan.quant.bytes as f64 / 1e9
+        );
+        println!("           resident size. Run `chaos-model-info` once it is here.");
+        return;
+    }
+    if !(1.0..=24.0).contains(&resident_gib) {
+        println!("speed      not predicted: the law is calibrated for 1-24 GiB resident and",);
+        println!("           this is {resident_gib:.2}. Run `chaos-model-info` once it is here.");
+        return;
+    }
+    // The law, and the shortfall that breaks it. Predicting a number for a model
+    // that does not fit would be predicting for a machine other than this one.
+    if plan.quant.always_read_bytes > plan.usable_ram_bytes {
+        println!("speed      not predicted: it does not fit, so most of every token is disk.");
+        return;
+    }
+    let predicted = 19.0 / resident_gib;
+    println!(
+        "speed      about {predicted:.1} tok/s expected (19 / {resident_gib:.2} GiB resident,"
+    );
+    println!("           +/-15% on the five models this was calibrated against).");
 }

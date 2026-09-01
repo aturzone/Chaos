@@ -953,4 +953,18 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   tuned on the first tokens"* and then lands at 3.26 where `-t 4` gives 3.38, and at
   7.18 where `-t 4` gives 7.52 — the same direction at two very different context
   lengths, so it is a bias rather than noise.
+- **`ctx.cont` materialises a copy; it does not annotate a view.** The dense
+  attention path calls it on the permuted key and value caches, so **the entire KV
+  cache is copied on every generated token, in every layer**, because the cache is
+  stored head-major and `flash_attn_ext` wants `[head_dim, n_kv, n_head_kv]`.
+  Measured at Qwen3-4B's shape: the copy costs **0.02001 ms per token of context
+  across 36 layers**, a **3.25x** attention slope, and **87.55 ms of a 306.7 ms
+  token at 4031 positions** — which is the entire long-context deficit against
+  llama.cpp. **The fix is the cache's storage layout, not the two `cont` calls**,
+  and it reaches fourteen architectures.
+- **When a benchmark's two arms do not read equally cold memory, the bias can run
+  toward the conclusion.** The instrument above first filled the comparison
+  buffer *inside* the timing loop, so that arm read what it had just written and
+  measured 2.84x instead of 3.25x. Both arms must read a buffer written once, and
+  it is worth checking which direction the mistake would have pushed the answer.
 

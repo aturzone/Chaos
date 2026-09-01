@@ -272,6 +272,27 @@ sizing anywhere, on a model where `--auto` turns out never to run at all.
 every token, and one-bit experts with a free trunk still cap this machine at 4.26
 tok/s. See below.
 
+## The published assets, and which have now been exercised
+
+Measured 2026-09-01. **None of them could be downloaded**: every route ends at
+`release-assets.githubusercontent.com`, which resolves, accepts TCP in 0.13 s and
+**resets during TLS**, while `api.github.com` answers 200 in 0.34 s. So this works
+from artefacts already on disk, or from the source the assets are built from.
+
+| asset | state |
+|---|---|
+| `windows-x86_64-Setup.exe` | **run here** — an install exists and its binaries work; today's build embeds `chaos.exe` |
+| `windows-x86_64.zip` | its binaries are the ones this machine builds and runs daily |
+| `android-arm64.apk` | **installs and launches** on an android-34 x86_64 emulator; crashes entering a mode, in translated code that is not attributable |
+| `linux-x86_64.tar.gz` | **its contents run**: a model generated on Debian 12, and the suite passes 991/0/42 there |
+| `chaos_amd64.deb` | not executed — cannot be downloaded |
+| `linux-x86_64.AppImage` | not executed — cannot be downloaded |
+| `linux-arm64.tar.gz` | not executed — no arm64 Linux here |
+| `macos-arm64.tar.gz` | not executed — no macOS here |
+| `macos-x86_64.tar.gz` | not executed — no macOS here |
+
+**Never run on a phone** still stands: an emulator is not a phone.
+
 ## The 5 tok/s position
 
 **137 GiB of experts cannot live in 15.7 GiB of RAM, so they cross the disk every

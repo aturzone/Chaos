@@ -95,6 +95,7 @@ container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 | DeepSeek-V4-Flash, 144 GB, in 15.7 GiB | **0.727 tok/s** — 0.509 before C5e, 0.570 after it, **0.727** once the expert cache stopped defaulting to zero. Three alternating passes each, one session. The **0.43** on record until 2026-08-31 was taken under memory pressure |
 | V4-Flash against llama.cpp | **no ratio publishable.** Chaos **0.696** ±1%; llama.cpp **0.16–0.47** across 8 runs of one command line, drifting down within every sequence even with Chaos never started. The cell is `unmeasurable here` — `the-v4flash-parity-cell-does-not-reproduce-2026-09-01.md` |
 | Dense path, hand-tuned | **1.30× behind**, and §4a showed the gap is 61% FFN matmul |
+| Dense path, defaults, **same session** | Qwen3-4B short **8.39 vs 7.69 — 1.09× ahead**; at 4031 tokens **3.13 vs 4.53 — 1.45× behind**. **The ratio flips**: Chaos slows 2.68× with context, llama.cpp 1.70× |
 | RAM read, peak / achieved in generation | **30.8** / ~19 GiB/s |
 | NVMe sequential / expert reads / QD-8 | **3.09** / **2.88** / **3.41 GiB/s** — the expert figure re-measured 2026-08-31 with the trunk resident; the old 1.40/1.88/2.02 were all taken while the trunk was *also* streaming |
 | `tok/s ≈ 19 / resident GiB` | holds across nine models spanning 23× |

@@ -923,4 +923,15 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   naming what would close it properly. Publishing best-of gives 1.70x, the
   alternating median 2.32x and worst-of 4.35x from the same data — picking one is
   picking the answer.
+- **The dense comparison with llama.cpp reverses with context length, so one ratio
+  cannot describe it.** Qwen3-4B, both engines alternating in one session: short
+  prompt **8.39 vs 7.69 — 1.09x ahead**; 4031 tokens **3.13 vs 4.53 — 1.45x
+  behind**. Chaos's per-token cost grows **2.68x** over that span against
+  llama.cpp's **1.70x**. Quoting either end as "the" dense figure is wrong at the
+  other end, and §4a's "61% of the gap is the FFN matmul" is a statement about the
+  short end only.
+- **A model that fits in RAM gives a comparison that repeats; one that does not,
+  does not.** Qwen3-4B: both engines within 2% across three alternating pairs.
+  V4-Flash: llama.cpp spread 0.16-0.47. Choose the model for a parity cell
+  accordingly, and expect the streaming cells to need a bigger machine.
 

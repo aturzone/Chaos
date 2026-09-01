@@ -25,7 +25,7 @@ green.** Full contents in `STATUS.md`.
 | L1 | **v0.0.24 — One truth**: one scoreboard, 22 contradictions resolved, dead epics retired | **[x]** merged #151. STATUS 5,144 -> 205 lines, 26 dead tickets retired |
 | L2 | **v0.0.25 — Guard the binary**: CI runs the correctness suite against a real model | **[x]** merged #152. E4, E6, E7, E8, E9 |
 | L3 | **v0.0.26 — Measure before optimising** | **[x]** merged #153-155. `F` is **93% arithmetic** and the router is 31% of it; the expert read is **2.88 GiB/s**, already 84% of the drive; the 3x GPU contradiction is resolved. **Three claims corrected, two of them mine** |
-| L4 | **v0.0.27 — Quality harness**, then the levers | **[~]** the harness is in (C6). Next: **C5c the router**, behind the *exact* bar |
+| L4 | **v0.0.27 — Quality harness**, then the levers | **[~]** the harness is in (C6) and the first lever is through it: **C5e, 1.120x on V4-Flash, exact, 50/50 byte-identical**. Left: **C7**, the trunk requantisation, behind the *lossy* bar |
 | L5 | **v0.0.28 — Any machine, any model**: quant selection, self-configuration | **[~]** `--auto` exists, T3/T4 open |
 | L6 | **v0.0.29 — Every platform, actually run**: 4 of 9 assets never executed | **[ ]** |
 | L7 | **v0.0.30 — LTS**: the parity gate, the competitive claim, a support policy | **[ ]** |
@@ -99,7 +99,8 @@ Plan and the corrected arithmetic: `docs/graph/backlog/the-big-bang-5-tok-s.md`.
 | C5b | ~~Build the block graph once~~ | **[!] withdrawn same day.** Re-measured with the router timed separately: graph construction is **0.05 s of F's 0.71 s**, not 0.36 s. Worth ~3% of a token, not 20% |
 | C5c | ~~Select the top-6 experts on the CPU~~ | **[!] dead, measured before it was written.** `CHAOS_ROUTE_SPLIT` separates the halves: the BF16 `mul_mat` costs **0.256 s** and `argsort_top_k` costs **~0.000 s**. The sort was never the cost, and a CPU selection would still need the same matmul. The 1.26x was also inflated — it divided the block-sum by a wall-clock tok/s; removing the router **entirely** is **1.13x** |
 | C5d | ~~Convert `ffn_gate_inp` from BF16 at load~~ | **[!] dead, measured before it was written.** `router_matmul_dtypes` times that exact shape: **F32 0.1503 ms, BF16 0.1501 ms — 1.00x**, and both are 43x faster than the 6.4 ms the engine pays. The dtype was never the cost |
-| C5e | **Stop recomputing the block tail** | **[ ]** `ctx.compute(&topk)` evaluates everything `topk` depends on, which reaches back through `ffn_norm` into `layer_tail` — and the block's final `compute` then does it **again**. Proof: the argsort blocks' final compute is **0.0101 s** against the hash blocks' **0.0100 s**, so the early evaluation was extra, not early. Copy `ffn_norm`, `streams`, `gates.post`, `gates.comb`, `probs3` and `topk` into leaf tensors before the downstream graph is built — six small tensors, 4096 x nt the largest. **0.221 s of a 1.980 s token = 1.13x**, and **exact**. **The trap**: true for 40 blocks only. In the 3 hash layers `topk` depends on token ids alone, so nothing of `layer_tail` is computed yet and leaf-ifying there would copy **uninitialised memory** — fluent nonsense, not a crash. Conditional on `il >= hash_layer_count`, and verified through the *exact* bar on V4-Flash, not eyeballed |
+| C5e | **Stop recomputing the block tail** | **[x]** shipped 2026-08-31. **0.509 -> 0.570 tok/s, 1.120x**, three pairs alternating in one session with one binary (`CHAOS_NO_FREEZE=1` turns it off, which is why the A/B is honest). Per token 1.965 s -> 1.754 s, 0.211 s saved against a 0.221 s prediction. **Gate: 50 of 50 byte-identical, the *exact* bar met** -- against a baseline re-recorded with `CHAOS_NO_FREEZE=1`, so both sides are the same binary in the same session. **The first attempt reported 0 of 50 and the harness was the reason**: it kept the non-deterministic `generate ... tok/s` line in every answer, so it could not have passed a build against itself. Now proved in BOTH directions on Qwen2-0.5B (50/50 against itself; 35 changed and 2 checkables lost against 1 MiB of zeros). Mechanism proved inside one run with the 3 hash layers as an untouched control: argsort now pays route 0.0074 + compute 0.0086 against hash's 0.0000 + 0.0159 — **equal sums though an argsort block does more work**. Two traps were real: `post`/`comb` are not ancestors of `topk`, so `compute_many` (which existed with no caller) moves them into the same compute rather than adding work, and freezing the hash layers would copy uninitialised arena |
+| C5f | **`is_contiguous` was off by one dimension** | **[x]** found by writing C5e's own test. It accumulated the expected stride one dimension late, compared `nb[1]` with `nb[0]`, and answered `false` for **every tensor with more than one row** — sending every `to_vec_f32`/`to_vec_i32` in the engine down the element-by-element path where a `memcpy` would do, on every block boundary of every architecture. Invisible because all three tests asserted a *view* is **not** contiguous, which a function that always says `false` passes. `a_fresh_tensor_is_contiguous_at_every_rank` is the missing direction |
 | C6 | **Quality harness** — ≥50 checkable prompts + thresholds agreed first | **[x]** `scripts/quality-gate.sh`. **Different bars per lever** (Atur, 2026-08-31): *exact* needs **100% byte-identical**, *lossy* needs **≥95% identical, no checkable regression, perplexity +≤1%**. Byte-identical greedy text **is** top-1 agreement, so no logit plumbing. Verified against 1 MiB of zeros: **22.0% identical, 4 checkables lost, perplexity +1.16%** — all three fired independently |
 | C7 | **Requantise the always-read trunk** — it is Q8_0 while the experts are Q4_K | **[ ]** the one lever no V4-Flash document has ever costed. ~7.38 → ~3.91 GiB, and it would fit the 5.11 GiB of free VRAM |
 | C8 | Rung 2 — 2-bit experts | **[ ]** behind C6 |
@@ -145,9 +146,13 @@ pass here is fluent nonsense, never a crash.
 
 ## Next three
 
-1. **C5b** — build the block graph once and rebind its inputs, instead of reconstructing
-   it per block per token. `tail` is 0.36 s of a 1.84 s token and it is pure overhead;
-   worth ~1.24x with no quality risk. The obvious shape of the fix, not yet costed.
-2. **C5** — profile `F`. It caps this machine at 1.19 tok/s and nobody has opened it.
-3. **C7** — cost the trunk requantisation, behind **C6**. It is the only untried lever
-   that moves the ceiling, and the quality risk is real and unmeasured.
+1. **C7** — cost the trunk requantisation, behind **C6**'s *lossy* bar. The container
+   carries the always-read set at **Q8_0 while the experts are Q4_K**, and no V4-Flash
+   document has ever costed halving it. It is the only untried lever that moves the
+   memory-bus ceiling, and the quality risk is real and unmeasured — K3's QAT covered
+   experts only, which is a reason to expect trunk sensitivity rather than to assume it.
+2. **T3 / T4** — quant selection and self-configuration (v0.0.28). `--auto` exists and
+   is **2.14x slower at `-n 200`**, measured and unfixed; that is the bug, not the feature.
+3. **v0.0.29** — run a model on macOS and Linux, install the `.deb` and the AppImage, and
+   put the APK on a real phone. **Four of nine published assets have never been executed
+   by anyone**, which is the largest untested surface in the project.

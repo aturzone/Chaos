@@ -219,6 +219,14 @@ jobs:
         shell: bash
         run: bash scripts/check-test-count.sh /tmp/test.log
 
+      # The README carries three things and nothing else -- the progress bars,
+      # the document map, and tok/s for five fixed models with the machine that
+      # produced them named. Atur's rule, 2026-08-31. It was 393 lines and
+      # claimed 13 architectures nine lines above 14; a rule in prose drifts.
+      - name: The README obeys its own rule
+        shell: bash
+        run: bash scripts/check-readme.sh
+
       # **This step is honest about what it proves, and it is not much.** The
       # container-backed tests skip themselves when no model is on disk, so this
       # exercises the skip path. It is kept because a skip that panics is a real

@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 973 tests
+cargo test --release          # 979 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -151,6 +151,13 @@ appealing idea. The five that bite most often:
   `Closes #1, #2, #3`, so give every one its own `closes`.
 - **A competitive claim is not citable until the competitor's exact command line
   and its output are in a doc**, from repeats, alternating in one session.
+- **`README.md` carries three things and nothing else** (Atur's rule,
+  2026-08-31): the progress bars -- the release ladder *and* the coverage block --
+  the document map, and tok/s for the **five fixed models** in
+  `scripts/speed-five.tsv`, measured in one session on a machine with nothing
+  else running, and dated. Refill the table with `scripts/speed-five.sh`, never
+  by hand. `scripts/check-readme.sh` enforces the section list, a line cap, the
+  five rows and the date; CI runs it. It was 393 lines once.
 - Sync audit at phase boundaries only, not per commit.
 - Keep this file under ~2000 tokens; tell Atur to prune rather than letting it
   bloat. It reached 3,308 words once — the overflow is now

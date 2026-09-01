@@ -74,7 +74,7 @@ Each release's contents and its gate are in the plan; the short form:
 
 ## The honest scoreboard
 
-**Current**: **973 tests** (0 failed, 42 ignored — the V4-Flash set needs the
+**Current**: **979 tests** (0 failed, 42 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 
@@ -92,7 +92,7 @@ container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 | | |
 |---|---|
 | Qwen2-0.5B / Falcon3-1B generation | **28** / **21 tok/s** (medians of three) |
-| DeepSeek-V4-Flash, 144 GB, in 15.7 GiB | **0.43 tok/s** |
+| DeepSeek-V4-Flash, 144 GB, in 15.7 GiB | **0.570 tok/s** after C5e, from **0.509** before it — three pairs alternating in one session, one binary. The **0.43** on record until 2026-08-31 was taken under memory pressure |
 | V4-Flash against llama.cpp, alternating | **0.394 vs 0.39** — parity |
 | Dense path, hand-tuned | **1.30× behind**, and §4a showed the gap is 61% FFN matmul |
 | RAM read, peak / achieved in generation | **30.8** / ~19 GiB/s |
@@ -133,8 +133,26 @@ with a claimed lead either — the ranges overlap.
    that the block tail is computed twice**: `ctx.compute(&topk)` reaches back
    through `ffn_norm` into `layer_tail`, and the final `compute` redoes it — the
    argsort blocks' final compute is 0.0101 s against the hash blocks' 0.0100 s, so
-   the early evaluation was extra, not early. Fix is to copy the computed tensors
-   into leaves (C5e): **1.13x, exact**.
+   the early evaluation was extra, not early. **C5e is now shipped**: the computed
+   tensors are copied into leaves, `compute_many` puts `post` and `comb` in the same
+   compute rather than adding work, and the three hash layers are excluded because
+   nothing of their tail exists yet. **0.509 -> 0.570 tok/s, 1.120x**, three pairs
+   alternating with one binary (`CHAOS_NO_FREEZE=1` turns it off), against a
+   1.13x prediction — and **50 of 50 answers byte-identical, the *exact* bar met**,
+   against a baseline re-recorded with `CHAOS_NO_FREEZE=1` so both sides are one binary
+   in one session. **The first attempt reported 0 of 50 and the harness was the cause**:
+   it kept the `generate ... tok/s` timing line in every answer, so it could not have
+   passed a build against itself. Fixed, and now proved in both directions on
+   Qwen2-0.5B (50/50 against itself; 35 changed and 2 checkables lost against 1 MiB of
+   zeros) -- the same "tested in one direction only" bug as `is_contiguous`, the same
+   afternoon.
+   The mechanism is proved inside one run using the hash layers as an untouched
+   control: argsort blocks now pay route 0.0074 + compute 0.0086 against hash's
+   0.0000 + 0.0159, **equal sums though an argsort block does strictly more work**.
+   Writing its test found a second bug: **`is_contiguous` was off by one dimension**
+   and answered `false` for every tensor with more than one row, so every
+   `to_vec_f32` in the engine walked strides where a `memcpy` would do.
+   `the-tail-computed-once-2026-08-31.md`.
 3. **The GPU tier is not verified** — the device path fails 1 of 8 parity prompts where
    the CPU path fails none. ~~And the GPU evidence contradicts itself.~~ **Reconciled
    2026-08-31**: both measurements are right and they used different context lengths.

@@ -1829,6 +1829,82 @@ fn layer_tail<'c>(
     Ok((streams, ffn_norm, gates))
 }
 
+/// Has [`moe_routing`]'s own `compute` already evaluated [`layer_tail`], so its
+/// outputs can be frozen into leaves rather than computed a second time?
+///
+/// **This one predicate is the whole safety condition of C5e.** `ctx.compute`
+/// evaluates everything its root depends on, and from `hash_layer_count` up
+/// `topk` is `argsort_top_k` over the gate logits, which reach back through
+/// `ffn_norm` into the entire tail. In the first three blocks `topk` is
+/// `get_rows(ffn_gate_tid2eid, tok)` and depends on the token ids alone: the
+/// router compute evaluates *nothing* of the tail there, which is exactly why
+/// those three measure 0.000 s. Freezing them would copy uninitialised arena,
+/// and the result would be **fluent nonsense rather than a crash** -- the worst
+/// failure this file can have. So the three hash layers keep the old path
+/// unchanged and are excluded here, by name, in one place.
+///
+/// # And why a token count comes into it
+///
+/// The copies are linear in `nt`: about 83 KiB per block at one token, 16 MiB at
+/// 192. The block arena is a fixed 1 GiB (`run_deepseek4` passes 1024 MiB) and a
+/// large prefill block already fills a real fraction of it -- while **an
+/// exhausted ggml arena aborts the process with no message.** The saving, on the
+/// other hand, is per *pass*: 5.5 ms in each of 40 blocks whether that pass
+/// carries one token or two thousand. So above this bound the optimisation is
+/// worth `1/nt` of what it is worth in generation and costs arena the graph
+/// itself may need, and it declines rather than risking the abort.
+fn freeze_the_tail(hash_layer_count: u32, il: u32, nt: i64) -> bool {
+    il >= hash_layer_count && nt <= FREEZE_MAX_TOKENS
+}
+
+/// [`freeze_the_tail`], with the off switch -- what the three call sites ask.
+///
+/// **`CHAOS_NO_FREEZE=1` turns C5e off, and it exists because this project's own
+/// citation rule needs it.** A speed claim is not citable here until both sides
+/// are measured alternating in one session; without a switch that means two
+/// builds, a rebuild between every pair, and the standing temptation to compare
+/// against a number taken half an hour ago instead. With it, the A/B is one
+/// binary and one session -- which is how 0.498 against 0.570 tok/s was taken.
+///
+/// The predicate itself stays pure so it can be tested, and the environment is
+/// read exactly once: this is called 43 times per token.
+fn freezing(hash_layer_count: u32, il: u32, nt: i64) -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *OFF.get_or_init(|| std::env::var("CHAOS_NO_FREEZE").is_ok()) {
+        return false;
+    }
+    freeze_the_tail(hash_layer_count, il, nt)
+}
+
+/// The largest batch C5e will copy the tail for. See [`freeze_the_tail`].
+const FREEZE_MAX_TOKENS: i64 = 192;
+
+/// Copy an already-computed **F32** tensor into a leaf, so nothing recomputes it.
+///
+/// ggml has no notion of "already computed": `ggml_build_forward_expand` walks
+/// every ancestor of the root it is handed and evaluates all of them. A tensor
+/// with no op and no sources is a leaf and is left alone, so the way to keep a
+/// second graph from re-deriving a value is to hand it a leaf holding that
+/// value. That is all this does.
+///
+/// **F32 only, and the caller must know it.** There is no dtype accessor on
+/// `Tensor` and `to_vec_f32` would read `len()` floats out of a smaller buffer
+/// for a quantised one. Every tensor frozen in this file is F32 by construction:
+/// `dsv4_hc_post`'s output, an `rms_norm`/`mul` chain, a `sigmoid`, `hc_comb`,
+/// and a reshaped `sqrt`.
+///
+/// Strides are honoured by `to_vec_f32`, so freezing a **view** is safe and
+/// yields a contiguous leaf with the same extents -- which is what `probs3`,
+/// a `reshape_3d`, is.
+fn freeze<'c>(ctx: &'c Context, t: &Tensor<'c>) -> Result<Tensor<'c>> {
+    let ne = t.ne();
+    let leaf = ctx.new_f32_4d(ne[0], ne[1], ne[2], ne[3])?;
+    // `set_f32` rejects a length mismatch, so a shape this helper got wrong is
+    // an error rather than a write past the allocation.
+    leaf.set_f32(&t.to_vec_f32())?;
+    Ok(leaf)
+}
+
 /// The router: probabilities, the six experts, and their normalised weights.
 ///
 /// **Two entirely different selection schemes**, chosen by `hash_layer_count`.
@@ -1842,6 +1918,7 @@ fn moe_routing<'c>(
     weights: &WeightSet<'c>,
     il: u32,
     ffn_norm: &Tensor<'c>,
+    gates: &HcGates<'c>,
     tokens: &[i32],
 ) -> Result<(Tensor<'c>, Vec<i32>)> {
     let config = &fw.config;
@@ -1909,7 +1986,18 @@ fn moe_routing<'c>(
     // arithmetic to overhead. That mistake was made on 2026-08-31 and caught
     // by reading this function instead of the comment.
     let t_route = std::time::Instant::now();
-    ctx.compute(&topk, threads())?;
+    // **C5e: the tail's own outputs join this compute rather than waiting for
+    // the block's.** `post` and `comb` are not ancestors of `topk` -- `ffn_norm`
+    // reaches `mixes` through `gates.pre` only -- so without them here they
+    // would be the one part of the tail still pulling the block's final graph
+    // back through `dsv4_hc_post`, and freezing `streams` would buy nothing.
+    // Computing them now is not extra work: it is the same work, moved out of
+    // the graph that would otherwise recompute everything beside it.
+    if freezing(config.hash_layer_count, il, nt) {
+        ctx.compute_many(&[&topk, &gates.post, &gates.comb], threads())?;
+    } else {
+        ctx.compute(&topk, threads())?;
+    }
     if std::env::var("CHAOS_BLOCK_TIMING").is_ok() {
         eprintln!(
             "  block {il:>2}  route-compute {:.3}s (argsort_top_k over {} experts)",
@@ -1924,6 +2012,20 @@ fn moe_routing<'c>(
     if std::env::var("CHAOS_ROUTING_LAST").is_ok() {
         record_last_token(il, n_used as usize, &ids);
     }
+
+    // **C5e, half of it.** `probs3` and `topk` are correct now, and both reach
+    // back through `logits` into the whole tail. Left as op nodes the block's
+    // final `compute` re-derives that chain a second time to build `w_scaled`;
+    // as leaves it stops here. `ids` is the same data `topk` holds, already read
+    // out above, so the i32 leaf costs no second read.
+    let (probs3, topk) = if freezing(config.hash_layer_count, il, nt) {
+        let ne = topk.ne();
+        let frozen_topk = ctx.new_i32_2d(ne[0], ne[1])?;
+        frozen_topk.set_i32(&ids)?;
+        (freeze(ctx, &probs3)?, frozen_topk)
+    } else {
+        (probs3, topk)
+    };
 
     // Renormalised over the selected six only, then scaled. The divisor is
     // clamped at the smallest F16 normal, not at an epsilon.
@@ -2572,7 +2674,27 @@ pub fn block(
 
     let t_phase = std::time::Instant::now();
     let (streams, ffn_norm, ffn_gates) = layer_tail(fw, &ctx, &weights, il, &e, &attn_out, nt)?;
-    let (w_scaled, ids) = moe_routing(fw, &ctx, &weights, il, &ffn_norm, tokens)?;
+    let (w_scaled, ids) = moe_routing(fw, &ctx, &weights, il, &ffn_norm, &ffn_gates, tokens)?;
+    // **C5e, the other half.** The router's compute has just evaluated the whole
+    // of `layer_tail`; freeze the four tensors the rest of the block reads so the
+    // block's own `compute` stops at a leaf instead of deriving them again. That
+    // second derivation was 5.5 ms in each of 40 blocks -- 0.221 s of a 1.980 s
+    // token, measured -- and it bought nothing at all.
+    //
+    // `pre` is deliberately not frozen: nothing after this point reads it, so it
+    // is not on the graph the final compute walks. Freezing it would be a copy
+    // for no reason.
+    let (streams, ffn_norm, ffn_gates) = if freezing(config.hash_layer_count, il, nt) {
+        let HcGates { pre, post, comb } = ffn_gates;
+        let frozen = HcGates {
+            pre,
+            post: freeze(&ctx, &post)?,
+            comb: freeze(&ctx, &comb)?,
+        };
+        (freeze(&ctx, &streams)?, freeze(&ctx, &ffn_norm)?, frozen)
+    } else {
+        (streams, ffn_norm, ffn_gates)
+    };
     let tail_secs = t_phase.elapsed().as_secs_f64();
 
     let t_phase = std::time::Instant::now();
@@ -2599,13 +2721,18 @@ pub fn block(
     // `route-compute` line separates that out. This
     // is the only line where arithmetic actually happens, and leaving it inside
     // the residual hid the fact that a V4-Flash token is 55% disk and 29% this.
+    //
+    // **Three decimals, not two.** The whole quantity this instrument exists to
+    // see is a 5 ms difference per block, and `{:.2}` cannot show one: C5e's
+    // effect on `compute` was real, measured 1.14x at the wall clock, and read
+    // as `0.01` before and `0.01` after.
     let t_phase = std::time::Instant::now();
     ctx.compute(&out, threads())?;
     let compute_secs = t_phase.elapsed().as_secs_f64();
 
     if std::env::var("CHAOS_BLOCK_TIMING").is_ok() {
         eprintln!(
-            "  block {il:>2}  arena {arena_secs:.2}  dense {dense_secs:.2} ({:.0} MiB)               qkv {qkv_secs:.2}  attn {attn_secs:.2}  tail {tail_secs:.2}  ffn {ffn_secs:.2}  compute {compute_secs:.2}               total {:.2}",
+            "  block {il:>2}  arena {arena_secs:.3}  dense {dense_secs:.3} ({:.0} MiB)  qkv {qkv_secs:.3}  attn {attn_secs:.3}  tail {tail_secs:.3}  ffn {ffn_secs:.3}  compute {compute_secs:.3}  total {:.3}",
             dense_bytes as f64 / (1 << 20) as f64,
             t_block.elapsed().as_secs_f64(),
         );
@@ -3078,5 +3205,109 @@ mod routing_tests {
         assert_eq!(pooled.len(), 3);
         assert_eq!(pooled[0], vec![0, 1, 0, 0]);
         assert_eq!(pooled[2], vec![1, 0, 0, 0]);
+    }
+}
+
+#[cfg(test)]
+mod freeze_tests {
+    use super::{freeze, freeze_the_tail, FREEZE_MAX_TOKENS};
+    use chaos_ggml::Context;
+
+    /// **The three hash layers must never be frozen**, and every other block
+    /// must be.
+    ///
+    /// Their router compute evaluates nothing of `layer_tail`, so a leaf copied
+    /// there would hold whatever the arena held. Getting this predicate
+    /// backwards produces *fluent nonsense rather than a crash* and is invisible
+    /// until a diff against llama.cpp, so it is pinned here rather than trusted
+    /// to a comment. V4-Flash's own numbers: 43 blocks, `hash_layer_count 3`.
+    #[test]
+    fn the_hash_layers_are_never_frozen() {
+        for il in 0..3 {
+            assert!(
+                !freeze_the_tail(3, il, 1),
+                "block {il} routes by token id -- its tail is not computed yet"
+            );
+        }
+        for il in 3..43 {
+            assert!(
+                freeze_the_tail(3, il, 1),
+                "block {il} routes by argsort -- its tail has just been computed"
+            );
+        }
+    }
+
+    /// The boundary is the container's own count, not the constant 3.
+    ///
+    /// A container declaring no hash layers routes every block by argsort, so
+    /// every block may be frozen; one that hashes throughout may freeze none.
+    /// `hash_layer_count` defaults to 0 when the metadata omits it, which is the
+    /// first of these.
+    #[test]
+    fn the_predicate_follows_the_containers_own_count() {
+        assert!(freeze_the_tail(0, 0, 1));
+        assert!(!freeze_the_tail(43, 42, 1));
+    }
+
+    /// Above the batch bound the copies decline themselves.
+    ///
+    /// The saving is per pass and the cost is per token, so a large prefill
+    /// block pays arena for a fraction of the benefit -- and an exhausted ggml
+    /// arena aborts the process with no message. The three prefill blocks
+    /// `--auto` picks are 512, 2048 and 4096; all three must be above the bound.
+    #[test]
+    fn a_large_prefill_block_declines_the_copies() {
+        assert!(freeze_the_tail(3, 10, FREEZE_MAX_TOKENS));
+        assert!(!freeze_the_tail(3, 10, FREEZE_MAX_TOKENS + 1));
+        for block in [512, 2048, 4096] {
+            assert!(!freeze_the_tail(3, 10, block), "block {block} must decline");
+        }
+    }
+
+    /// `freeze` must copy a **view**'s values, not its parent's buffer.
+    ///
+    /// `probs3` is a `reshape_3d` and the one bug that would make C5e quietly
+    /// wrong instead of loudly wrong is reading a strided tensor as a flat run
+    /// of floats -- a mistake this workspace has already made once, in
+    /// `to_vec_f32` itself. This pins that the stride-honouring path is the one
+    /// `freeze` uses.
+    #[test]
+    fn freezing_a_strided_view_copies_the_view() {
+        let ctx = Context::new(8 << 20).expect("arena");
+        let src = ctx.new_f32_2d(4, 3).expect("src");
+        src.set_f32(&(0..12).map(|i| i as f32).collect::<Vec<_>>())
+            .expect("fill");
+        // Two columns of every four-float row: values 0,1 / 4,5 / 8,9.
+        let view = ctx.view_2d(&src, 2, 3, 4 * 4, 0).expect("view");
+        let frozen = freeze(&ctx, &view).expect("freeze");
+        assert_eq!(frozen.ne(), view.ne());
+        assert_eq!(frozen.to_vec_f32(), vec![0.0, 1.0, 4.0, 5.0, 8.0, 9.0]);
+        assert!(
+            frozen.is_contiguous(),
+            "a leaf is contiguous by construction"
+        );
+    }
+
+    /// A graph built on a frozen leaf computes what the op node would have.
+    ///
+    /// This is the whole claim C5e rests on: the copy is numerically free, so
+    /// the change is *exact* and belongs behind the quality gate's exact bar
+    /// rather than its lossy one.
+    #[test]
+    fn a_frozen_leaf_stands_in_for_the_node_it_copied() {
+        let ctx = Context::new(8 << 20).expect("arena");
+        let x = ctx.new_f32_2d(4, 1).expect("x");
+        x.set_f32(&[1.0, 2.0, 3.0, 4.0]).expect("fill");
+        let doubled = ctx.scale(&x, 2.0).expect("scale");
+        ctx.compute(&doubled, 1).expect("compute");
+
+        let frozen = freeze(&ctx, &doubled).expect("freeze");
+        let from_node = ctx.scale(&doubled, 3.0).expect("from the node");
+        let from_leaf = ctx.scale(&frozen, 3.0).expect("from the leaf");
+        ctx.compute_many(&[&from_node, &from_leaf], 1)
+            .expect("compute");
+
+        assert_eq!(from_leaf.to_vec_f32(), from_node.to_vec_f32());
+        assert_eq!(from_leaf.to_vec_f32(), vec![6.0, 12.0, 18.0, 24.0]);
     }
 }

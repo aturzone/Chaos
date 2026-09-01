@@ -905,4 +905,22 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   discarding — by name, on the record.** Three times in two days it produced an
   outlier: 0.606 and 0.633 tok/s against a 0.724 median, and an attention share of
   52% against a real 40%. Take the median of three and say which one you dropped.
+- **A guard whose dependency is missing must fail closed.** A settling gate written
+  to stop llama.cpp entering a page-fault storm used `bc`, which Git Bash does not
+  ship, with `|| echo 0` as the fallback — "do not wait". It silently did nothing
+  and the storm happened anyway, 21 minutes of it. `awk` is always present; and when
+  a guard cannot evaluate its own condition, the safe branch is the one that waits.
+- **llama.cpp's V4-Flash generation figure does not reproduce on a 15.7 GiB
+  machine.** Eight runs of one command line: 0.41, 0.37, 0.47, 0.30, 0.30, and then
+  0.43 → 0.19 → 0.16 back to back with nothing else started and free memory
+  *rising*. A factor of three, drifting down within every sequence, invisible in the
+  free-memory number. **Alternating repeats do not fix this** — the protocol assumes
+  each engine has a reproducible number to alternate with. Chaos on the same cell is
+  stable to 1%, which is the difference between owning residency and relying on the
+  page cache for a model nine times the size of RAM.
+- **"Unmeasurable here" is a real verdict and better than a number.** A cell whose
+  competitor drifts threefold can be closed by saying so, with the observations, and
+  naming what would close it properly. Publishing best-of gives 1.70x, the
+  alternating median 2.32x and worst-of 4.35x from the same data — picking one is
+  picking the answer.
 

@@ -31,8 +31,7 @@ One file per platform from [Releases](https://github.com/aturzone/Chaos/releases
 |---|---|
 | **Windows** | `Chaos-vX.Y.Z-windows-x86_64-Setup.exe` — double-click, per-user, no admin rights |
 | **Debian / Ubuntu** | `chaos_X.Y.Z_amd64.deb` — `sudo apt install ./chaos_*.deb` |
-| **any Linux** | `Chaos-vX.Y.Z-linux-x86_64.AppImage` — one file, `chmod +x` and run |
-| **Linux on ARM** | `Chaos-vX.Y.Z-linux-arm64.tar.gz` |
+| **any Linux** | `Chaos-vX.Y.Z-linux-x86_64.AppImage`, or `-linux-arm64.tar.gz` on a Pi |
 | **macOS** | `Chaos-vX.Y.Z-macos-arm64.tar.gz` or `-macos-x86_64.tar.gz` |
 | **Android** | `Chaos-vX.Y.Z.apk` — a client for a node on your network |
 
@@ -63,12 +62,10 @@ chaos-serve qwen3 --port 8080          # OpenAI API plus a chat page, both compi
 chaos-draw "a red apple on a white table" -o apple.png
 ```
 
-You never type a path, and for a model split across five shards you never work out
-which shard to open.
-
-**Read the second column of `chaos-pull --list`, not the first.** A 155 GB
-Mixture-of-Experts model streams on a 16 GB machine; a 20 GB dense one does not,
-because a dense container has no routed experts to leave on disk.
+You never type a path, and for a model split across five shards you never work out which
+shard to open. **Read the second column of `chaos-pull --list`, not the first**: a 155 GB
+Mixture-of-Experts model streams on a 16 GB machine; a 20 GB dense one does not, because
+a dense container has no routed experts to leave on disk.
 
 **A model whose architecture has never been diffed against llama.cpp is refused by
 name** — a wrong forward pass produces fluent nonsense rather than an error, so the
@@ -93,23 +90,27 @@ Falcon3-1B               0.98 GiB   0.98 GiB    22.31   dense, small
 Qwen2-0.5B               0.37 GiB   0.37 GiB    32.00   the ceiling: nothing to stream, nothing to wait for
 ```
 
-Three runs each, median reported. Four agreed within 6%. **V4-Flash spread 25%**, and
-that is a cold page cache on the first run after a build rather than the model being
-erratic — its three alternating passes against a fixed configuration agree to within 1%.
+Three runs each, median reported; four agreed within 6%, and V4-Flash's 25% spread is a
+cold page cache on the first run after a build — at a fixed configuration it holds to 1%.
 
 **Your machine is not this machine, and Chaos will say so before you download
 anything.** `chaos-model-info <model> --budget <GiB>` predicts tok/s from the resident
 set *your* machine would carry; the law behind it, across nine models spanning 23x in
 size, is `tok/s ~= 19 / resident GiB`, with `chaos-membench` for the constant.
 
-**Against llama.cpp:** parity on everything that streams, 1.20–1.27x behind on the
-dense path when both are hand-tuned, 1.23x ahead out of the box because Chaos measures
-your machine and llama.cpp uses a fixed default. Every row was taken with both engines
-alternating in one session — command lines and raw output in
-`docs/graph/research/where-we-stand-vs-llamacpp-2026-08-16.md`. If you want the fastest
-local inference today, use [llama.cpp](https://github.com/ggml-org/llama.cpp). Chaos is
-worth your time if you want an engine that owns residency and tells you the truth about
-your machine.
+**Against llama.cpp:** 1.20–1.27x behind on the dense path hand-tuned, 1.23x ahead out
+of the box because Chaos measures your machine and llama.cpp uses a fixed default. Both
+engines alternating in one session, command lines recorded:
+`docs/graph/research/where-we-stand-vs-llamacpp-2026-08-16.md`.
+
+**On the 144 GB streaming model no comparison is published, deliberately**: llama.cpp
+ranged **0.16–0.47 tok/s over eight runs of one command line** here while Chaos held to
+1%, so best-of would claim 1.70x and worst-of 4.35x and no ratio is honest —
+`docs/graph/research/the-v4flash-parity-cell-does-not-reproduce-2026-09-01.md`.
+
+If you want the fastest local inference today, use
+[llama.cpp](https://github.com/ggml-org/llama.cpp). Chaos is worth your time if you want
+an engine that owns residency and tells you the truth about your machine.
 
 ## Progress
 

@@ -102,6 +102,35 @@ impl Entry {
         format!("https://huggingface.co/{}/resolve/main/{file}", self.repo)
     }
 
+    /// The quant to download when the user did not name one: **the largest whose
+    /// always-read set fits this machine**, or the smallest if none does.
+    ///
+    /// `chaos-pull` used `quants.first()` — whatever the catalogue happened to
+    /// list first — and then *advised* the user to "pick a smaller quant". On a
+    /// machine with 4.75 GiB usable it chose `qwen3.8-27b UD-Q4_K_XL`, 16.35 GiB
+    /// resident, with `UD-Q2_K_XL` at 9.15 GiB sitting in the same entry. Telling
+    /// someone to choose when you have the numbers to choose for them is the gap
+    /// T3 names.
+    ///
+    /// **Ordered by `always_read_bytes`, not by total size**, because that is the
+    /// field that decides whether a machine can run the thing at all — its own
+    /// doc comment says so. A streaming MoE inverts the two: `v4flash` is 155 GB
+    /// on disk and 7.38 GiB resident, so it runs on this laptop where a 19.8 GB
+    /// dense model does not.
+    ///
+    /// **Returns the smallest rather than nothing when none fits**, because
+    /// "nothing fits" is not the same as "cannot run": the shortfall is re-read
+    /// from disk every token, which is slow and sometimes exactly what the user
+    /// wants. The caller says how short it is; this only says which is least bad.
+    pub fn quant_for(&self, usable_ram_bytes: u64) -> Option<&Quant> {
+        let fits = self
+            .quants
+            .iter()
+            .filter(|q| q.always_read_bytes <= usable_ram_bytes)
+            .max_by_key(|q| q.always_read_bytes);
+        fits.or_else(|| self.quants.iter().min_by_key(|q| q.always_read_bytes))
+    }
+
     pub fn quant(&self, name: &str) -> Option<&Quant> {
         self.quants
             .iter()
@@ -1179,6 +1208,118 @@ mod runnable_tests {
             if let Some(e) = find(name) {
                 assert!(!e.adult, "{name} must not be marked adult");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod quant_for_tests {
+    use super::*;
+
+    fn q(name: &'static str, total_gb: f64, resident_gib: f64) -> Quant {
+        Quant {
+            name,
+            bytes: (total_gb * 1e9) as u64,
+            shards: 1,
+            always_read_bytes: (resident_gib * (1u64 << 30) as f64) as u64,
+        }
+    }
+
+    /// `quants` is a `&'static [Quant]`, so the fixtures are leaked rather than
+    /// owned. A test process is the one place that is simply cheaper than
+    /// restructuring the type.
+    fn entry(quants: Vec<Quant>) -> Entry {
+        Entry {
+            name: "test",
+            repo: "test/test",
+            stem: "test",
+            arch: "qwen3",
+            quants: Box::leak(quants.into_boxed_slice()),
+            adult: false,
+        }
+    }
+
+    const GIB: u64 = 1 << 30;
+
+    /// **The real case that started this.** `qwen3.8-27b` lists UD-Q4_K_XL first
+    /// at 16.35 GiB resident and also carries UD-Q2_K_XL at 9.15 GiB. With 12 GiB
+    /// usable the second is the answer; `quants.first()` gave the first.
+    #[test]
+    fn the_largest_that_fits_wins_not_the_first_listed() {
+        let e = entry(vec![
+            q("UD-Q4_K_XL", 17.6, 16.35),
+            q("UD-Q2_K_XL", 9.8, 9.15),
+            q("Q4_0", 16.1, 14.95),
+            q("Q8_0", 29.0, 27.05),
+        ]);
+        let picked = e.quant_for(12 * GIB).expect("a quant");
+        assert_eq!(
+            picked.name, "UD-Q2_K_XL",
+            "9.15 GiB is the largest under 12"
+        );
+
+        // More room: the biggest that still fits, not simply the biggest.
+        assert_eq!(e.quant_for(16 * GIB).expect("q").name, "Q4_0");
+        assert_eq!(e.quant_for(20 * GIB).expect("q").name, "UD-Q4_K_XL");
+        assert_eq!(e.quant_for(64 * GIB).expect("q").name, "Q8_0");
+    }
+
+    /// When nothing fits, the smallest — and the caller reports the shortfall.
+    ///
+    /// Not `None`: the always-read shortfall is re-read from disk every token,
+    /// which is slow rather than impossible, and refusing to name a file would
+    /// leave the user with no way to try.
+    #[test]
+    fn nothing_fits_gives_the_smallest() {
+        let e = entry(vec![
+            q("UD-Q4_K_XL", 17.6, 16.35),
+            q("UD-Q2_K_XL", 9.8, 9.15),
+        ]);
+        assert_eq!(e.quant_for(GIB).expect("q").name, "UD-Q2_K_XL");
+        assert_eq!(e.quant_for(0).expect("q").name, "UD-Q2_K_XL");
+    }
+
+    /// **Resident size decides, not container size**, and a streaming MoE
+    /// inverts the two.
+    ///
+    /// `v4flash` is 155 GB on disk against a 7.38 GiB always-read set, so it runs
+    /// on a 16 GiB laptop where a 19.8 GB dense model does not. Sorting by
+    /// `bytes` would reject it and accept the one that cannot run.
+    #[test]
+    fn resident_decides_and_a_streaming_moe_inverts_the_order() {
+        let e = entry(vec![
+            q("dense-Q4_K_M", 19.8, 18.40),
+            q("moe-UD-Q4_K_XL", 155.1, 7.38),
+        ]);
+        assert_eq!(
+            e.quant_for(8 * GIB).expect("q").name,
+            "moe-UD-Q4_K_XL",
+            "155 GB fits where 19.8 GB does not, because 7.38 < 18.40"
+        );
+    }
+
+    /// One quant, or none at all.
+    #[test]
+    fn degenerate_entries_are_answered_not_panicked() {
+        let one = entry(vec![q("Q4_K_M", 2.5, 2.33)]);
+        assert_eq!(one.quant_for(0).expect("q").name, "Q4_K_M");
+        assert_eq!(one.quant_for(64 * GIB).expect("q").name, "Q4_K_M");
+        assert!(entry(vec![]).quant_for(64 * GIB).is_none());
+    }
+
+    /// Every catalogue entry answers for a 16 GiB machine, and for a tiny one.
+    ///
+    /// A guard against a future entry with an empty quant list, which would make
+    /// `chaos-pull` print "no quants in catalogue" for a name it just listed.
+    #[test]
+    fn every_real_entry_can_answer() {
+        for e in CATALOGUE {
+            assert!(
+                e.quant_for(14 * GIB).is_some(),
+                "{} has no quant for a 16 GiB machine",
+                e.name
+            );
+            assert!(e.quant_for(0).is_some(), "{} has no smallest quant", e.name);
         }
     }
 }

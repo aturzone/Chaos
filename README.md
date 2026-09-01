@@ -13,7 +13,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-986%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-991%20passing-brightgreen">
 </p>
 
 > **This file carries three things and nothing else**: the progress bars, the
@@ -123,7 +123,7 @@ stabilisation period.
   v0.0.25  Guard the binary              100%  [####################]  merged
   v0.0.26  Measure before optimising     100%  [####################]  merged
   v0.0.27  Quality harness, then levers    85%  [#################...]  two levers through
-  v0.0.28  Any machine, any model          55%  [###########.........]  quant + self-config open
+  v0.0.28  Any machine, any model          80%  [################....]  needs other machines
   v0.0.29  Every platform, actually run    35%  [#######.............]  4 of 9 assets never run
   v0.0.30  LTS                              8%  [#...................]  2 of 18 parity cells met
 ```

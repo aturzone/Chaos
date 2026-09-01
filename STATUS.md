@@ -229,6 +229,32 @@ with 8 file handles (`deepseek4_forward.rs:2021-2059`) — and the ladder's rung
 double-uses the number 2.40 for two different quantities and over-predicts today's
 token by 35%. `docs/graph/backlog/the-big-bang-5-tok-s.md` carries the correction.
 
+## The night of 2026-08-31 to 2026-09-01, in one place
+
+**Seven pull requests, #160–#166.** Two changed the engine and both are *exact*,
+through the quality gate's 100%-byte-identical bar; five are measurements, three of
+which retracted something.
+
+| | |
+|---|---|
+| **C5e** — the block tail was computed twice | **1.120x**, 50/50 byte-identical |
+| **The expert cache defaulted to zero** | **1.20x**, 50/50 byte-identical |
+| **together** | **0.509 → 0.728 tok/s** |
+
+**Four bugs found by writing a test or a harness, not by reading code**:
+`Tensor::is_contiguous` was off by one dimension and answered `false` for every
+tensor with more than one row; `quality-gate.sh` kept a timing line in every
+recorded answer and so **could not have passed a build against itself**;
+`speed-five.sh` read a CRLF file and reported five dashes while `chaos-run` was
+printing the reason; and a settling gate written to prevent a page-fault storm
+**failed open** because it used `bc`, which Git Bash does not ship.
+
+**What was retracted, all of it mine and all within hours**: *"the routed expert
+matmuls are 0.004 s"* (they are 40%), *"88% of `F` is the hyper-connection
+algebra"* (it is 8%), and *"parity on everything that streams"* (the cell is
+unmeasurable here). Each came from attributing a phase timer to a subsystem
+without reading what falls between the two `Instant`s.
+
 ## What moved on 2026-09-01, and what did not
 
 ```

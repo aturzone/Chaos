@@ -4650,6 +4650,24 @@ fn run(
             system_prompt.as_deref(),
             jinja,
         );
+        // **Say which thread counts this path is using.** The dense path prints
+        // them and this one did not, on the model where they matter most -- and
+        // `-t 1` against `-t 4` is only about 12% on V4-Flash, inside its
+        // run-to-run spread, so the tok/s line does not reveal them either.
+        //
+        // `-t` and `-tb` already reach here: `run` bridges them into
+        // `CHAOS_THREADS` / `CHAOS_THREADS_BATCH` at its top, precisely so that
+        // "a flag that only reached some graph evaluations would make -t look
+        // ineffective on exactly the paths that matter". Verified, three pairs:
+        // `-t 1` gives 0.384 / 0.371 / 0.360 against `-t 4`'s 0.434 / 0.397 /
+        // 0.407. **An earlier version of this comment claimed the flag was
+        // ignored here; that was wrong**, drawn from a single run taken after
+        // three others had left the machine short of memory.
+        let (gen_t, pre_t) = chaos_arch::thread_budget();
+        chaos_arch::info!(
+            "threads    -t {gen_t} to generate, -tb {pre_t} to prefill ({} cores)",
+            std::thread::available_parallelism().map_or(0, |p| p.get())
+        );
         run_deepseek4(
             &model,
             &tokenizer,

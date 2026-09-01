@@ -78,32 +78,68 @@ So it is not enough to remove the disk: `F` has to fall by roughly **3x** as wel
 That is a much sharper statement than "the drive is too slow", and it points
 somewhere else entirely.
 
-## Where the arithmetic is
+## Where the arithmetic is, and where this node first got it wrong
 
-Of 0.478 s of arithmetic per token:
+> ### CORRECTION, same day
+>
+> This section originally read *"the routed expert matmuls: **0.004 s, under 1%**
+> — the expert arithmetic is free"*, derived by subtracting the expert read
+> (0.815 s) from the `ffn` phase (0.822 s). **That subtraction is meaningless.**
+> The `ffn` phase covers graph *construction* plus the disk read; the expert
+> matmuls are evaluated in the block's final `ctx.compute(&out)`, along with
+> everything else. The number is withdrawn.
+>
+> It is the same mistake `measure-before-proposing` was written about, and it was
+> made in the same file that documents it: **a phase timer was read without
+> checking what the phase contains.**
 
-| | seconds | share |
+What is measured, per generated token:
+
+| | seconds | share of arithmetic |
 |---|---|---|
 | tail + router compute | 0.212 | 44% |
 | final compute | 0.209 | 44% |
 | qkv | 0.043 | 9% |
-| the routed expert matmuls | **0.004** | **<1%** |
 
-**The expert arithmetic is free.** `ffn` totals 0.822 s and the read inside it is
-0.815 s, so the six expert matmuls per layer cost about four milliseconds a token
-in total — which confirms from a third direction the recorded fact that V4-Flash's
-routed arithmetic is under 5% of a token, and closes off any idea that begins
-"batch the expert matmuls".
+**What is *not* measured is how the 0.478 s divides between the experts,
+attention, the LoRA projections and the hyper-connections.** `final compute` is
+one ggml graph evaluation and the timer cannot see inside it. Saying otherwise
+needs an instrument that does not exist yet.
 
-**88% of the arithmetic is the block tail and the final compute**: the
-hyper-connection algebra (`dsv4_hc_pre`, `dsv4_hc_post`, `dsv4_hc_comb` with its
-Sinkhorn iterations), the gate block, attention, and the dense FFN parts. That is
-`hc_mult = 4` — four parallel residual streams, all 4096 wide, mixed by a
-Sinkhorn-normalised 4x4 at every block, twice.
+What can be bounded from outside, with `trunk_mat_vec_dtypes` (added with this
+node), which times a `[4096, 2048]` mat-vec against one token:
 
-**That is the next thing to profile, and nobody has opened it.** C5e stopped it
-being computed *twice*; nothing has yet asked what one evaluation costs and
-whether it has to.
+```
+  F32   0.6088 ms    32.00 MiB    55.11 GB/s decoded
+  BF16  0.2955 ms    16.00 MiB    56.77 GB/s
+  Q8_0  0.2188 ms     8.50 MiB    40.73 GB/s
+```
+
+- **The shared expert is not the cost.** It is three such matmuls per block,
+  Q8_0, always-read: 3 x 0.219 ms x 43 = **~28 ms a token**, about 6% of the
+  arithmetic.
+- **Nor is the dtype.** Q8_0 runs at **0.36x F32's time** while carrying a
+  quarter of the bytes. `v4flash-repacking-2026-08-10`'s *"there is no x86 Q8_0
+  branch"* is about the **repacked** fast path, not a missing base kernel — the
+  base kernel is the quickest of the three here. **So C7's "move the trunk to a
+  dtype that has a kernel" argument is dead**, and what is left of C7 is only the
+  cache-cliff argument below.
+- **The routed experts are 18 such matmuls per block** (6 experts x gate/up/down)
+  against the shared expert's 3, in Q4_K rather than Q8_0. Scaling by bytes puts
+  them somewhere around 100–150 ms a token, which would be 20–30% of the
+  arithmetic rather than under 1%. **That is arithmetic on a bench, not a
+  measurement of the engine, and it is written here as an estimate.**
+
+All three of these are memory-bound, not compute-bound: 40–57 GB/s decoded
+against `chaos-membench`'s 30.8 GiB/s peak, which means the bench keeps the weight
+partly in cache across its 100 repetitions and the engine, reading each weight
+once per token, will do worse. **A bench that re-reads one weight is not the
+engine's access pattern**, and the ratios are what this instrument is for.
+
+**So the next measurement is an instrument that can see inside `final
+compute`** — splitting the experts from attention from the hyper-connections.
+Until that exists, "88% of the arithmetic is the hyper-connection algebra" is
+**not** established, and this node no longer claims it.
 
 ## What this does to the plan
 
@@ -115,8 +151,10 @@ whether it has to.
   same 6 GiB leaves 5.8 GiB free.
 - **The disk levers have a visible end.** Perfect caching is 1.5–1.8 tok/s, and
   every disk lever is bounded by that. It is worth about 2.5x from here, no more.
-- **`F` is now the interesting half**, and 88% of it is one subsystem that has
-  never been costed.
+- **`F` is now the interesting half**, and what is inside it is genuinely
+  unknown: the phase timers stop at the boundary of one graph evaluation. The
+  shared expert is ~6% of it and the dtype is not the problem; the rest is
+  unmeasured.
 
 **None of this moves 5 tok/s on this machine**, and it should not be reported as
 if it did. What it moves is which measurement to take next.

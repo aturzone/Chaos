@@ -869,4 +869,23 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   block, no I/O mode, no device -- while printing five of them for Qwen3-4B. A
   feature that is wired into one dispatch path and ticked as done is worse than a
   missing one, because the checkbox stops anyone looking.
+- **A phase timer measures the phase, not the work you think is in it.** In
+  `deepseek4_forward`'s block line, `ffn` covers graph construction plus the expert
+  disk read and **not** the expert matmuls -- those are evaluated in the block's
+  final `ctx.compute(&out)` along with everything else. Subtracting the read from
+  the `ffn` phase to get "the expert arithmetic" yields 0.004 s, which is
+  meaningless, and it was published for an hour on 2026-09-01. **Before attributing
+  a phase timer's number to a subsystem, read what falls between the two
+  `Instant`s.** The same mistake, in the same file, cost a day in August.
+- **Q8_0 is not slow on x86, and "there is no x86 Q8_0 branch" does not mean it
+  is.** At `[4096, 2048]` against one token: **F32 0.609 ms, BF16 0.296, Q8_0
+  0.219** -- Q8_0 is the *fastest* of the three, at 0.36x F32's time on a quarter
+  of the bytes. The missing x86 branch in `v4flash-repacking-2026-08-10` is the
+  **repacked** fast path, not the base kernel. Any plan whose premise is "the trunk
+  is slow because it is Q8_0" is dead on arrival.
+- **These mat-vecs are memory-bound, so a bench that re-reads one weight flatters
+  itself.** 40-57 GB/s "decoded" against `chaos-membench`'s 30.8 GiB/s peak means
+  the weight is partly in cache across the repetitions. The engine reads each
+  block's weights once per token and will do worse. Use such a bench for **ratios
+  between dtypes**, never for an absolute rate.
 

@@ -74,7 +74,7 @@ Each release's contents and its gate are in the plan; the short form:
 
 ## The honest scoreboard
 
-**Current**: **983 tests** (0 failed, 42 ignored — the V4-Flash set needs the
+**Current**: **984 tests** (0 failed, 42 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 
@@ -278,14 +278,22 @@ arithmetic 0.478 s** per token. The disk term cross-checks a second way — 71.7
 
 **So 5 tok/s wants 0.2 s a token and the arithmetic alone is 0.48–0.65 s.** Removing
 the disk entirely is worth about **2.5x from here and no more**; after that `F` has
-to fall roughly **3x**. And 88% of `F` is one subsystem: the hyper-connection
-algebra — `dsv4_hc_pre`, `dsv4_hc_post`, `dsv4_hc_comb` with its Sinkhorn
-iterations, four 4096-wide streams mixed twice per block. C5e stopped it being
-computed *twice*; **nobody has yet costed one evaluation.** That is the next
-measurement.
+to fall roughly **3x**.
 
-The routed expert matmuls are **0.004 s a token, under 1%** — a third independent
-confirmation that expert arithmetic is free.
+**What is inside `F` is not known, and two claims about it were withdrawn the same
+day they were written.** The phase timers stop at the boundary of one ggml graph
+evaluation, so how the 0.478 s divides between the routed experts, attention, the
+LoRA projections and the hyper-connections cannot be read off them — *"the routed
+expert matmuls are 0.004 s"* came from subtracting the expert read from the `ffn`
+phase, which covers construction plus the read and **not** the expert arithmetic.
+Both that and *"88% is the hyper-connection algebra"* are retracted.
+
+What is bounded, by `trunk_mat_vec_dtypes`: a `[4096, 2048]` mat-vec against one
+token is **F32 0.609 ms, BF16 0.296, Q8_0 0.219**. So the always-read shared expert
+is ~28 ms a token, about **6%** of the arithmetic — and **Q8_0 is 0.36x F32's time
+while carrying a quarter of the bytes**, so the dtype is not the problem and C7's
+*"move the trunk to a dtype that has a kernel"* argument is dead. The next
+measurement is an instrument that can see **inside** `final compute`.
 
 **Best honest case remains roughly 1.5–2 tok/s on this machine, and that is not 5.**
 It will keep being said plainly rather than missed quietly.

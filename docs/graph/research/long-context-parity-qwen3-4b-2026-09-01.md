@@ -144,3 +144,40 @@ the mask, the scores, or the output projection. `stream.rs` has no phase timer
 inside its attention, so answering it needs the same treatment
 `CHAOS_ATTN_SPLIT` gave the deepseek4 path. That is the next measurement, and this
 node stops short of guessing which one it will be.
+
+## The thread hypothesis, killed before it was built
+
+The cheapest candidate for the 2.2x was the **thread cap**. `chaos-run` holds
+generation to 2–4 threads, from the recorded finding that *"generation stops
+scaling past 4"* — which was established at **short** context, where a token is a
+small matmul. Attention over 4031 positions is a much larger parallel workload, so
+a cap tuned on the small case could plausibly be leaving the big one starved.
+
+It is not. Same model, both context lengths, `-t` swept:
+
+| `-t` | 4031 tokens | 500 tokens |
+|---:|---:|---:|
+| 2 | 2.69 | 6.67 |
+| **4** | **3.38** | **7.52** |
+| 8 | 3.20 | 6.32 |
+| 12 | 3.05 | 5.63 |
+| 20 | 2.92 | 4.74 |
+
+**Four threads is optimal at both lengths, and more is worse at both.** The cap is
+right, the finding it came from still holds at 4000 tokens, and this hypothesis is
+closed. llama.cpp reaches 4.49 where Chaos's best is 3.38, so **1.33x of the gap
+survives the best thread count Chaos has.**
+
+That makes five optimisation hypotheses killed by one measurement each in two
+days: the I/O headroom, graph construction, the top-k sort, the BF16 gate matmul,
+and now the thread cap. The two that *were* real — the tail computed twice and the
+cache defaulted to zero — were both found by profiling rather than by guessing.
+
+### A smaller thing the sweep found
+
+**The thread tuner leaves about 4% on the table, at both lengths.** The default
+picks 3.26 tok/s at 4031 tokens where `-t 4` gives **3.38**, and 7.18 at 500 where
+`-t 4` gives **7.52**. `chaos-run` says *"generation tuned on the first tokens"*, so
+it is measuring and then choosing slightly wrong — consistently, in the same
+direction, at two very different context lengths. Small, real, and separate from
+everything else in this node.

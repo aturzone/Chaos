@@ -943,4 +943,14 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   the FFN (§4a's 61% is a short-context statement, and at 500 tokens Chaos is
   ahead). Which part of attention does it is **not** established — `stream.rs` has
   no phase timer inside attention.
+- **The 2–4 generation thread cap is still right at 4000 tokens of context.** The
+  finding it came from was established at short context, so it was worth re-testing
+  where attention is a much bigger parallel workload — and `-t` 2/4/8/12/20 gives
+  2.69 / **3.38** / 3.20 / 3.05 / 2.92 at 4031 tokens and 6.67 / **7.52** / 6.32 /
+  5.63 / 4.74 at 500. **Four is optimal at both, and more is worse at both.** Do not
+  propose raising the cap for long context.
+- **The thread tuner leaves ~4% on the table.** `chaos-run` prints *"generation
+  tuned on the first tokens"* and then lands at 3.26 where `-t 4` gives 3.38, and at
+  7.18 where `-t 4` gives 7.52 — the same direction at two very different context
+  lengths, so it is a bias rather than noise.
 

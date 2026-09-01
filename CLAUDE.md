@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 979 tests
+cargo test --release          # 983 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -180,9 +180,12 @@ item; if one is not done, say which and why.**
   quality harness to judge it.
 - [x] **3. The model list.** Sort, filter, search, a kind per row, and no
   stall: 1584 ms → 10.8 ms per switch.
-- [x] **4. R6 — self-configuration.** `--auto` picks device, cache, threads,
+- [~] **4. R6 — self-configuration.** `--auto` picks device, cache, threads,
   prefill block and I/O mode, and predicts tok/s: 1.42 predicted against 1.51
-  measured on Qwen3-30B-A3B.
+  measured on Qwen3-30B-A3B — **on the dense path only.** `auto_plan` takes a
+  `Qwen3Config` and the deepseek4 dispatch returns before that config exists, so
+  `--auto` makes **zero** decisions on V4-Flash. The expert cache now has a
+  default there regardless (1.20x); threads, batch, I/O and device do not.
 - [x] **5. An Android app, `.apk` with every release.** A *client*; Phase B
   (models on the phone) is blocked — `dl.google.com` 404s this whole network,
   so the SDK cannot be installed here and CI is the only build. **Never run on

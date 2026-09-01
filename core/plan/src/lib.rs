@@ -27,11 +27,13 @@
 //!    number of experts, so bytes-per-token is unchanged. Pruning buys a
 //!    cheaper model to obtain, never a quicker one to run.
 
+mod expert_cache;
 mod overhead;
 mod predict;
 mod profile;
 mod residency;
 
+pub use expert_cache::{expert_cache_bytes, EXPERT_CACHE_CEILING};
 pub use overhead::{
     kv_cache_bytes, max_context_for_budget, overhead, scratch_bytes, AttentionShape, Overhead,
     KV_BYTES_F16,

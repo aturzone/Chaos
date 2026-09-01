@@ -851,4 +851,22 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   assuming what it left behind**, and note that a sibling of an ancestor is not an
   ancestor: `gates.post` and `gates.comb` hang off `mixes` and are *not* reachable
   from `topk`.
+- **A cache's hit rate and its benefit point in opposite directions past the peak.**
+  V4-Flash's expert cache measured 14.2% hits at 1 GiB rising to 33.1% at 5 GiB,
+  while tok/s went 0.649 -> 0.721 -> **0.505**: at 5 GiB it gets a third of its
+  reads for free and is **1.19x slower than having no cache at all**, and 6 GiB is
+  1.71x slower. Every cached byte is one the OS cannot use. **Tune a cache on the
+  metric you care about, never on its hit rate** -- the hit rate will happily keep
+  improving while the thing gets slower.
+- **Size a long-lived allocation from *total* RAM, not free RAM.** Free RAM is read
+  before the resident weights load and drifts with whatever else the machine is
+  doing. The dense path's planner takes `available / 2`, which on this laptop asks
+  for 4.9 GiB of expert cache -- a value measured at 0.505 tok/s against 0.603 with
+  no cache. Total RAM minus the resident set minus a reserve lands on the peak.
+- **`--auto` runs on the dense path only.** `auto_plan` takes a `Qwen3Config` and
+  the deepseek4 dispatch returns from `main` before that config is built, so
+  `--auto` makes **zero** decisions on DeepSeek-V4-Flash -- no threads, no prefill
+  block, no I/O mode, no device -- while printing five of them for Qwen3-4B. A
+  feature that is wired into one dispatch path and ticked as done is worse than a
+  missing one, because the checkbox stops anyone looking.
 

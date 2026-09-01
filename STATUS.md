@@ -74,7 +74,7 @@ Each release's contents and its gate are in the plan; the short form:
 
 ## The honest scoreboard
 
-**Current**: **979 tests** (0 failed, 42 ignored — the V4-Flash set needs the
+**Current**: **983 tests** (0 failed, 42 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 
@@ -92,7 +92,7 @@ container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 | | |
 |---|---|
 | Qwen2-0.5B / Falcon3-1B generation | **28** / **21 tok/s** (medians of three) |
-| DeepSeek-V4-Flash, 144 GB, in 15.7 GiB | **0.570 tok/s** after C5e, from **0.509** before it — three pairs alternating in one session, one binary. The **0.43** on record until 2026-08-31 was taken under memory pressure |
+| DeepSeek-V4-Flash, 144 GB, in 15.7 GiB | **0.727 tok/s** — 0.509 before C5e, 0.570 after it, **0.727** once the expert cache stopped defaulting to zero. Three alternating passes each, one session. The **0.43** on record until 2026-08-31 was taken under memory pressure |
 | V4-Flash against llama.cpp, alternating | **0.394 vs 0.39** — parity |
 | Dense path, hand-tuned | **1.30× behind**, and §4a showed the gap is 61% FFN matmul |
 | RAM read, peak / achieved in generation | **30.8** / ~19 GiB/s |
@@ -227,6 +227,23 @@ concurrent expert reads were said to be unimplemented — they are shipped, 8 th
 with 8 file handles (`deepseek4_forward.rs:2021-2059`) — and the ladder's rung-0 row
 double-uses the number 2.40 for two different quantities and over-predicts today's
 token by 35%. `docs/graph/backlog/the-big-bang-5-tok-s.md` carries the correction.
+
+## What moved on 2026-09-01, and what did not
+
+```
+  before                            0.509 tok/s
+  C5e, the tail computed once       0.570        1.12x   exact, 50/50
+  + the expert cache defaulted      0.727        1.28x   exact, gated
+                                                 1.43x together
+```
+
+**Both were accidents rather than missing features.** C5e was a value derived twice
+because ggml has no notion of "already computed"; the cache was `None => 0` with no
+sizing anywhere, on a model where `--auto` turns out never to run at all.
+
+**The ceiling has not moved.** 137 GiB of experts still cross a 3.41 GiB/s drive
+every token, and one-bit experts with a free trunk still cap this machine at 4.26
+tok/s. See below.
 
 ## The 5 tok/s position
 

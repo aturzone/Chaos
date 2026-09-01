@@ -169,10 +169,14 @@ appealing idea. The five that bite most often:
 item; if one is not done, say which and why.**
 
 - [ ] **1. V4-Flash at 20 tok/s on THIS machine.** *Excluded by Atur, and
-  measured as out of reach here.* A token is 1.56 s of expert read plus 0.84 s
-  that never touches the disk, so with **every** expert resident this CPU tops
-  out at **1.19 tok/s**. 20 tok/s also needs 67.7 GB/s to the experts, which is
-  a GPU-memory specification. **Do not report progress without a measurement.**
+  measured as out of reach here.* **Re-measured 2026-09-01: 0.728 tok/s**, from
+  0.509, after C5e and defaulting the expert cache — both exact, both gated. A
+  generated token is now **0.815 s of expert read plus 0.478 s of arithmetic**;
+  remove the disk entirely and this machine lands at **1.5–1.8 tok/s**, so the
+  arithmetic is the binding constraint and **88% of it is the hyper-connection
+  algebra**, never yet costed. The 4.26 tok/s "one-bit expert" figure is a *disk*
+  bound and must not be quoted as the ceiling.
+  **Do not report progress without a measurement.**
 - [x] **2. The image generator, with model selection.** Orientation, seed,
   model selection, `--keep-latent` and a guidance control are done. **Open**:
   quality below 1024, prompt adherence, and a negative prompt — which needs a
@@ -205,24 +209,6 @@ item; if one is not done, say which and why.**
 
 ## Next
 
-**v0.0.22 and v0.0.23 both published 2026-08-28.** v0.0.22 verified from its own
-published files: the APK carries `assets/brand/qr.html` and `scan.html` for the
-first time, and the zip carries `chaos.exe` and `chaos-qr.exe` for the first time.
-
-**The desktop app is fixed** (`research/desktop-app-broken-2026-08-28.md`): the
-knob was painted *underneath* nine live child HWNDs at startup — 9 controls
-on-screen at open, 0 after. The mode is **asked once then remembered**
-(`mode_chosen`), CHAOS left the rail for a mode badge at its foot, and leaving a
-mode — including **Escape** — asks first. **A "blank CHAOS page" was reported and
-retracted the same day**: cross-process `GetWindowTextW` reads a caption, never an
-EDIT's text.
-
-**§4 is complete** (`research/4a`…`4g-*-2026-08-28.md`), and four decisions from it
-are shipped in v0.0.23: `chaos verify` (nothing detected a corrupt model — 4 KiB of
-zeros loads, exits 0 and answers *differently*), `/status` gated on the **peer**
-rather than the bind address, every binary shipping, and a **pinned llama.cpp
-commit** so a green CI means something tomorrow.
-
 `STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue. Both
 are more current than this file — take a number from them, not from here.
 
@@ -244,12 +230,10 @@ workflow's own commands instead; that found v0.0.22's release failure in one try
 1.62x behind, generation 3-4x behind" and "generation ~2x behind" on Qwen3-30B.
 Do not replace them with a claimed lead either — the ranges overlap.
 
-**The measured RAM frontier** (`v4flash-ram-frontier-2026-08-16.md`), which is
-why Roadmap 1 is closed: 16 GB 0.42 tok/s measured, 64 GB 0.55, 128 GB 0.93,
-160 GB 1.19 — **the whole 144 GB model in RAM is worth 2.9x, not 48x**, and `-t`
-2/4/8/16 confirms a floor rather than a knob left wrong. Do not quote a GPU
-V4-Flash figure: resident-in-VRAM is untested and the only measured number is
-4.3x *slower* on streaming MoE.
+**The measured RAM frontier** (`v4flash-ram-frontier-2026-08-16.md`): 16 GB 0.42
+tok/s measured, 64 GB 0.55, 128 GB 0.93, 160 GB 1.19 — **the whole 144 GB model in
+RAM is worth 2.9x, not 48x.** Do not quote a GPU V4-Flash figure: resident-in-VRAM
+is untested and the only measured number is 4.3x *slower* on streaming MoE.
 
 **Open, none of it blocking**: iOS is parked until everything else is good
 (Atur's call); no real camera has seen the mark or the reader; the Android tier

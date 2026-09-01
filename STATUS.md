@@ -259,9 +259,33 @@ token.** At the drive's QD-8 rate of 3.41 GiB/s:
 **Even one-bit experts, with a free trunk and zero arithmetic, do not reach 5 tok/s on
 this drive.** That needs no assumption about the trunk and no estimate of F.
 
-Three levers remain and none has been tried: profiling F, closing the 2.02→3.41 GiB/s
-I/O gap, and **requantising the always-read trunk** — the container carries the trunk
-at Q8_0 while the experts are Q4_K, and no V4-Flash document has ever asked what
-halving it would cost. Best honest case if all three land is roughly **1.5–2 tok/s**
-here, 3.5–4.5× today. **That is not 5, and it will be said plainly rather than missed
-quietly.**
+### But the disk was the wrong bound, and 4.26 was the wrong ceiling
+
+**Corrected 2026-09-01** (`the-disk-is-no-longer-the-ceiling-2026-09-01.md`). Every
+row above assumes each expert byte comes off the disk. The expert cache now serves
+**28.3%** of them, so the ceiling has to be re-derived — and the constraint changes
+hands:
+
+| bound | tok/s |
+|---|---|
+| disk, one-bit experts, zero arithmetic | 4.26 |
+| **arithmetic, all disk traffic removed** | **1.5–1.8** |
+| measured today | 0.728 |
+
+The generation-only profile, three runs, prefill excluded: **disk 0.815 s,
+arithmetic 0.478 s** per token. The disk term cross-checks a second way — 71.7% of
+3.22 GiB in 0.815 s is **2.82 GiB/s** against the 2.88 measured directly.
+
+**So 5 tok/s wants 0.2 s a token and the arithmetic alone is 0.48–0.65 s.** Removing
+the disk entirely is worth about **2.5x from here and no more**; after that `F` has
+to fall roughly **3x**. And 88% of `F` is one subsystem: the hyper-connection
+algebra — `dsv4_hc_pre`, `dsv4_hc_post`, `dsv4_hc_comb` with its Sinkhorn
+iterations, four 4096-wide streams mixed twice per block. C5e stopped it being
+computed *twice*; **nobody has yet costed one evaluation.** That is the next
+measurement.
+
+The routed expert matmuls are **0.004 s a token, under 1%** — a third independent
+confirmation that expert arithmetic is free.
+
+**Best honest case remains roughly 1.5–2 tok/s on this machine, and that is not 5.**
+It will keep being said plainly rather than missed quietly.

@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 983 tests
+cargo test --release          # 984 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -173,8 +173,9 @@ item; if one is not done, say which and why.**
   0.509, after C5e and defaulting the expert cache — both exact, both gated. A
   generated token is now **0.815 s of expert read plus 0.478 s of arithmetic**;
   remove the disk entirely and this machine lands at **1.5–1.8 tok/s**, so the
-  arithmetic is the binding constraint and **88% of it is the hyper-connection
-  algebra**, never yet costed. The 4.26 tok/s "one-bit expert" figure is a *disk*
+  arithmetic is the binding constraint. **What is inside it is unknown** — the phase
+  timers stop at one graph evaluation, and two claims about the split were retracted
+  the day they were made. The 4.26 tok/s "one-bit expert" figure is a *disk*
   bound and must not be quoted as the ceiling.
   **Do not report progress without a measurement.**
 - [x] **2. The image generator, with model selection.** Orientation, seed,

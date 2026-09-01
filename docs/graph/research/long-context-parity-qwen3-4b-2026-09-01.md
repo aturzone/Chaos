@@ -86,3 +86,61 @@ table's short-context row.** That row was measured with a different block size a
 prompt and is not the same experiment; nothing in this node says prefill improved.
 
 For the record, the KV cache at this length is **571 MiB, f16, 4062 positions**.
+
+## The sweep: where it diverges, and what that rules out
+
+Two points make a ratio; four make a shape. Same protocol, four context lengths
+cut from the same corpus (`scripts/long-prompt.txt`, taking the first 5, 10, 20
+and 40 paragraphs), 32 generated tokens each:
+
+| context | Chaos | llama.cpp | llama/chaos |
+|---:|---:|---:|---:|
+| 500 | **7.18** | 6.79 | 0.95x — Chaos ahead |
+| 1001 | 6.16 | 6.34 | 1.03x |
+| 2011 | 4.83 | 5.54 | 1.15x |
+| 4031 | 3.26 | **4.49** | 1.38x |
+
+**The crossover is near 1000 tokens**, and past it the gap opens smoothly rather
+than stepping — so it is not a threshold, a reallocation or a cache falling over.
+
+As milliseconds per generated token, which is where the shape shows:
+
+```
+  context     chaos    llama.cpp
+    500      139.3       147.3
+   1001      162.3       157.7
+   2011      207.0       180.5
+   4031      306.7       222.7
+
+  slope, per token of context:
+    chaos      0.0474 ms        llama.cpp  0.0214 ms       2.2x steeper
+```
+
+**Both are linear in context.** Neither is quadratic, so neither is doing
+something algorithmically worse than the other — it is a **constant factor of
+about 2.2x** in whatever grows with the KV.
+
+### What that rules out
+
+- **Not flash attention.** llama.cpp defaults to it, and `chaos-run`'s own `-fa`
+  handler says *"flash attention is the only path here; -fa is the default"*.
+  Both have it.
+- **Not the KV cache's size or dtype.** Chaos reports **571.2 MiB, f16, 4062
+  positions**; Qwen3-4B's 36 layers x 8 KV heads x 128 dims x 2 x 2 bytes x 4062
+  is the same 571 MiB. Both engines carry the same bytes.
+- **Not the FFN.** §4a's *"61% of the dense gap is the FFN matmul"* is a
+  short-context statement, and at 500 tokens Chaos is **ahead**. Whatever this is,
+  it is orthogonal to that.
+
+### So the target is named
+
+**Chaos's attention costs about 2.2x more per token of context than llama.cpp's**,
+on the dense path, with the same KV bytes and the same kind of kernel. That is one
+number, it is reproducible, and it is the first concrete dense-path deficit that is
+not the FFN.
+
+**What is not established** is which part of the attention does it — the KV read,
+the mask, the scores, or the output projection. `stream.rs` has no phase timer
+inside its attention, so answering it needs the same treatment
+`CHAOS_ATTN_SPLIT` gave the deepseek4 path. That is the next measurement, and this
+node stops short of guessing which one it will be.

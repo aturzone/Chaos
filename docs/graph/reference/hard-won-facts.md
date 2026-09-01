@@ -934,4 +934,13 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   does not.** Qwen3-4B: both engines within 2% across three alternating pairs.
   V4-Flash: llama.cpp spread 0.16-0.47. Choose the model for a parity cell
   accordingly, and expect the streaming cells to need a bigger machine.
+- **Chaos's attention costs ~2.2x more per token of context than llama.cpp's**, on
+  the dense path. Sweeping Qwen3-4B at 500 / 1001 / 2011 / 4031 tokens gives
+  0.0474 ms per context token against 0.0214 — **both linear**, so it is a constant
+  factor rather than an algorithmic difference. The crossover is near **1000
+  tokens**: below it Chaos leads, above it trails. Ruled out: flash attention (both
+  have it), the KV cache's size and dtype (both 571 MiB f16 at 4062 positions), and
+  the FFN (§4a's 61% is a short-context statement, and at 500 tokens Chaos is
+  ahead). Which part of attention does it is **not** established — `stream.rs` has
+  no phase timer inside attention.
 

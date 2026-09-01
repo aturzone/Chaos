@@ -1010,4 +1010,24 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   had left the machine short of memory: 0.089 tok/s, against 0.36–0.43 when
   measured properly. This model's spread across a session is wide enough to
   manufacture any conclusion. Three alternating pairs, or nothing.
+- **cmake names static archives `libggml-base.a` on Linux and `ggml-base.a` under
+  MinGW, and Chaos only knew the second.** Both build scripts checked `{name}.a`
+  alone, so **the README's own Linux instructions produced a file the error
+  message declared missing** — building on Linux by following the documentation was
+  impossible. `archive()` in each build script now accepts either spelling.
+- **CI stages the ggml archives with `sed 's/^lib//'`, which is why it never saw
+  that.** A workaround in the harness that makes the harness pass is a workaround
+  that hides the user's failure. **CI's Linux job had never exercised the path a
+  user takes** — the same shape as running `--ignored` with no models on disk.
+- **The published release assets cannot be downloaded on this network.**
+  `release-assets.githubusercontent.com` resolves, accepts a TCP connection in
+  0.13 s, then **resets during TLS**, while `api.github.com` answers 200 in
+  0.34 s. So `gh release download` fails here and asset testing has to be done by
+  building the same source, which is the fallback already prescribed for the CI
+  logs. Do not read a failed download as a broken release.
+- **Docker is a usable Linux test bed on this machine, with two traps.** Git Bash
+  rewrites container paths, so `MSYS_NO_PATHCONV=1` is required or `/script.sh`
+  becomes `C:/Program Files/Git/script.sh`; and Docker Desktop's file sharing
+  served a **stale** copy of an edited mounted script twice in a row — pipe the
+  script in with `bash -s < file` instead of mounting it.
 

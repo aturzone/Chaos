@@ -36,16 +36,17 @@ fn main() {
     let required = ["ggml-base", "ggml-cpu", "ggml"];
     let missing: Vec<_> = required
         .iter()
-        .filter(|name| !dir.join(format!("{name}.a")).exists())
+        .filter(|name| archive(&dir, name).is_none())
         .collect();
     if !missing.is_empty() {
         println!("cargo:warning=missing in GGML_LIB_DIR: {missing:?}; building without ggml");
         return;
     }
 
-    // The GNU linker resolves `-lggml` to `libggml.a`, but ggml's own build
-    // emits `ggml.a` with no prefix. Stage copies under the expected names
-    // rather than asking the user to rename anything.
+    // The GNU linker resolves `-lggml` to `libggml.a`. ggml's own build emits
+    // `ggml.a` under MinGW and `libggml.a` under GCC, so stage copies under the
+    // name the linker wants -- from whichever name is actually there -- rather
+    // than asking the user to rename anything.
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR set by cargo"));
     let staged = out.join("ggml-libs");
     if let Err(e) = std::fs::create_dir_all(&staged) {
@@ -53,7 +54,10 @@ fn main() {
         return;
     }
     for name in required {
-        let from = dir.join(format!("{name}.a"));
+        let Some(from) = archive(&dir, name) else {
+            println!("cargo:warning={name} vanished from GGML_LIB_DIR; building without ggml");
+            return;
+        };
         let to = staged.join(format!("lib{name}.a"));
         // Re-copy every time: a rebuilt ggml must not be silently ignored.
         if let Err(e) = std::fs::copy(&from, &to) {
@@ -97,6 +101,9 @@ fn main() {
         let archive = dir
             .join(format!("ggml-{backend}"))
             .join(format!("ggml-{backend}.a"));
+        // NOTE: the backend archive is looked up by exact path here rather than
+        // through `archive`, because it lives in a per-backend subdirectory. The
+        // `lib`-prefixed spelling is handled just below.
         if !archive.exists() {
             continue;
         }
@@ -353,4 +360,33 @@ fn link_static_runtime_dir() -> Option<String> {
 /// configuration in the environment, so ask that.
 fn target_os_is_windows() -> bool {
     std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+}
+
+/// The archive for `name`, under either spelling ggml's build might have used.
+///
+/// **cmake names static archives differently by platform, and Chaos only knew
+/// one of them.** MinGW on Windows emits `ggml-base.a`; GCC on Linux emits
+/// `libggml-base.a`. Every check and copy here looked for `{name}.a` only, so a
+/// user following the README on Linux got
+///
+/// ```text
+/// GGML_LIB_DIR is /path/to/build/ggml/src, but it does not contain:
+///   ggml-base.a, ggml-cpu.a, ggml.a
+/// ```
+///
+/// naming three files the instructions in that very message cannot produce.
+/// **Building Chaos on Linux by following the README was impossible**, which is
+/// the likeliest reason `CONTRIBUTING.md` could say no model had ever been run
+/// there. Found 2026-09-01 by doing it, in a Debian container.
+///
+/// CI never hit this because it stages the archives itself, stripping the prefix
+/// with `sed 's/^lib//'` before setting `GGML_LIB_DIR` -- so the workaround that
+/// kept CI green is exactly what kept the bug invisible.
+fn archive(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    let plain = dir.join(format!("{name}.a"));
+    if plain.exists() {
+        return Some(plain);
+    }
+    let prefixed = dir.join(format!("lib{name}.a"));
+    prefixed.exists().then_some(prefixed)
 }

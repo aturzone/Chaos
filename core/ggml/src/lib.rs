@@ -83,6 +83,13 @@ pub enum GgmlError {
     /// as "process didn't exit successfully", not as a failure anyone can
     /// catch. Checked on our side so it becomes a value.
     Misaligned { address: usize, required: usize },
+    /// The target type cannot be produced without an importance matrix.
+    ///
+    /// The `IQ*` types are trained against activation statistics; `ggml`'s own
+    /// `ggml_quantize_requires_imatrix` says which. Asked for one of them with
+    /// no matrix, ggml quantizes to *something* and the result is far worse than
+    /// the type's reputation, so it is refused by name instead.
+    NeedsImatrix(u32),
 }
 
 impl fmt::Display for GgmlError {
@@ -123,6 +130,10 @@ impl fmt::Display for GgmlError {
             GgmlError::DeviceOutOfMemory => f.write_str(
                 "the device could not allocate the requested tensors; it is out of memory, \
                  which needs a smaller model rather than a bigger arena",
+            ),
+            GgmlError::NeedsImatrix(t) => write!(
+                f,
+                "type {t} needs an importance matrix, which this build does not compute;                  pick a K-quant instead"
             ),
             GgmlError::Misaligned { address, required } => write!(
                 f,
@@ -178,6 +189,17 @@ mod ffi {
         pub fn ggml_type_size(ty: c_int) -> usize;
         pub fn ggml_blck_size(ty: c_int) -> i64;
         pub fn ggml_type_name(ty: c_int) -> *const c_char;
+        pub fn ggml_row_size(ty: c_int, ne: i64) -> usize;
+        pub fn ggml_quantize_requires_imatrix(ty: c_int) -> bool;
+        pub fn ggml_quantize_chunk(
+            ty: c_int,
+            src: *const f32,
+            dst: *mut c_void,
+            start: i64,
+            nrows: i64,
+            n_per_row: i64,
+            imatrix: *const f32,
+        ) -> usize;
     }
 }
 
@@ -292,6 +314,130 @@ pub fn dequantize(ty: GgmlType, data: &[u8], elements: usize) -> Result<Vec<f32>
     }
 }
 
+/// Bytes one row of `ne` values occupies in `ty`, as **ggml** computes it.
+///
+/// Not derived from our own block table: this is the number the kernel will
+/// write, and a quantizer that sizes its destination from a second opinion is
+/// one table revision away from a heap overflow.
+pub fn row_size(ty: GgmlType, ne: i64) -> Result<usize> {
+    #[cfg(not(have_ggml))]
+    {
+        let _ = (ty, ne);
+        Err(GgmlError::Unavailable)
+    }
+    #[cfg(have_ggml)]
+    {
+        // SAFETY: pure lookup into ggml's static type table.
+        let traits = unsafe { ffi::ggml_get_type_traits(ty.0 as i32) };
+        if traits.is_null() {
+            return Err(GgmlError::UnsupportedType(ty.0));
+        }
+        // SAFETY: non-null pointer into a static table.
+        let block = unsafe { &*traits }.blck_size;
+        if block <= 0 || ne % block != 0 {
+            return Err(GgmlError::PartialBlock {
+                elements: ne.max(0) as usize,
+                block_size: block,
+            });
+        }
+        // SAFETY: the type is known to ggml and the row is a whole number of
+        // blocks, which is the only precondition `ggml_row_size` asserts.
+        Ok(unsafe { ffi::ggml_row_size(ty.0 as i32, ne) })
+    }
+}
+
+/// Quantize `nrows` rows of `n_per_row` floats into `ty`, writing into `dst`.
+///
+/// The inverse of [`dequantize`], and the half this crate did not have. It
+/// exists for **C7**: V4-Flash's always-read trunk is stored `Q8_0` at 1.06
+/// bytes a weight while its routed experts are `MXFP4` at 0.53, so the set that
+/// has to stay in RAM forever is the one stored at twice the width. Moving it to
+/// a K-quant at load is the only lever left that changes how much of a 15.7 GiB
+/// machine is free for anything else.
+///
+/// # Rows, not tensors
+///
+/// `ggml_quantize_chunk` works in whole rows because that is the unit a scale
+/// covers — K-quants search for scales within a 256-value super-block and never
+/// across a row boundary. Taking rows rather than a tensor is what lets a caller
+/// convert 7 GiB in bounded slices instead of holding the whole thing as `f32`
+/// first, which on this machine would not fit.
+///
+/// # Errors
+///
+/// Refuses rather than guesses: a partial block, a `src` that does not match
+/// `nrows * n_per_row`, a `dst` too small for what the kernel will write, and
+/// the `IQ*` types, which need an importance matrix this build does not compute
+/// and would otherwise be quantized badly and silently.
+pub fn quantize(
+    ty: GgmlType,
+    src: &[f32],
+    nrows: i64,
+    n_per_row: i64,
+    dst: &mut [u8],
+) -> Result<usize> {
+    #[cfg(not(have_ggml))]
+    {
+        let _ = (ty, src, nrows, n_per_row, dst);
+        Err(GgmlError::Unavailable)
+    }
+    #[cfg(have_ggml)]
+    {
+        if nrows <= 0 || n_per_row <= 0 {
+            return Err(GgmlError::PartialBlock {
+                elements: 0,
+                block_size: n_per_row,
+            });
+        }
+        let elements = (nrows as usize).saturating_mul(n_per_row as usize);
+        if src.len() != elements {
+            return Err(GgmlError::WrongSize {
+                expected: elements,
+                actual: src.len(),
+            });
+        }
+        // SAFETY: pure lookup into ggml's static type table.
+        if unsafe { ffi::ggml_quantize_requires_imatrix(ty.0 as i32) } {
+            return Err(GgmlError::NeedsImatrix(ty.0));
+        }
+        let row = row_size(ty, n_per_row)?;
+        let expected = row.saturating_mul(nrows as usize);
+        if dst.len() < expected {
+            return Err(GgmlError::WrongSize {
+                expected,
+                actual: dst.len(),
+            });
+        }
+
+        // SAFETY: `src` holds exactly `nrows * n_per_row` floats, which with
+        // `start = 0` is the range the kernel reads; `dst` holds at least
+        // `nrows * row_size` bytes, which is what it writes, and ggml computed
+        // that row size itself. The type is not an `IQ*`, so the null imatrix is
+        // the documented "none" rather than a missing argument.
+        let written = unsafe {
+            ffi::ggml_quantize_chunk(
+                ty.0 as i32,
+                src.as_ptr(),
+                dst.as_mut_ptr() as *mut std::os::raw::c_void,
+                0,
+                nrows,
+                n_per_row,
+                std::ptr::null(),
+            )
+        };
+        if written != expected {
+            // ggml returns what it wrote. A disagreement means our row size and
+            // its kernel do not match, and every byte after the first row would
+            // be at the wrong offset -- reported rather than bound.
+            return Err(GgmlError::WrongSize {
+                expected,
+                actual: written,
+            });
+        }
+        Ok(written)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +500,113 @@ mod tests {
         // Q4_K packs 256 elements per block; 100 is not a whole number of them.
         let err = dequantize(GgmlType(12), &[0u8; 144], 100);
         assert!(matches!(err, Err(GgmlError::PartialBlock { .. })));
+    }
+
+    /// A smooth signal, which is what a weight row resembles more than noise
+    /// does — and unlike noise it makes a quantizer's error interpretable.
+    #[cfg(have_ggml)]
+    fn signal(n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|i| {
+                let x = i as f32 * 0.017;
+                x.sin() * 0.35 + (x * 0.31).cos() * 0.12
+            })
+            .collect()
+    }
+
+    #[cfg(have_ggml)]
+    #[test]
+    fn round_trips_through_q8_0_and_q4_k() {
+        // The measurement C7 rests on: how much accuracy a trunk row loses when
+        // it moves from Q8_0 to Q4_K. Asserted loosely, and printed exactly.
+        const NE: i64 = 4096;
+        const ROWS: i64 = 4;
+        let src = signal((NE * ROWS) as usize);
+
+        for (ty, name, bound) in [
+            (GgmlType(8), "Q8_0", 0.004f32),
+            (GgmlType(12), "Q4_K", 0.02),
+        ] {
+            let row = row_size(ty, NE).expect("row size");
+            let mut dst = vec![0u8; row * ROWS as usize];
+            let written = quantize(ty, &src, ROWS, NE, &mut dst).expect("quantize");
+            assert_eq!(written, dst.len(), "{name} wrote a different byte count");
+
+            let back = dequantize(ty, &dst, src.len()).expect("dequantize");
+            let rms = (src
+                .iter()
+                .zip(&back)
+                .map(|(a, b)| ((a - b) as f64).powi(2))
+                .sum::<f64>()
+                / src.len() as f64)
+                .sqrt() as f32;
+            println!(
+                "{name}: {} bytes/weight, rms {rms:.6}",
+                written as f32 / src.len() as f32
+            );
+            assert!(rms < bound, "{name} rms {rms} exceeds {bound}");
+        }
+    }
+
+    #[cfg(have_ggml)]
+    #[test]
+    fn quantize_refuses_what_it_cannot_do_correctly() {
+        let src = signal(512);
+        let mut dst = vec![0u8; 4096];
+
+        // 300 is not a whole number of 256-element Q4_K blocks.
+        assert!(matches!(
+            quantize(GgmlType(12), &src[..300], 1, 300, &mut dst),
+            Err(GgmlError::PartialBlock { .. })
+        ));
+        // A src that does not match nrows * n_per_row.
+        assert!(matches!(
+            quantize(GgmlType(12), &src, 4, 256, &mut dst),
+            Err(GgmlError::WrongSize { .. })
+        ));
+        // A dst too small for what the kernel would write.
+        assert!(matches!(
+            quantize(GgmlType(12), &src, 2, 256, &mut dst[..8]),
+            Err(GgmlError::WrongSize { .. })
+        ));
+        // IQ2_XXS is trained against activation statistics; without them ggml
+        // still produces bytes, and they are much worse than the type implies.
+        assert!(
+            matches!(
+                quantize(GgmlType(16), &src, 2, 256, &mut dst),
+                Err(GgmlError::NeedsImatrix(16))
+            ),
+            "ggml_quantize_requires_imatrix no longer names IQ2_XXS -- \
+             re-check which types need one before trusting this refusal"
+        );
+    }
+
+    #[cfg(have_ggml)]
+    #[test]
+    fn row_size_agrees_with_our_own_table() {
+        // Two tables that disagree would put every row after the first at the
+        // wrong offset -- fluent nonsense, not a crash.
+        for id in [0u32, 1, 8, 12, 13, 14, 30, 39] {
+            let ty = GgmlType(id);
+            let (Some(elems), Some(bytes)) = (ty.block_elems(), ty.block_bytes()) else {
+                continue;
+            };
+            let ne = (elems * 4) as i64;
+            let ours = (bytes * 4) as usize;
+            assert_eq!(
+                row_size(ty, ne).expect("row size"),
+                ours,
+                "row size disagrees for type {id}"
+            );
+        }
+    }
+
+    #[cfg(have_ggml)]
+    #[test]
+    fn row_size_refuses_a_partial_row() {
+        assert!(matches!(
+            row_size(GgmlType(12), 100),
+            Err(GgmlError::PartialBlock { .. })
+        ));
     }
 }

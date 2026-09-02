@@ -26,6 +26,7 @@ mod qwen35;
 pub mod sample;
 pub mod spectrum;
 mod stream;
+mod trunk_quant;
 pub mod ui;
 
 pub use deepseek4::{AttentionKind, Deepseek4Config, Deepseek4Model};
@@ -36,6 +37,7 @@ pub use deepseek4_forward::{
 };
 pub use expert_cache::{CacheStats, ExpertCache};
 pub use kv::{KvCache, KvError, KvType};
+pub use trunk_quant::{requantise, target_from_name, TrunkQuantReport, TRUNK_QUANT_NAMES};
 /// The one warning line a container deserves, or `None`.
 ///
 /// Two questions in one place so the runner, the server and the window cannot

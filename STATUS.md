@@ -68,13 +68,19 @@ Each release's contents and its gate are in the plan; the short form:
 - **v0.0.29 — Every platform, actually run.** Four of nine published assets have never
   been executed by anyone.
 - **v0.0.30 — LTS.** The parity gate, the competitive claim with command lines, a
-  written support policy.
+  written support policy. **The policy is written**: `SUPPORT.md` — what LTS means
+  (the surface stops moving, correctness bugs get fixed on it, every claim was
+  measured), what gets fixed in a patch and in what order, and a section that says
+  plainly what is *not* supported: macOS untested, three Linux assets never
+  executed, the APK never on a phone, no GPU tier verified, no TLS in the HTTP
+  client. **No support window in years** — one person cannot promise that, so the
+  promise is structural: the newest LTS is supported until the next one exists.
 
 ---
 
 ## The honest scoreboard
 
-**Current**: **991 tests** (0 failed, 42 ignored — the V4-Flash set needs the
+**Current**: **999 tests** (0 failed, 46 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

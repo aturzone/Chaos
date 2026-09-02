@@ -890,7 +890,12 @@ impl RepackedDense {
             let Some(loc) = model.location(name) else {
                 continue;
             };
-            let (ty, dims) = (loc.ty, loc.dims.clone());
+            // **The set, not the container.** A requantised tensor's bytes are
+            // no longer the type the index names, and offering ggml the stored
+            // type here would repack Q4_K bytes as Q8_0 -- twice the buffer
+            // read, and plausible numbers out of it.
+            let ty = resident.type_of(name).unwrap_or(loc.ty);
+            let dims = loc.dims.clone();
             let (ne0, ne1) = match dims.as_slice() {
                 [a] => (*a as i64, 1i64),
                 [a, b] => (*a as i64, *b as i64),
@@ -2462,7 +2467,11 @@ fn bind_dense<'c>(
         return Ok(0);
     }
     if let Some(shared) = fw.resident.and_then(|r| r.get_shared(name)) {
-        weights.bind_shared(wctx, name, loc.ty, &loc.dims, shared)?;
+        // The resident set has the final word on the dtype: `trunk_quant` can
+        // have converted these bytes after the container was read, and binding
+        // them as the stored type would be the fluent-nonsense failure.
+        let ty = fw.resident.and_then(|r| r.type_of(name)).unwrap_or(loc.ty);
+        weights.bind_shared(wctx, name, ty, &loc.dims, shared)?;
         return Ok(0);
     }
     // Read by `prefetch_dense` on several handles at once; falling back here

@@ -316,6 +316,19 @@ are the measurement that killed one.
 
 ## Measurement
 
+- **Closing a big application does not free its memory at once, and a
+  measurement taken during the release measures the release.** 2026-09-02, C7's
+  A/B: the `Q8_0` baseline returned 0.576, 0.611, 0.721 tok/s across three
+  alternating pairs -- a **25% climb** -- while the load budget grew 7.97 -> 9.24
+  -> 9.42 GiB, because Windows was still reclaiming Firefox's 6.43 GiB. The
+  candidate arm, whose own memory was no longer marginal, returned 0.782-0.794
+  across the same three pairs. **Alternating pairs did not save the ratio here;
+  they only made the drift visible.** Wait until `chaos-probe --quick` reports the
+  same available RAM twice before recording a baseline.
+- **A configuration that is stable is not the same as a configuration that is
+  fast, and the spread is a finding of its own.** In that same A/B the arm with
+  5 GiB of slack swung 25% and the arm that owned its memory swung 1.5%. A median
+  hides that; report both.
 - **Profile before optimising a streaming runner.** The largest cost in
   generation was memcpy — slices copied twice per use — not disk and not
   arithmetic. Nothing suggested it until it was timed.
@@ -387,6 +400,25 @@ are the measurement that killed one.
 
 ## V4-Flash specifically
 
+- **Converting the trunk to `Q4_K` silently switches repacking on, so a
+  `--trunk-quant` A/B measures two changes.** `Q8_0` has no repacked kernel on
+  x86 -- 42 offered, 42 declined -- so the trunk sat in its stored layout for
+  every measurement this project ever took. `Q4_K` has one, and ggml takes it:
+  **383 tensors, 2.36 GiB, `q4_K_8x8`**. Isolate it with `CHAOS_NO_REPACK=1`
+  before attributing the gain to the dtype.
+- **A quantiser's error belongs to the dtype, not to the tensor.** Every kind of
+  V4-Flash trunk tensor -- the Q/KV LoRA projections, the attention output pair,
+  all three shared-expert matrices, the token embedding and the logit projection
+  -- loses **7.1-7.25%** relative and scores cosine 0.9974 through `Q8_0 -> f32 ->
+  Q4_K`. There is no sensitive kind to protect specially, so do not go looking
+  for one; the argument for excluding `output.weight` is where its error *lands*,
+  not how large it is.
+- **7% weight error carries straight through a mat-vec.** Bind both versions of
+  a real trunk tensor and multiply the same vector: cosine 0.997439, relative
+  error 7.16% -- the weight-space figure, unchanged. So a cosine threshold of
+  0.999 on a quantisation change is not a tight test, it is a wrong one. Set the
+  bound from a control (an unrelated vector scores 0.05) rather than from an
+  intuition.
 - **V4-Flash has no redundancy left to harvest — four probes, four negatives.**
   Experts are 9.1% internally negligible; the expert *bank* is full-rank (a
   rank-512 shared basis holds 20.4% of its energy against **16.6% for random

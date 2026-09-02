@@ -17,11 +17,24 @@
 //! **"There is no x86 Q8_0 branch."** Every repackable trunk tensor in this
 //! container is Q8_0, which is the one dtype ggml has no fast x86 path for.
 //!
-//! So: the same mat-vec, the same shape, F32 against BF16 against Q8_0, one
-//! session. If Q8_0 is slower than F32 **despite carrying a quarter of the
-//! bytes**, the kernel is the problem, C7 is worth building, and C7's real
-//! argument is *"move the trunk to a dtype with a kernel"* rather than *"halve the
-//! trunk's bytes"*.
+//! So: the same mat-vec, the same shape, F32 against BF16 against Q8_0 against
+//! the two K-quants, one session. If Q8_0 were slower than F32 **despite carrying
+//! a quarter of the bytes**, the kernel would be the problem and C7's argument
+//! would be *"move the trunk to a dtype with a kernel"*.
+//!
+//! # It answered no, twice, and that is why C7 is a memory lever
+//!
+//! `Q8_0` is the **fastest** of F32/BF16/Q8_0 here, so the missing-kernel theory
+//! is dead. And across four runs in one session `Q8_0` measured 0.211-0.252 ms
+//! against `Q4_K`'s 0.196-0.228 — **overlapping ranges**, so converting the trunk
+//! buys no arithmetic either. What it buys is 3.12 GiB of RAM, which is a
+//! different kind of win and the one C7 actually ships:
+//! `../../../docs/graph/research/requantising-the-trunk-2026-09-02.md`.
+//!
+//! **The repacked kernels are a separate matter and this file does not measure
+//! them.** `Q8_0` has none on x86; `Q4_K` does, so the engine repacks 383 trunk
+//! tensors after a conversion and those run a different kernel from anything
+//! timed here.
 //!
 //! # This is an instrument, not a gate
 //!
@@ -50,9 +63,8 @@ const REPS: usize = 100;
 
 const BF16: u32 = 30;
 const Q8_0: u32 = 8;
-
-/// Q8_0 is 32 values per block: one `f16` scale, then 32 `i8`.
-const QK8_0: usize = 32;
+const Q4_K: u32 = 12;
+const Q5_K: u32 = 13;
 
 /// Deterministic pseudo-random values in a small symmetric range.
 ///
@@ -78,33 +90,18 @@ fn to_bf16_bytes(src: &[f32]) -> Vec<u8> {
     out
 }
 
-/// `f32` → Q8_0, with a **fixed power-of-two scale**.
+/// `f32` → any quantised type, through **ggml's own quantiser**.
 ///
-/// Q8_0 blocks are `{ f16 d; i8 qs[32] }`. Writing a correct general `f32` → `f16`
-/// conversion by hand is twenty lines of rounding and subnormal handling and would
-/// be the most likely thing in this file to be wrong — so instead the scale is
-/// pinned at **2^-6 = 0.015625**, whose `f16` encoding is exactly `0x2400` (sign 0,
-/// exponent 9, mantissa 0) and needs no conversion at all. `values` produces
-/// ±0.5, so ±0.5 / 0.015625 = ±32 quantises well inside `i8` with no clipping.
-///
-/// A single shared scale across every block is not what a real quantiser would
-/// choose, and it does not matter here: **the kernel reads the same number of
-/// bytes and does the same work whatever the scales are.** Stated because the
-/// "first output" column below will differ from the F32 row, and this is why.
-fn to_q8_0_bytes(src: &[f32]) -> Vec<u8> {
-    const D_BITS: u16 = 0x2400; // f16 for 2^-6
-    const D: f32 = 0.015625;
-    assert!(
-        src.len() % QK8_0 == 0,
-        "Q8_0 needs a whole number of 32-value blocks"
-    );
-    let mut out = Vec::with_capacity(src.len() / QK8_0 * (2 + QK8_0));
-    for block in src.chunks(QK8_0) {
-        out.extend_from_slice(&D_BITS.to_le_bytes());
-        for v in block {
-            out.push((v / D).round().clamp(-127.0, 127.0) as i8 as u8);
-        }
-    }
+/// This used to be a hand-written Q8_0 packer with a fixed power-of-two scale,
+/// because nothing in the workspace could quantise. `chaos_ggml::quantize` now
+/// can, which is worth more than the shorter code: every row below is produced
+/// the way a real container's rows were produced, so the **first output** column
+/// is a like-for-like accuracy comparison rather than an artefact of a pinned
+/// scale.
+fn quantised(ty: u32, src: &[f32], ne0: i64, ne1: i64) -> Vec<u8> {
+    let row = chaos_ggml::row_size(GgmlType(ty), ne0).expect("row size");
+    let mut out = vec![0u8; row * ne1 as usize];
+    chaos_ggml::quantize(GgmlType(ty), src, ne1, ne0, &mut out).expect("quantize");
     out
 }
 
@@ -133,9 +130,14 @@ fn time_one(kind: &str) -> Option<(f64, usize, f32)> {
             t.set_bytes(&to_bf16_bytes(&src)).ok()?;
             t
         }
-        "Q8_0" => {
-            let t = ctx.new_typed_2d(GgmlType(Q8_0), NE0, NE1).ok()?;
-            t.set_bytes(&to_q8_0_bytes(&src)).ok()?;
+        "Q8_0" | "Q4_K" | "Q5_K" => {
+            let ty = match kind {
+                "Q8_0" => Q8_0,
+                "Q4_K" => Q4_K,
+                _ => Q5_K,
+            };
+            let t = ctx.new_typed_2d(GgmlType(ty), NE0, NE1).ok()?;
+            t.set_bytes(&quantised(ty, &src, NE0, NE1)).ok()?;
             t
         }
         other => panic!("unknown dtype {other}"),
@@ -179,7 +181,7 @@ fn the_trunks_mat_vec_by_dtype() {
     println!("  ------------------------------------------------------------------");
 
     let mut results = Vec::new();
-    for name in ["F32", "BF16", "Q8_0"] {
+    for name in ["F32", "BF16", "Q8_0", "Q5_K", "Q4_K"] {
         match time_one(name) {
             Some((ms, bytes, first)) => {
                 let mib = bytes as f64 / (1 << 20) as f64;
@@ -215,14 +217,17 @@ fn the_trunks_mat_vec_by_dtype() {
             "  {name} is {ratio:.2}x F32's time while carrying 1/{byte_ratio:.1} of its bytes."
         );
         if ratio > 1.0 {
-            println!("    ** SLOWER despite reading less. That is a missing kernel, not");
-            println!("       arithmetic, and it is the whole case for C7. **");
+            println!("    ** SLOWER despite reading less. That would be a missing kernel");
+            println!("       rather than arithmetic. No dtype here does that. **");
         }
     }
 
     println!();
     println!("  V4-Flash pays this 3 times per block for the shared expert alone");
-    println!("  (gate, up, down), 43 blocks, every token. Measured in the engine:");
-    println!("  0.478 s of arithmetic per generated token, 88% of it in the phases");
-    println!("  these matmuls live in.");
+    println!("  (gate, up, down), 43 blocks, every token, inside the 0.478 s of");
+    println!("  arithmetic a generated token costs -- which is 40% attention and");
+    println!("  40% expert matmuls (`what-is-inside-the-final-compute-2026-09-01`).");
+    println!("  An earlier version of this line said \"88% of it in the phases these");
+    println!("  matmuls live in\", from a phase timer that spanned the whole");
+    println!("  attention graph. Retracted; the split above replaces it.");
 }

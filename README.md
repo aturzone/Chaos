@@ -13,7 +13,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-991%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-999%20passing-brightgreen">
 </p>
 
 > **This file carries three things and nothing else**: the progress bars, the
@@ -122,15 +122,15 @@ stabilisation period.
   v0.0.24  One truth                     100%  [####################]  merged
   v0.0.25  Guard the binary              100%  [####################]  merged
   v0.0.26  Measure before optimising     100%  [####################]  merged
-  v0.0.27  Quality harness, then levers    85%  [#################...]  two levers through
+  v0.0.27  Quality harness, then levers   100%  [####################]  2 passed, 1 refused
   v0.0.28  Any machine, any model          80%  [################....]  needs other machines
   v0.0.29  Every platform, actually run    70%  [##############......]  macOS is what is left
-  v0.0.30  LTS                              8%  [#...................]  2 of 18 parity cells met
+  v0.0.30  LTS                             68%  [#############.......]  13 of 19 cells measured
 ```
 
 **Coverage against llama.cpp.** Every bar is a ratio of two counted things, both named;
-filled cells are floored, never rounded up. The first four are enforced by tests rather
-than counted by hand, which is why they have stopped drifting.
+filled cells are floored. The first four are test-enforced; the last is `scripts/check-docs.sh`,
+and a node is *in order* when `INDEX.md` lists it and declares its topic — ten were in none.
 
 ```
 CLI flags         91%  [##################..]  165 of llama.cpp's 182
@@ -139,8 +139,9 @@ Tokenizers        83%  [################....]  5 of 6 families
 Samplers          80%  [################....]  16 of 20
 Architectures     10%  [##..................]  14 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
-Browser UI        33%  [######..............]  2 of 6 things a chat UI needs
+Browser UI        33%  [######..............]  2 of 6 — tracked, not a priority
 V4-Flash speed    14%  [##..................]  0.728 of 5 tok/s
+Documents         68%  [#############.......]  100 of 146 graph nodes in order
 ```
 
 "Verified" here means diffed, and **every one of the 14 architectures was diffed against
@@ -156,6 +157,7 @@ llama.cpp at 8 prompts.** The Vulkan device path is bound but **not** verified: 
 | `CHANGELOG.md` | every release, including the retractions |
 | `CONTRIBUTING.md` | how to build and test, and the citation rule |
 | `SECURITY.md` | what a running node exposes, measured |
+| `SUPPORT.md` | what gets fixed, what stays stable, and what is not supported |
 | `docs/graph/INDEX.md` | every working note, one line each — start here |
 | `docs/graph/research/` | measurements. Many refuted the idea that motivated them |
 | `docs/graph/backlog/` | what is planned, with a definition of done for each |
@@ -163,10 +165,9 @@ llama.cpp at 8 prompts.** The Vulkan device path is bound but **not** verified: 
 | `docs/graph/reference/hard-won-facts.md` | read before proposing any optimisation |
 | `docs/graph/history/` | superseded, kept rather than deleted |
 
-The code, grouped by what a crate is *for*: `core/` the engine — containers, ggml, I/O,
-residency, architectures, images · `cli/` the front door and the runner · `network/` the
-server and the worker · `gui/` the Windows window and the installer · `android/` the JNI
-bridge · `scripts/` the checks CI runs.
+The code, by what a crate is *for*: `core/` the engine — containers, ggml, I/O, residency,
+architectures · `cli/` the front door and the runner · `network/` the server and the worker ·
+`gui/` the window and the installer · `android/` the JNI bridge · `scripts/` CI's checks.
 
 ## Licence
 

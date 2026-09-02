@@ -1340,6 +1340,11 @@ fn usage() -> ExitCode {
     eprintln!("  -f FILE             read the prompt from a file");
     eprintln!("  -b N                prefill block size");
     eprintln!("  --cache GIB         expert cache budget");
+    eprintln!("  --trunk-quant TYPE  convert the always-read weights at load:");
+    eprintln!("                      off (default), q4_k, q5_k, q6_k. Frees RAM for the");
+    eprintln!("                      expert cache -- and q4_k FAILED the quality gate:");
+    eprintln!("                      20 of 50 answers byte-identical against a 95% bar,");
+    eprintln!("                      though 41 of 41 checkable answers survived.");
     eprintln!("  --auto              pick device, -ngl and cache from this machine");
     eprintln!("  --list-devices      what compute devices this build can see");
     eprintln!("  --device N          which one to run on (llama.cpp: --main-gpu)");
@@ -1684,6 +1689,9 @@ fn main() -> ExitCode {
     // raises it when there is RAM to spare.
     let mut prefill_block = DEFAULT_PREFILL_BLOCK;
     let mut cache_budget: Option<u64> = None;
+    // The trunk's stored dtype is left alone unless asked. It is lossy, so the
+    // default has to be off -- see `chaos_arch::requantise`.
+    let mut trunk_quant: Option<chaos_gguf::GgmlType> = None;
     // Greedy by default, so existing behaviour is unchanged until asked.
     let mut sampler = SamplerConfig::default();
     let mut chat = false;
@@ -1772,6 +1780,32 @@ fn main() -> ExitCode {
                     .get(i + 1)
                     .and_then(|v| v.parse::<f64>().ok())
                     .map(|g| (g * (1u64 << 30) as f64) as u64);
+                i += 2;
+            }
+            // Converts the always-read weights at load, which frees RAM for the
+            // expert cache. **Refused by name** on a value it does not know: a
+            // silent fall-back to `off` here would report a speed number for a
+            // configuration the user did not ask for, which is the exact defect
+            // E7 found in 43 other flags.
+            "--trunk-quant" => {
+                let Some(raw) = rest.get(i + 1) else {
+                    eprintln!(
+                        "chaos-run: --trunk-quant wants one of: {}.",
+                        chaos_arch::TRUNK_QUANT_NAMES
+                    );
+                    std::process::exit(2);
+                };
+                match chaos_arch::target_from_name(raw) {
+                    Some(t) => trunk_quant = t,
+                    None => {
+                        eprintln!(
+                            "chaos-run: --trunk-quant does not know {raw:?}. It accepts: {}.",
+                            chaos_arch::TRUNK_QUANT_NAMES
+                        );
+                        eprintln!("           Nothing was loaded. Fix the value and run it again.");
+                        std::process::exit(2);
+                    }
+                }
                 i += 2;
             }
             "--temp" | "--temperature" => {
@@ -3183,6 +3217,7 @@ fn main() -> ExitCode {
         n_predict,
         prefill_block,
         cache_budget,
+        trunk_quant,
         sampler,
         chat,
         threads,
@@ -4447,6 +4482,7 @@ fn run(
     n_predict: usize,
     prefill_block: usize,
     cache_budget: Option<u64>,
+    trunk_quant: Option<chaos_gguf::GgmlType>,
     sampler: SamplerConfig,
     chat: bool,
     threads_flag: Option<usize>,
@@ -4675,10 +4711,28 @@ fn run(
             n_predict,
             1024,
             cache_budget,
+            trunk_quant,
+            perplexity,
             sampler,
             t0,
         )?;
         return Ok(());
+    }
+
+    // **Said, not swallowed.** `--trunk-quant` frees RAM by shrinking the
+    // always-read set, and on a dense model *every* weight is always-read -- so
+    // there is no streaming set for the freed memory to help, and the honest
+    // equivalent is to fetch a smaller quant in the first place, which
+    // `chaos-pull` now chooses for you. A flag that quietly does nothing is the
+    // defect E7 found in 43 others.
+    if trunk_quant.is_some() {
+        chaos_arch::info!(
+            "trunk      --trunk-quant does nothing on a dense model: every weight is"
+        );
+        chaos_arch::info!(
+            "trunk      always-read, so there is no streaming set to free memory for."
+        );
+        chaos_arch::info!("trunk      Download a smaller quant instead -- chaos-pull picks one.");
     }
 
     let mut config = Qwen3Config::from_model(&model)?;
@@ -4961,6 +5015,108 @@ fn report_residency_shortfall(
     let _ = machine;
 }
 
+/// Perplexity on the **streaming** path, which had none.
+///
+/// # Why this exists, and it is not about C7
+///
+/// The quality gate's *lossy* bar has three parts: ≥95% of answers
+/// byte-identical, no checkable answer lost, and **perplexity within +1%**. That
+/// third part is the distribution check — the one that catches a change which
+/// keeps the greedy path and wrecks what is underneath it. And on
+/// DeepSeek-V4-Flash it could not be measured at all: `--perplexity` reached
+/// `run_streaming` and the deepseek4 dispatch returns from `run` long before
+/// that, so the flag was silently ignored on the one model the whole project is
+/// built around.
+///
+/// **That is a hole in the ladder, not in one lever.** C7 needs it, C8 (2-bit
+/// experts) will need it, and every later lossy change on this path would have
+/// been asked to pass a bar a third of which was unmeasurable.
+///
+/// # The method is the dense path's, deliberately
+///
+/// Same windowing as [`perplexity_run`] and therefore as `llama-perplexity`:
+/// whole chunks only, each starting from an empty cache, and only positions from
+/// `len / 2 + 1` onward scored, which is `n_ctx - 1 - n_ctx/2` tokens per chunk.
+/// Two engines' numbers are comparable only if the windowing is, and two *builds*
+/// of this engine are comparable only if they use the same chunk size.
+///
+/// Tokens go in **one at a time** for the same reason as on the dense path: the
+/// head projects only the final position through `output.weight`, so per-position
+/// logits arrive a step at a time. On this model that is ~1.4 s a token, so the
+/// corpus length is a time budget rather than an accuracy one — the measurement
+/// is deterministic, and both sides score exactly the same tokens.
+///
+/// One thing this path gets for free: a chunk is at most `chunk_size` tokens of
+/// context, so `indexer_is_exact` holds for any chunk under ~2051 and these
+/// logits are exact rather than approximate — which a single 1818-token pass
+/// would not have been.
+fn perplexity_deepseek4(
+    fw: &chaos_arch::Deepseek4Forward<'_>,
+    config: &chaos_arch::Deepseek4Config,
+    tokens: &[i32],
+    chunk_size: usize,
+    arena: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let vocab = config.vocab_size as usize;
+    if tokens.len() < 2 {
+        return Err("perplexity needs at least 2 tokens; use -f with a real corpus".into());
+    }
+    let mut total_nll = 0f64;
+    let mut counted = 0usize;
+    let mut chunks = 0usize;
+    let start = std::time::Instant::now();
+
+    for chunk in tokens.chunks(chunk_size) {
+        // Whole chunks only. A trailing fragment gives its scored tokens far
+        // less context than a full chunk, and on the dense path including one
+        // moved the answer 15% on the same corpus.
+        if chunk.len() < chunk_size {
+            break;
+        }
+        let mut cache = chaos_arch::Deepseek4Cache::new(config.n_layer, config.kv_lora_rank);
+        let first_scored = chunk.len() / 2 + 1;
+        let mut logits = chaos_arch::forward(fw, &mut cache, &chunk[..1], arena)?;
+        for i in 1..chunk.len() {
+            if logits.len() < vocab {
+                return Err(format!("logits too small: {} < {vocab}", logits.len()).into());
+            }
+            if i >= first_scored {
+                let row = &logits[logits.len() - vocab..];
+                total_nll += chaos_arch::neg_log_prob(row, chunk[i] as usize);
+                counted += 1;
+            }
+            // The last position predicts nothing further, so do not pay for it.
+            if i + 1 < chunk.len() {
+                logits = chaos_arch::step(fw, &mut cache, chunk[i], arena)?;
+            }
+        }
+        chunks += 1;
+        let ppl = (total_nll / counted as f64).exp();
+        chaos_arch::info!(
+            "chunk {chunks:>4}   {counted:>7} tokens   ppl {ppl:.4}   ({:.1}s)",
+            start.elapsed().as_secs_f64()
+        );
+    }
+
+    if counted == 0 {
+        return Err(format!(
+            "no whole chunk in a corpus of {} tokens at --ppl-chunk {chunk_size}",
+            tokens.len()
+        )
+        .into());
+    }
+    let ppl = (total_nll / counted as f64).exp();
+    println!();
+    chaos_arch::info!(
+        "perplexity {ppl:.4} over {counted} tokens in {chunks} chunks of {chunk_size}"
+    );
+    chaos_arch::info!(
+        "           mean NLL {:.4} nats/token",
+        total_nll / counted as f64
+    );
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_deepseek4(
     model: &Model,
@@ -4969,6 +5125,8 @@ fn run_deepseek4(
     n_predict: usize,
     arena_mib: usize,
     expert_cache_budget: Option<u64>,
+    trunk_quant: Option<chaos_gguf::GgmlType>,
+    perplexity: Option<usize>,
     sampler_cfg: SamplerConfig,
     t0: std::time::Instant,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -5007,6 +5165,57 @@ fn run_deepseek4(
     let (mut resident, report) = ResidentSet::load(model, budget)?;
     chaos_arch::info!("resident   {report}");
     report_residency_shortfall(&report, &resident, model, &machine);
+
+    // C7 -- convert the always-read set to a narrower dtype, before repacking
+    // takes anything out of it.
+    //
+    // This is a **memory** lever: the trunk is stored Q8_0 at 1.06 bytes a
+    // weight while the routed experts are 4-bit, and every gigabyte residency
+    // gives back is a gigabyte the expert cache can have. It is lossy, so it
+    // happens only when asked for, and it goes through the quality gate's
+    // *lossy* bar rather than the byte-identical one.
+    if let Some(target) = trunk_quant {
+        if report.skipped_over_budget > 0 {
+            // Converting here would shrink what already fits while leaving the
+            // over-budget tensors on disk: the freed RAM cannot be spent on the
+            // expert cache either, because the cache is refused outright while
+            // any of the always-read set is streaming. So it would be pure
+            // accuracy loss for no gain. Converting *during* the load, so the
+            // budget applies to the converted size, is what this case needs --
+            // and that is a different change, filed rather than faked.
+            chaos_arch::info!(
+                "trunk      not converted: {:.2} GiB of the always-read set is already",
+                report.skipped_over_budget as f64 / GIB
+            );
+            chaos_arch::info!(
+                "trunk      streaming, so a narrower trunk would lose accuracy without"
+            );
+            chaos_arch::info!("trunk      buying anything. Free some RAM and it becomes worth it.");
+        } else {
+            // All of them: this is a one-off load-time job, and rows are
+            // independent, so it wants every core the way a prefill does.
+            let threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4);
+            let converted = chaos_arch::requantise(&mut resident, model, target, threads)?;
+            chaos_arch::info!("trunk      {converted}");
+            // **Said at the moment it matters.** A person who typed this flag is
+            // about to read a tok/s number, and the gate refused this change at
+            // 40% agreement. Printing it in `--help` only would leave the number
+            // quotable by anyone who did not go looking.
+            chaos_arch::info!("trunk      NOTE: q4_k failed the quality gate -- 20 of 50 answers");
+            chaos_arch::info!(
+                "trunk      byte-identical against a 95% bar (41 of 41 checkables survived)."
+            );
+            chaos_arch::info!("trunk      Do not quote a speed number from this configuration.");
+            if converted.skipped_shape > 0 {
+                chaos_arch::info!(
+                    "trunk      {} left as stored: rows are not a whole number of blocks",
+                    converted.skipped_shape
+                );
+            }
+        }
+    }
 
     // Rearrange the always-read weights into the layout the CPU kernels want,
     // once, before any block runs.
@@ -5074,6 +5283,12 @@ fn run_deepseek4(
     //
     // So the cache is refused, with the arithmetic, until the always-read set
     // fits. It is not a weak cache; it is the wrong place to spend the byte.
+    // **What is held now, not what was loaded.** The trunk conversion and the
+    // repacking above both change the number, and sizing the expert cache from
+    // the load report would spend RAM that residency has just given back -- or
+    // refuse a cache there is now room for. Identical to `report.loaded_bytes`
+    // when neither ran, which is the default.
+    let resident_bytes = resident.bytes() + repacked_bytes as u64;
     let shortfall = report.skipped_over_budget;
     let expert_budget = match expert_cache_budget {
         Some(b) if b > 0 && shortfall > 0 => {
@@ -5097,13 +5312,13 @@ fn run_deepseek4(
         // why this is sized from total RAM rather than free RAM.
         None if shortfall == 0 => {
             let total = machine.ram_total_bytes.unwrap_or(0);
-            let want = chaos_plan::expert_cache_bytes(total, report.loaded_bytes);
+            let want = chaos_plan::expert_cache_bytes(total, resident_bytes);
             if want > 0 {
                 chaos_arch::info!(
                     "cache      {:.2} GiB chosen for you: {:.1} GiB of RAM, {:.2} resident,",
                     want as f64 / GIB,
                     total as f64 / GIB,
-                    report.loaded_bytes as f64 / GIB
+                    resident_bytes as f64 / GIB
                 );
                 chaos_arch::info!(
                     "cache      5 GiB reserved. --cache N overrides, --cache 0 turns it off."
@@ -5128,7 +5343,7 @@ fn run_deepseek4(
         // for one, and saying which resource ran out is more use than a hint.
         chaos_arch::info!(
             "cache      off: after {:.2} GiB resident there is no room for one",
-            report.loaded_bytes as f64 / GIB
+            resident_bytes as f64 / GIB
         );
         chaos_arch::info!("cache      on this machine. --cache N forces one anyway; expect it to");
         chaos_arch::info!("cache      cost speed, because the memory comes out of the page cache.");
@@ -5143,6 +5358,14 @@ fn run_deepseek4(
         );
     }
     chaos_arch::info!("loaded     {:.1}s", t0.elapsed().as_secs_f64());
+
+    // Scoring a corpus instead of generating. Placed here rather than earlier so
+    // that residency, the trunk conversion and the expert cache all apply --
+    // measuring the distribution of a configuration nobody runs would be worse
+    // than not measuring it.
+    if let Some(chunk_size) = perplexity {
+        return perplexity_deepseek4(&fw, &config, &tokens, chunk_size, arena_mib << 20);
+    }
 
     let t_prefill = std::time::Instant::now();
     let mut seq = tokens.clone();

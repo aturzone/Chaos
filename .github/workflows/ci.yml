@@ -227,6 +227,17 @@ jobs:
         shell: bash
         run: bash scripts/check-readme.sh
 
+      # The graph is only useful if `INDEX.md` reaches all of it: a session is
+      # told to read the index and then only the nodes a task links to, so an
+      # unindexed node is a node nobody will ever read. **Ten were unindexed when
+      # this was written** -- 102 research files against 98 index lines. It also
+      # re-checks E2's rule (no document points at a path that does not exist)
+      # over the root documents, and prints the ratio the README's documents bar
+      # has to match.
+      - name: The documents are indexed and their paths resolve
+        shell: bash
+        run: bash scripts/check-docs.sh
+
       # **This step is honest about what it proves, and it is not much.** The
       # container-backed tests skip themselves when no model is on disk, so this
       # exercises the skip path. It is kept because a skip that panics is a real

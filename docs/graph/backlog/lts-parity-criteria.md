@@ -75,7 +75,56 @@ measured back to back in one session with both command lines recorded.
 | **the long-context generation gap is diagnosed** | — | — | **the KV cache is copied every token**: `cont(permute(kv))` costs **87.55 ms of a 306.7 ms token** at 4031 positions, a **3.25x** attention slope. Removing it projects to ~4.42 tok/s against llama.cpp's 4.49 — the whole gap. Diagnosed, not built: `../research/the-kv-cache-is-copied-every-token-2026-09-01.md` |
 | **quality (perplexity)** | untested | untested | **33.6434 vs 34.0293 — 1.13%** |
 
+**The release gate is "every cell measured", not "every cell won"** — Atur's
+decision, 2026-09-02, and it came from him noticing that the README's v0.0.30 bar
+said 20% while the release was being prepared.
+
+He was right, and the bar was measuring the wrong thing. Counting *cells won*
+against llama.cpp can never reach 100% from here: generation is 1.38x behind on
+dense Qwen3-4B and roughly 2x on Qwen3-30B-A3B, closing either is real
+engineering rather than a release step, and one cell is permanently
+`unmeasurable here`. A gate that cannot be met is not a gate, it is a reason
+never to tag — and this project has already been the other kind of wrong, with 23
+releases in 21 days and no stabilisation period for any of them.
+
+So the standard for tagging is: **every cell has a number, or a written reason
+why it cannot have one.** That is exactly what `SUPPORT.md` already promises —
+"every claim was measured on hardware with the command line recorded" — and it is
+a promise one person can keep. Beating llama.cpp everywhere is not.
+
+**The count, recounted.** This document said "18 cells" and that was wrong: the
+table is 8 criteria x 3 models = 24, less 5 marked `—` because the criterion does
+not apply to that model, so **19**. Six are `untested`:
+
+| model | cell |
+|---|---|
+| V4-Flash | long-context generation, long-context prefill, quality |
+| Qwen3-30B-A3B | long-context generation, long-context prefill, quality |
+
+**13 of 19 measured, 68%.** All six are measurable on this machine, and a seventh
+job is not on the list because it already has a number: the Qwen3-4B prefill cell
+is measured but **stale**, from before four fixes, so it is re-measured rather
+than counted again.
+
 **A cell can also be `unmeasurable here`, and one now is.** That is a third state beside `done` and `gap`, and it needs the same thing a `won't` needs: a reason written down. V4-Flash generation is the first — llama.cpp's figure on this container ranges **0.16 to 0.47 tok/s** for the same command line on the same machine, so alternating against it measures the operating system rather than the engines. Chaos's own figure is stable to 1%. Closing it needs a machine where a 144 GB working set does not fight a 15.7 GiB page cache, not more repetitions.
+
+**The streaming path can be scored at all now, as of 2026-09-02.** The quality
+row said `untested` for V4-Flash and the reason was not laziness:
+`--perplexity` is plumbed to `run_streaming` and the deepseek4 dispatch returns
+from `run` before that, so the flag was **silently ignored on that model** —
+found while putting C7 through the gate's *lossy* bar, a third of which is the
+perplexity band. It now scores a corpus with the dense path's windowing, so this
+cell has become measurable. **It is not measured against llama.cpp yet**, and it
+will not be until `llama-perplexity` has run the same corpus with the same
+chunking on the same machine, with both command lines recorded here.
+
+**The `38.5 vs 111.2` prefill cell is stale and its direction is unknown.** It
+dates from 2026-08-10, from a 651-token prompt against llama.cpp's `pp512`, and
+since then the dense path gained the KV cache, stopped projecting every position
+through the output matrix, stopped aborting on its arena, and lost two `cont`
+calls in the KV path — while long prefill at 4031 tokens measured **60.98 vs
+59.77, parity**. Re-measure it at a matched length before anyone quotes either
+number.
 
 **Quality is measured now, and it was the largest untested claim in this
 document.** `chaos-run --ppl-chunk N` reports perplexity using llama.cpp's

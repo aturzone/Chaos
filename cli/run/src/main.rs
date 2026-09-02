@@ -740,6 +740,30 @@ fn mentions_system_rejection(msg: &str) -> bool {
 /// RoPE base, a rounding difference in the KV cache, or a repacked kernel that
 /// is *almost* right all answer Paris. Perplexity is a number over thousands of
 /// tokens, so it moves when any of those are wrong, and it is what llama.cpp's
+/// llama.cpp's rule for the first token of a perplexity chunk.
+///
+/// **`perplexity.cpp` overwrites it with BOS** — `if (add_bos && j == 0)
+/// tokens[batch_start] = llama_vocab_bos(vocab)` — on *every* chunk, not only the
+/// first. Chaos prepended BOS once, to the whole corpus, so from the second chunk
+/// onward the two engines scored the same tokens from a **different context**:
+/// ours opened with a word, theirs with BOS.
+///
+/// That is a systematic offset, and it shrinks as the chunk grows because BOS is
+/// a smaller fraction of the context. Measured on Qwen3-4B before this was
+/// fixed: **+9.7% at chunk 128 on a 707-token corpus, +5.4% at chunk 128 on 4040
+/// tokens** — against a recorded 1.13% at chunk 512, which is the same effect
+/// diluted rather than a different model.
+///
+/// The overwritten position is never a scored target — scoring starts at
+/// `len / 2 + 1` — so this changes the context and not the answer key.
+fn with_bos_first(chunk: &[i32], bos: Option<i32>) -> Vec<i32> {
+    let mut out = chunk.to_vec();
+    if let (Some(b), Some(first)) = (bos, out.first_mut()) {
+        *first = b;
+    }
+    out
+}
+
 /// `llama-perplexity` reports, so the two can be compared directly.
 ///
 /// # The method, stated because it decides the number
@@ -774,6 +798,7 @@ fn perplexity_run(
     tokens: &[u32],
     chunk_size: usize,
     kv_type: chaos_arch::KvType,
+    bos: Option<u32>,
     t0: std::time::Instant,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let vocab = config.vocab_size as usize;
@@ -806,6 +831,12 @@ fn perplexity_run(
         // tokens per chunk, which is 63 at a context of 128, not 64. An
         // off-by-one here is invisible in the output and shifts the number.
         let first_scored = chunk.len() / 2 + 1;
+        // llama.cpp's rule, per chunk. See `with_bos_first`.
+        let mut chunk = chunk.to_vec();
+        if let (Some(b), Some(first)) = (bos, chunk.first_mut()) {
+            *first = b;
+        }
+        let chunk = &chunk[..];
         let mut logits = runner.forward_cached(weights, &mut cache, &chunk[..1], 0)?;
         for i in 1..chunk.len() {
             if logits.len() < vocab {
@@ -4042,6 +4073,7 @@ fn run_streaming(
             &tokens,
             chunk_size,
             kv_type,
+            tokenizer.bos,
             t0,
         );
     }
@@ -5056,6 +5088,7 @@ fn perplexity_deepseek4(
     config: &chaos_arch::Deepseek4Config,
     tokens: &[i32],
     chunk_size: usize,
+    bos: Option<i32>,
     arena: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let vocab = config.vocab_size as usize;
@@ -5076,6 +5109,9 @@ fn perplexity_deepseek4(
         }
         let mut cache = chaos_arch::Deepseek4Cache::new(config.n_layer, config.kv_lora_rank);
         let first_scored = chunk.len() / 2 + 1;
+        // llama.cpp's rule, per chunk. See `with_bos_first`.
+        let owned = with_bos_first(chunk, bos);
+        let chunk = &owned[..];
         let mut logits = chaos_arch::forward(fw, &mut cache, &chunk[..1], arena)?;
         for i in 1..chunk.len() {
             if logits.len() < vocab {
@@ -5403,7 +5439,14 @@ fn run_deepseek4(
     // measuring the distribution of a configuration nobody runs would be worse
     // than not measuring it.
     if let Some(chunk_size) = perplexity {
-        return perplexity_deepseek4(&fw, &config, &tokens, chunk_size, arena_mib << 20);
+        return perplexity_deepseek4(
+            &fw,
+            &config,
+            &tokens,
+            chunk_size,
+            tokenizer.bos.map(|b| b as i32),
+            arena_mib << 20,
+        );
     }
 
     let t_prefill = std::time::Instant::now();

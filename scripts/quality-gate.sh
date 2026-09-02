@@ -63,7 +63,7 @@
 #   bash scripts/quality-gate.sh --model M.gguf --lever lossy
 #
 #   # a lever that is a FLAG rather than an environment variable
-#   bash scripts/quality-gate.sh --model M.gguf --lever lossy #     --flags "--trunk-quant q4_k" --ppl scripts/ppl-corpus-stream.txt
+#   bash scripts/quality-gate.sh --model M.gguf --lever lossy #     --flags "--trunk-quant q4_k" --ppl scripts/ppl-corpus.txt
 #
 # Exit 0 if the bar for that lever is met, 1 if it is not, and 2 if the harness
 # could not run -- which is never reported as a pass.
@@ -83,24 +83,25 @@ TOKENS=12                    # generated per prompt
 # tokens, which is how the first run of this script reported "could not be
 # measured" while the real message was sitting in stderr.
 PPL_CHUNK=128
-# **Two corpora, because the streaming path scores a token at a time.**
-# `long-prompt.txt` is 4040 tokens, which is right for a dense model. On
-# DeepSeek-V4-Flash a scored token costs ~1.4 s, because the head projects only
-# the final position and so per-position logits arrive one step at a time -- 4040
-# tokens would be over ninety minutes a side. `scripts/ppl-corpus-stream.txt` (14
-# paragraphs, ~700 tokens) is five whole chunks at `PPL_CHUNK`, 315 scored tokens,
-# about fifteen minutes a side.
+# **Use `scripts/ppl-corpus.txt`, and NOT `long-prompt.txt`.**
 #
-# **Fewer tokens is a time budget here, not a precision one**: perplexity is
-# deterministic and both sides score exactly the same tokens, so the comparison
-# is exact for the tokens it covers. What a short corpus risks is being
-# unrepresentative -- so if a result lands near the 1% band, lengthen the corpus
-# and measure again rather than calling it.
+# `long-prompt.txt` is a long *prompt* fixture: 41 unique lines repeated to 80,
+# every one of them *"Paragraph N. The engine keeps the always-read weights
+# resident..."*. Given 257 tokens of that, a model predicts the rest almost
+# perfectly, so **both engines collapse to a perplexity near 1.0** -- Chaos 1.0391
+# against llama.cpp 1.0151 at chunk 512 -- and every ratio computed on it is noise
+# amplified. It is right for testing context length and wrong for measuring
+# quality, and a whole evening's perplexity numbers were taken on it before that
+# was noticed.
 #
-# It also keeps the logits **exact**: a chunk is at most 128 tokens of context, and
-# skipping the unimplemented lightning indexer is only a no-op while
-# `n_tokens / 4` stays inside `indexer_top_k`. A single 1818-token pass printed
-# *"These logits are APPROXIMATE"*; a chunked one does not.
+# `ppl-corpus.txt` is the repository's own prose, ~2000 tokens, every line unique.
+# It is not a standard benchmark and is not claimed to be one; what it is good for
+# is comparing two engines or two builds over the same real English.
+#
+# A chunk is also at most `PPL_CHUNK` tokens of context, which keeps V4-Flash's
+# logits **exact**: skipping the unimplemented lightning indexer is only a no-op
+# while `n_tokens / 4` stays inside `indexer_top_k`, and a single 1818-token pass
+# printed *"These logits are APPROXIMATE"* where a chunked one does not.
 
 MODEL=""
 LEVER=""

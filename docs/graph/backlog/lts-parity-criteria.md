@@ -179,7 +179,7 @@ reads + ~0.6 s of everything else, so with R2 overlap it is **~0.65 tok/s agains
 | C5 | stop sequences, `max_tokens`, `n_predict` | **DONE** — `--stop` (repeatable) on the CLI, string-or-array on the server; both match accumulated text, not tokens |
 | C6 | grammar / JSON-schema constrained output | **won't for LTS** — large, and not what an agent needs first |
 | C7 | LoRA adapters | **won't for LTS** — no user asking |
-| C8 | embeddings endpoint | **won't for LTS** — the graph returns logits, not hidden states. Faking it is worse than a 501, and doing it properly means a second output path |
+| C8 | embeddings endpoint | **DONE, and this row was wrong for weeks.** Implemented on the dense path from a real hidden state, `POST /v1/embeddings` returning a vector — verified live by `scripts/smoke-the-surface.sh`. The V4-Flash path is refused **by name** (*"embeddings are implemented for the dense path only; this model uses the V4-Flash path, whose forward pass does not expose a hidden state yet"*), which is the honest half of the original reasoning. ~~won't for LTS — the graph returns logits, not hidden states. Faking it is worse than a 501, and doing it properly means a second output path |
 | C9 | quantise/convert tooling | **won't** — llama.cpp owns this and does it well |
 
 **C1 is required, not optional.** Greedy decoding makes every answer
@@ -194,7 +194,8 @@ without samplers, and it is a day of work.
 | D2 | GGUF v2 and v3 | **DONE 2026-08-10** — v2 and v3 proved to parse identically from in-memory headers, v1 and future versions refused, alignment honoured only when a power of two. **The ticket's premise was wrong**: the `u32`→`u64` length change was v1→v2, not v2→v3, and implementing it as written would have mis-read every real v2 container — llama.cpp has no width branch and refuses v1 outright. Also added: a byte-swapped version is now named as an endianness mismatch instead of "unsupported version 50331648". See `../research/gguf-v2-premise-was-wrong-2026-08-10.md` |
 | D3 | split containers (`-00001-of-0000N`) | **done** |
 | D4 | every ggml quant type ggml can decode | **done — delegated to ggml** |
-| D5 | OpenAI API surface: `/v1/chat/completions`, `/v1/models`, `/v1/completions`, `/v1/embeddings` | **3 of 4 + an honest 501.** Chat streams and serves any supported architecture; `/v1/completions` runs the prompt verbatim; **embeddings refuse with 501** rather than returning a logit-derived vector that would look right and behave like noise |
+| D5 | OpenAI API surface: `/v1/chat/completions`, `/v1/models`, `/v1/completions`, `/v1/embeddings` | **4 of 4.** Chat streams and serves any supported architecture; `/v1/completions` runs the prompt verbatim; and **embeddings return a real vector on the dense path**, from a hidden state rather than from logits, with the V4-Flash path refused by name because its forward pass exposes none. This row said *"3 of 4 + an honest 501"* for weeks after the fourth was built, and so did C8 above and the `SUPPORT.md`
+written the same day — found by `scripts/smoke-the-surface.sh`, which asks the endpoint instead of trusting the note |
 | D6 | refuse an unsupported container clearly rather than producing nonsense | **DONE** — see A8. Gemma-2 was the proof that it was needed |
 
 ## The order

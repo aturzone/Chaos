@@ -65,8 +65,12 @@ What that file records, in the shape it matters here:
   settles it in one minute and nobody has done it.
 - **iOS does not exist**, and is parked deliberately.
 - **`chaos scan` is not built** and says so when you run it.
-- **The embeddings endpoint answers 501.** The graph returns logits, and faking
-  an embedding from them would look right and behave like noise.
+- **Embeddings work on the dense path and are refused by name on V4-Flash.**
+  They come from a real hidden state rather than from logits — a faked embedding
+  would look right and behave like noise. The streaming path's forward pass
+  exposes no hidden state, and asking it says exactly that. **This file claimed
+  a 501 on the day it was written**, copied from two stale rows in the parity
+  node; `scripts/smoke-the-surface.sh` now asks the endpoint on every run.
 - **The HTTP client speaks no TLS.** It is enough HTTP/1.1 to ask a node for
   status and stream a completion, over plain connections, on a network you
   control.

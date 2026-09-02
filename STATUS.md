@@ -5,10 +5,12 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-09-02 · **Version**: v0.0.30, tagged 2026-09-02 ·
-**Branch**: `main`, verified at v0.0.30 — the first tag in twenty-nine rungs, and the
-first built to the standard `SUPPORT.md` defines. Two of eighteen parity cells are met,
-which is stated on the release page rather than left to be discovered.
+**Last updated**: 2026-09-03 · **Version**: v0.0.31, tagged 2026-09-03 ·
+**Branch**: `main`, verified at v0.0.31. **v0.0.30 shipped with a broken front door
+and a green test suite** — `chaos connect` took any unknown `--flag` as the hostname,
+so it looked like the QR pages and device-to-device connection were missing when both
+worked. `scripts/smoke-the-surface.sh` now runs 29 checks against the built binaries in
+CI: every subcommand, every node route, and one machine asking another.
 
 > **This file was 5,144 lines and 104 dated sections until 2026-08-31.** It called
 > itself the single source of truth while being a reverse-chronological diary in

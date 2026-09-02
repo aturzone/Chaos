@@ -8,6 +8,80 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.31] — 2026-09-03
+
+**v0.0.30's front door was broken and its test suite was green.** 999 tests,
+clippy, fmt, four document checks, seven release jobs — and nobody had run
+`chaos connect` or opened `/qr` on a real node. Atur found it in the first
+minutes of testing, reported as *"the QR creator and the reader are not in this
+version and devices cannot connect"*.
+
+### The bug
+
+`chaos connect`'s argument loop pushed anything it did not recognise into the
+positional list, so an unknown `--flag` became the **hostname**:
+
+```
+$ chaos connect --port 8080 --status
+chaos: cannot resolve --port:8080: No such host is known. (os error 11001)
+```
+
+The route is positional — `chaos connect 192.168.1.20:8080 "your prompt"` — so
+there was never a `--port` to type, and the error named DNS instead of the flag.
+From outside, that is indistinguishable from a missing feature. It now says:
+
+```
+chaos connect: unknown option "--port".
+
+The route is positional, not a flag:
+  chaos connect 192.168.1.20:8080 "your prompt"
+
+Options: --max-tokens N (or -n N). Nothing else.
+```
+
+**This is the defect E7 found in 43 of `chaos-run`'s flags**, which survived
+untouched in the front door because nothing tested it. Everything the report
+said was missing was present and working the whole time: `/qr` returns 363 KB,
+`/scan` 229 KB, `chaos-qr` prints a code in a bare terminal, and a client got a
+real answer from a node.
+
+### The check that would have caught it
+
+`scripts/smoke-the-surface.sh` — **29 checks against the built binaries**, in CI
+on Linux where a real model is already cached:
+
+- every binary answers `--version`
+- every subcommand works or refuses clearly, including `scan` declaring itself
+  not built and `connect` refusing an unknown option **by name**
+- `chaos-qr` prints a code
+- all eight node routes, with `/favicon.ico` asserted at 204 because that is
+  deliberate
+- `/qr` and `/scan` proven to **fetch nothing external**, which is what proves
+  the fonts were embedded rather than linked
+- `/v1/chat/completions` and `/v1/embeddings` answering with content
+- **one machine asking another and getting an answer**
+
+### Fixed
+
+- **`chaos connect` refuses unknown options by name** instead of treating them
+  as a hostname.
+- **`chaos-qr --version`** — ten of eleven shipped binaries answered it and this
+  one refused it as an unknown flag. `gguf-info` had the same gap once.
+- **Three places in two documents said `/v1/embeddings` answers 501** for weeks
+  after it was implemented on the dense path from a real hidden state. The
+  `SUPPORT.md` written the day before repeated it. Corrected, and the smoke test
+  now asks the endpoint rather than trusting the note. The V4-Flash path is still
+  refused **by name**, because its forward pass exposes no hidden state.
+
+### Also, on my own tests
+
+Two of the four failures the new script first reported were **the script being
+wrong**: `/favicon.ico` answers 204 by design, and its external-reference check
+matched an ordinary `<a href>` link to the project's repository, which fetches
+nothing. Both fixed before landing, because a check that cries wolf is a check
+people learn to ignore.
+
+
 ## [0.0.30] — 2026-09-02
 
 **The first release built to LTS standard, and the first tag in twenty-nine

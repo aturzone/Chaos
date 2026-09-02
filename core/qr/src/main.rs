@@ -78,6 +78,16 @@ fn main() {
                     i += 1;
                 }
             }
+            // **`--version` on every binary, because a person checks it first.**
+            // `gguf-info` had this exact gap and it was fixed there: the flag was
+            // being opened as a model, so `--version` reported "cannot find the
+            // file specified". Here it was refused as an unknown flag, which is
+            // tidier and just as wrong -- ten of the eleven shipped binaries
+            // answered it and this one did not.
+            "--version" | "-V" => {
+                println!("chaos-qr {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             other if other.starts_with("--") => die(&format!("unknown flag {other}")),
             other => text = Some(other.to_string()),
         }

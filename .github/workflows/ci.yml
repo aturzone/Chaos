@@ -306,6 +306,31 @@ jobs:
           CHAOS_REQUIRE_MODEL_TESTS: "1"
         run: cargo test --release -p chaos-run --test forward_pass_is_not_broken -- --nocapture
 
+      # **The surface a person actually touches, which v0.0.30 shipped broken.**
+      #
+      # That release passed 999 tests, clippy, fmt and four document checks, and
+      # nobody had run `chaos connect` or opened `/qr` on a node. `connect` took
+      # any unrecognised `--flag` as the **hostname**, so `chaos connect --port
+      # 8080` answered `cannot resolve --port:8080: No such host is known` --
+      # which from the outside reads as "devices cannot connect and the QR
+      # feature is missing". Atur found it in the first minutes of testing.
+      #
+      # A unit test could not: the defect was in argument handling at the
+      # outermost layer, where nothing had ever looked. So this starts a real
+      # node and asks it every route, runs every subcommand, and has one machine
+      # ask another for an answer. 29 checks.
+      #
+      # Linux only: it needs `curl` and a POSIX shell, and the thing being
+      # checked is argument handling and HTTP, neither of which is per-platform.
+      - name: The surface a person touches
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GGML_LIB_DIR: ${{ github.workspace }}/ggml-libs
+        run: |
+          cargo build --release --bin chaos --bin chaos-run --bin chaos-serve             --bin chaos-probe --bin chaos-pull --bin chaos-qr --bin chaos-meta             --bin chaos-model-info --bin gguf-info --bin chaos-draw --bin chaos-worker
+          bash scripts/smoke-the-surface.sh             "${{ github.workspace }}/test-model/Qwen2-0.5B-Instruct-Q4_K_M.gguf" 18099
+
       # **The window, opened like a person opens it.**
       #
       # v0.0.21 shipped with the mode knob painted underneath nine live child

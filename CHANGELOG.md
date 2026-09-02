@@ -110,32 +110,47 @@ built, measured, and **refused by the quality gate**.
   on the one model this project is built around — a third of the *lossy* bar,
   unmeasurable, for every lossy lever rather than for one.
 
-### The one thing this release does NOT claim, stated up front
+### The bug that made V4-Flash look worse than it is, found and fixed
 
-**DeepSeek-V4-Flash predicts measurably worse than llama.cpp, and it is not
-fixed here.** Perplexity on real prose at chunk 512, both engines scoring the
-same tokens with the same windowing:
+**Our `joyai-llm` pre-tokenizer was missing an entire regex alternative**, and it
+cost 31.6% of perplexity against llama.cpp.
 
 ```
-  ours       18.5548
-  llama.cpp  14.1034 +/- 1.79378     +31.6%, outside the error bar
+  before   18.5548   +31.6% against llama.cpp
+  after    14.6877    +4.1%  -- inside llama.cpp's 14.1034 +/- 1.79378
 ```
 
-The instrument is trustworthy: in the same session Qwen3-4B agreed to **-1.44%**
-and Qwen3-30B-A3B to **+0.37%**. So this is a property of our deepseek4 forward
-pass, and **V4-Flash's place in `VERIFIED_ARCHITECTURES` rests on an eight-prompt
-greedy diff that cannot see a 31% distribution gap.**
+llama.cpp's rule begins `[!"#$%&'()*+,\-./:;<=>?@\[\\]^_`{|}~][A-Za-z]+` --
+one ASCII punctuation mark plus the ASCII letters after it, as **one piece**.
+Ours was transcribed starting from the *second* alternative, so `SUPPORT.md`
+became `.` + `md` and `project's` became `'` + `s`. The model has only ever seen
+those whole: feeding it `16, 17949` where it expects `26887` is out of
+distribution, expensive at that position, and it corrupts the context after it.
+**Our token ids now match `llama-tokenize` exactly, 294 for 294.**
 
-It affects that one architecture. The other nine are unaffected, and on
-Qwen3-30B-A3B -- the other streaming model -- Chaos agrees with llama.cpp on
-quality and is **1.38x ahead** on long-context generation, winning every pairing.
+**Four checks could have caught it and none did**, which is the part worth
+keeping: it is the only `joyai-llm` container in existence, so every other model
+agreed with llama.cpp; the test called `v4flash_still_uses_joyai_llm_unchanged`
+checks only *which* pre-tokenizer is selected and passes either way; the
+**eight-prompt greedy diff** that put the architecture in
+`VERIFIED_ARCHITECTURES` cannot see a distribution gap, because a wrong split
+still reads as fluent English; and the perplexity harness that would have shown
+it **did not exist on this path** until the same day.
 
-Two suspects, both already documented in this repository as unverified: the
-compressed **YaRN RoPE** branch (*"transcribed, not verified"*, 41 of 43 layers)
-and the **128-token sliding window** (never exercised, because the oracle capture
-was five tokens). The hunt is open, the method is an element-sum diff against
-`llama-eval-callback` past 128 tokens, and no parameter will be changed on a
-hunch.
+### Quality against llama.cpp, measured across the range
+
+One session, real prose, chunk 512, per-chunk BOS, both engines scoring the same
+tokens:
+
+| model | ours | llama.cpp | |
+|---|---|---|---|
+| Qwen3-4B dense | 44.8667 | 45.5245 +/- 5.70 | **-1.44%** |
+| Qwen3-30B-A3B | 25.9308 | 25.8347 +/- 2.78 | **+0.37%** |
+| DeepSeek-V4-Flash | 14.6877 | 14.1034 +/- 1.79 | **+4.1%** |
+
+**Parity on quality across all three**, each inside the other's error bar. On
+speed, Qwen3-30B-A3B long-context generation is **1.38x ahead** -- Chaos's worst
+run beating llama.cpp's best -- and dense prefill is 1.24x behind.
 
 ### Retracted
 

@@ -80,42 +80,38 @@ Each release's contents and its gate are in the plan; the short form:
 
 ---
 
-## The largest open defect: V4-Flash predicts worse than llama.cpp
+## FIXED the same day: V4-Flash's pre-tokenizer was missing a rule
 
-**Found 2026-09-02, unfixed, and it outranks everything else on this list.**
-Perplexity on real prose at chunk 512, both engines scoring the same tokens with
-the same windowing and per-chunk BOS:
+**Found and fixed 2026-09-02.** V4-Flash measured **+31.6%** worse than
+llama.cpp in perplexity. The cause was one missing alternative in the
+`joyai-llm` pre-tokenizer, and the fix closed it:
 
 ```
-  ours       18.5548
-  llama.cpp  14.1034 +/- 1.79378      +31.6%, outside the error bar
-  at chunk 128: 35.8951 against 28.5509 +/- 4.54   +25.7%
+  before   18.5548     +31.6%
+  after    14.6877      +4.1%   <- inside llama.cpp's 14.1034 +/- 1.79
 ```
 
-**The instrument is validated, in the same session**: Qwen3-4B agrees with
-llama.cpp to **-1.44%** and Qwen3-30B-A3B to **+0.37%**. So this is a property of
-the deepseek4 forward pass, not of the ruler — and it means **V4-Flash's place in
-`VERIFIED_ARCHITECTURES` rests on an eight-prompt greedy diff that cannot see a
-31% distribution gap.** Nine architectures are unaffected.
+`joyai-llm` begins `[!"#$%&'()*+,\-./:;<=>?@\[\\]^_`{|}~][A-Za-z]+` — one
+ASCII punctuation mark plus the letters after it, as **one piece**. Ours was
+transcribed from the *second* alternative onward, so `SUPPORT.md` became `.` +
+`md` and `project's` became `'` + `s`. **Our ids now match `llama-tokenize`
+exactly, 294 for 294.**
 
-**The gap is roughly flat with context** (25.7% at 128 tokens, 31.6% at 512),
-which rules out RoPE-at-position as the main cause and points at something wrong
-from the first tokens. **Two cheap hypotheses are already eliminated**: the
-compressed YaRN RoPE branch (by the flatness) and the router-bias mistake the
-docs warned about — *"the bias steers selection only"* — which our code gets
-right, `get_rows(probs3, topk)` gathering from the **unbiased** probabilities.
+**Why four separate checks missed it**: it is the only `joyai-llm` container in
+existence, so every other model agreed; the test named
+`v4flash_still_uses_joyai_llm_unchanged` only checks *which* pre-tokenizer is
+selected, and passes either way; the eight-prompt greedy diff that put the
+architecture in `VERIFIED_ARCHITECTURES` cannot see a distribution gap; and the
+perplexity harness that would have caught it **did not exist on this path** until
+the same day.
 
-**What remains is the systematic method**, and the surface is large: the oracle
-fixtures cover **layers 0-3 of 43**. A five-token capture also cannot exercise an
-HCA layer's compressor at all (ratio 128) and the normal MoE routing path was
-never diffed. The next step is a `llama-eval-callback` capture past 128 tokens —
-300 tokens is prepared — and an element-sum diff, which is how all 43 layers were
-built in the first place. **No parameter gets changed on a hunch**;
-`research/stepwise-and-batched-disagree-2026-09-02.md` records why.
+**Quality against llama.cpp, all three models, instrument validated in one
+session:** Qwen3-4B **-1.44%**, Qwen3-30B-A3B **+0.37%**, V4-Flash **+4.1%**.
+Parity on quality across the range.
 
 ## The honest scoreboard
 
-**Current**: **999 tests** (0 failed, 47 ignored — the V4-Flash set needs the
+**Current**: **999 tests** (0 failed, 48 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

@@ -1,0 +1,143 @@
+What this project will fix, what it will keep stable, and what it does not
+promise. Written for v0.0.30 — the release being built to LTS standard — and
+kept deliberately narrower than a project this size is tempted to claim.
+Security problems do not belong here. Report those privately:
+[SECURITY.md](SECURITY.md).
+Three things, and nothing more:
+1. The surface stops moving. The CLI's flag names and their meanings, the
+   HTTP endpoints and their request and response shapes, the settings file's
+   location and format, and the on-disk layout of the model catalogue. A script
+   or an editor integration written against an LTS release keeps working against
+   every later patch of it.
+2. Correctness bugs get fixed on it, not only on main.
+3. Every claim in the release notes was measured on hardware, with the
+   command line recorded. This project has retracted claims before; the ladder in
+   [CHECKLIST.md](CHECKLIST.md) exists because of it.
+It does not mean a support window in years. Chaos is written by one person.
+Promising five years of patches would be the kind of claim this repository spends
+its time removing, so the promise is structural instead: the newest LTS
+release is supported until the next LTS release exists, and that is the whole
+of it.
+Numbers live in [STATUS.md](STATUS.md), not here. It is the canonical
+scoreboard, it is machine-checked, and it is updated in the same commit as
+anything that moves it — a second copy in this file would be a second copy to go
+stale, which is exactly how SECURITY.md came to claim v0.0.0 through
+twenty-three releases.
+What that file records, in the shape it matters here:
+- Architectures are supported only when they have been diffed against
+  llama.cpp token for token on eight prompts. Anything else is refused by name
+  and needs --force, which exists on the CLI and deliberately not on the
+  server. A wrong forward pass produces fluent nonsense rather than a crash, so
+  "it loaded and generated" is not evidence of support and is never treated as
+  such.
+- Tokenizers: one family is implemented but not verified against
+  llama.cpp, because no container for it exists on the machine. STATUS.md names
+  which. Treat it as unsupported until that changes.
+- Quant types: whatever the linked ggml can decode. Chaos does not implement
+  its own kernels for these and does not claim to.
+- Platforms are supported when a model has actually been run there, not
+  when the build is green. docs/graph/research/ carries a node per platform
+  with the output. Windows and Linux qualify; the rest is in the next section.
+Please do not open a public issue for a security problem.
+Use GitHub's private reporting:
+[Security → Report a vulnerability](https://github.com/aturzone/Chaos/security/advisories/new).
+If that is unavailable to you, contact the maintainer through their GitHub
+profile ([@aturzone](https://github.com/aturzone)) and ask for a private channel
+before sending details.
+Expect an acknowledgement within a week. This is a solo project, so please be
+patient — and please do give it a reasonable disclosure window before publishing.
+Chaos parses untrusted binary input: a GGUF container is a file that may
+have come from anywhere on the internet, and its header declares offsets, sizes,
+dimensions and types that the parser must not trust. The interesting bug classes
+are therefore:
+- Memory-safety issues reachable by parsing a malformed or hostile .gguf
+  (out-of-bounds reads, integer overflow in offset or size arithmetic,
+  allocation of an attacker-chosen size).
+- Path traversal or unintended file access through shard discovery, which
+  derives sibling file names from the path you pass it.
+- Any way to make Chaos write outside paths the user explicitly named. Chaos
+  opens model files read-only and should never write to them.
+core/ggml contains unsafe FFI by necessity, and core/io's aligned buffers
+use raw allocation. Both are the places to look.
+(Until 2026-08-31 both paths named a crates/ directory that does not exist,
+so this file sent security researchers somewhere unreachable. NOTICE had the
+same defect and was fixed on 2026-08-28; this is the other file whose job is to
+be accurate about where the code lives, and a test now checks both.)
+- Model behaviour. What a model generates is not a Chaos vulnerability.
+  Chaos runs weights; it does not endorse their output.
+- Resource exhaustion from a model you chose to run. Asking Chaos to load a
+  144 GB model and running out of memory is the documented behaviour, not a
+  denial of service. Chaos reports what will not fit rather than failing
+  silently, and that is the intended handling.
+- ggml itself. Report those upstream to
+  [ggml-org/ggml](https://github.com/ggml-org/ggml). If a ggml issue is reachable
+  specifically through how Chaos calls it, that is in scope here.
+- Anything requiring an attacker to already have local code execution as the
+  user running Chaos.
+Chaos sends nothing anywhere. There is no telemetry, no analytics, no crash
+reporting and no update ping beyond the one request chaos-app makes to a static
+JSON file on GitHub Releases to see whether a newer version exists — which
+CHAOSNOUPDATECHECK turns off. Model downloads go to the host the user names.
+The dependency list is the whole of the supply chain: Cargo.lock holds 22
+packages and every one of them is a chaos- crate in this repository, plus a
+statically linked ggml. There is nothing else to audit.
+What a node does expose, measured. With --api-key set, the rule is the
+peer, not the bind address: this machine is always allowed, and the network
+needs the key.
+From the network (measured from 192.168.1.105 against a node bound to that
+address, with a key set):
+GET /status      401      GET /qr    200   the mark, so a phone can scan it
+GET /health      401      GET /scan  200   the reader
+GET /v1/models   401      GET /      200   the browser page
+GET /status  with the key 200
+/status and /health name the model, so they are behind the key too. That
+changed in v0.0.23: before it, anyone who could reach the port learned which model
+you were running, its context size and the node's route without any key at all.
+The machine itself is never gated, whatever the key. The window probes
+/health on 127.0.0.1 to learn whether the server it just started is answering,
+and chaos status reads /status the same way; gating by the bind address would
+have broken both. chaos status sends the key as well, so it works against a
+remote node.
+The mark and the reader stay open deliberately. A stranger's phone has no key,
+and pointing its camera at /qr is the entire point of them. /qr encodes the
+route of a node whose address the caller already had in order to ask.
+With no key configured nothing is gated at all — which is safe only because
+the server binds 127.0.0.1 unless told otherwise. Choosing CORE is what opens
+the route, and CORE generates a key rather than asking for one.
+Chaos binds weights zero-copy: ggml tensors point directly into buffers
+Chaos owns, and the safety of that arrangement rests on WeightSet outliving
+every tensor that points into it. This is enforced by the borrow checker and
+documented in core/ggml/src/weights.rs. If you find a way to defeat
+it from safe code, that is a genuine finding and I want to hear about it.
+Thanks for looking. Chaos is a small project with an unusual amount of written
+reasoning behind it, and the fastest way to be useful is to read a little of it
+before writing code.
+ A performance claim is not citable until the competitor's exact command line
+ and its output are in a document.
+This exists because the project broke it. "llama.cpp cannot run a model larger
+than RAM" survived for days on a misattributed error string, because nobody ran
+the opposing command. When someone finally did, llama.cpp ran the 144 GB model
+fine with --no-repack, and the project's central marketing claim evaporated.
+So: run it, paste it, and flag it. A benchmark without the losing command line is
+an opinion.
+The same applies to your own changes. "This should be faster" is not a result.
+The project's record on reasoning ahead of measurement is nought for four:
+1. Read [docs/graph/INDEX.md](docs/graph/INDEX.md), then only the two or three
+   nodes your task links to. The graph is large; reading it all is a waste.
+2. Read [CLAUDE.md](CLAUDE.md). It is the project's short list of facts that
+   cost real time to rediscover — things like ggml aborts the process when its
+   arena is exhausted, and a wrong tokenizer produces fluent nonsense, never a
+   crash. Each line there is a summary; the full text of all 38 is
+   [docs/graph/reference/hard-won-facts.md](docs/graph/reference/hard-won-facts.md),
+   and that one is worth reading in full before you propose an optimisation,
+   because about half of its entries are the measurement that killed one.
+export GGMLLIBDIR=/path/to/llama.cpp/build/ggml/src
+cargo build --release
+cargo test --release              # 999 tests
+cargo test --release -- --ignored # 42 more, need a real model on disk
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+A GPU test with no GPU reports as a pass. Cargo has no third verdict, and a
+green "6 passed" was once reported for a file whose two GPU tests never ran. Run
+CHAOSREQUIREGPU=1 cargo test --release -p chaos-ggml
+to turn every such skip into a failure. With GGMLLIBDIR pointed at a

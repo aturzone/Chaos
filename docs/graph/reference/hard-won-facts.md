@@ -316,6 +316,26 @@ are the measurement that killed one.
 
 ## Measurement
 
+- **`long-prompt.txt` is not a perplexity corpus, and using it as one wasted an
+  evening.** It is 41 unique lines repeated to 80, every one of them *"Paragraph
+  N. The engine keeps the always-read weights resident..."*. Given 257 tokens of
+  that a model predicts the rest almost perfectly, so **both engines collapse to
+  ~1.0** — Chaos 1.0391 against llama.cpp 1.0151 at chunk 512 — and every ratio
+  computed on it is noise amplified. It is right for testing context *length*.
+  Use `scripts/ppl-corpus.txt` (the repository's own prose, ~2000 tokens, every
+  line unique) to compare two engines or two builds.
+- **A perplexity comparison is only valid at the chunk size where a known-good
+  control agrees.** On real prose Qwen3-4B against llama.cpp is **-1.44% at chunk
+  512** and **+3.18% at chunk 128**. Take the cell at 512, and run the control in
+  the same session before believing any new model's number.
+- **llama.cpp puts BOS at the start of EVERY perplexity chunk**, not just the
+  first: `perplexity.cpp` does `if (add_bos && j == 0) tokens[batch_start] =
+  llama_vocab_bos(vocab)`. Chaos prepended it once to the whole corpus, so from
+  the second chunk on the two engines scored the same tokens from a *different*
+  context. The offset shrinks as the chunk grows, which is why it looked like
+  three separate findings — +9.7% at chunk 128 on 707 tokens, +5.4% at chunk 128
+  on 4040, 1.13% at chunk 512 — and was one bug. Fixed in both perplexity paths;
+  **every Chaos perplexity figure recorded before 2026-09-02 is stale.**
 - **Closing a big application does not free its memory at once, and a
   measurement taken during the release measures the release.** 2026-09-02, C7's
   A/B: the `Q8_0` baseline returned 0.576, 0.611, 0.721 tok/s across three

@@ -257,12 +257,13 @@ as on the dense path: the head projects only the final position through
 `output.weight`, so per-position logits arrive a step at a time. On this model
 that is ~1.4 s a scored token, which makes the corpus length a **time budget**
 rather than an accuracy one — the measurement is deterministic and both sides
-score the same tokens. `scripts/ppl-corpus-stream.txt` is five whole chunks, 315
-scored tokens, about fifteen minutes a side.
+score the same tokens. The run used five chunks of 128, 315 scored tokens, about
+fifteen minutes a side.
 
-**A short corpus risks being unrepresentative, not imprecise.** If a result lands
-near the 1% band, the answer is to lengthen the corpus and measure again — not to
-argue about the number.
+**A short corpus risks being unrepresentative, not imprecise** — and this one was
+worse than unrepresentative, which is the caveat above. `scripts/ppl-corpus.txt`
+replaced it: the repository's own prose, ~2000 tokens, every line unique, and
+validated against llama.cpp at **-1.44%** on a model the two engines agree on.
 
 ## The verdict: it fails the lossy bar, decisively
 
@@ -284,13 +285,27 @@ candidate Q4_K trunk : 8.0310
 rise 3.674%   (the lossy bar allows +1.0%)
 ```
 
-**So it fails two of the three checks independently, and passes only the third.**
-Agreement 40.0% against 95%; perplexity +3.674% against +1%; checkables 41 of 50
-against the baseline's 41. Two instruments that measure different things —
-top-1 agreement and the whole distribution — refused it by similar margins,
-which is the strongest form this evidence could take. *(5 chunks of 128 on
-`scripts/ppl-corpus-stream.txt`, 315 scored tokens, both sides the same binary
-and the same windowing.)*
+**So it fails two of the three checks, and passes only the third.** Agreement
+40.0% against 95%; perplexity +3.674% against +1%; checkables 41 of 50 against
+the baseline's 41.
+
+**The perplexity figure carries a caveat found hours later, and it is recorded
+rather than quietly dropped.** It was taken on a corpus cut from
+`long-prompt.txt` — 41 unique lines repeated to 80 — which later turned out to be
+**degenerate for this purpose**: given 257 tokens of it both engines fall to a
+perplexity near 1.0. It was also taken before Chaos started putting BOS at the
+start of every chunk the way llama.cpp does.
+
+Neither defect touches the comparison's *validity as a self-comparison* — both
+sides were the same binary scoring the same tokens with the same windowing, so
+the rise between them is real. What is uncertain is its **size**: on text a model
+can pattern-match almost perfectly, a small perturbation can cost proportionally
+more than it would on natural prose, so +3.674% may be overstated.
+
+**The verdict does not rest on it.** The agreement check is corpus-independent —
+50 fixed prompts, 20 identical — and 40.0% against 95% is a refusal on its own.
+Re-measuring the distribution check on `scripts/ppl-corpus.txt` would sharpen the
+record and cannot change the outcome, so it is filed rather than run tonight.
 
 **40% against a 95% bar is not a near miss.** The bar was agreed before any run —
 that is what §5 of `the-big-bang-5-tok-s` asked for and what C6 was built to

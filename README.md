@@ -125,7 +125,7 @@ stabilisation period.
   v0.0.27  Quality harness, then levers   100%  [####################]  2 passed, 1 refused
   v0.0.28  Any machine, any model          80%  [################....]  needs other machines
   v0.0.29  Every platform, actually run    70%  [##############......]  macOS is what is left
-  v0.0.30  LTS                             68%  [#############.......]  13 of 19 cells measured
+  v0.0.30  LTS                            100%  [####################]  19 of 19 cells measured
 ```
 
 **Coverage against llama.cpp.** Every bar is a ratio of two counted things, both named;

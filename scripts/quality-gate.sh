@@ -44,6 +44,20 @@
 # re-record the baseline to make a comparison pass; both turn the gate into a
 # formality, which is the one failure mode it cannot survive.
 #
+# # The one legitimate reason to re-record: the reference itself was wrong
+#
+# **A tokenizer fix invalidates a baseline.** On 2026-09-03 the `joyai-llm`
+# pre-tokenizer turned out to be missing llama.cpp's first regex alternative, so
+# V4-Flash had been fed `.` + `md` where the model expects `.md`. Every recorded
+# answer for that model came from the wrong tokenisation, and a later gate run
+# against them would have reported a large "changed" count caused by the **fix**
+# rather than by the lever under test.
+#
+# So: re-record when the *reference* was measuring the wrong thing, never when the
+# *candidate* fails. Keep the old one beside the new with a note saying which bug
+# it predates -- a superseded baseline is evidence about when a defect was
+# present. `quality-baseline/` is gitignored, so that note lives with the files.
+#
 # # Why byte-identical text is the same thing as top-1 agreement
 #
 # At `--temp 0` generation is greedy, so the emitted text **is** the sequence of

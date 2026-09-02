@@ -32,6 +32,45 @@ android {
         versionName = "0.0.21"
     }
 
+    // **A stable identity, or Android refuses to upgrade in place.**
+    //
+    // v0.0.31 could not be installed over v0.0.30: "App not installed". The
+    // `versionCode` was incrementing correctly, so the only remaining cause was
+    // the signature -- and the release built with `assembleDebug` on a *fresh CI
+    // runner*, where `~/.android/debug.keystore` does not exist and Gradle
+    // generates a new one, with a new random key, on every run.
+    //
+    // The workflow's own comment predicted exactly this ("generating one per run
+    // would give every release a different identity and Android would refuse to
+    // upgrade in place") and then relied on the debug key being "a key everyone
+    // has". That is true on a developer's machine, where the keystore persists.
+    // It is false on an ephemeral runner.
+    //
+    // So: sign with a keystore supplied by the build when there is one. CI
+    // decodes it from a repository secret. With no keystore the build falls back
+    // to the debug key, which still installs and still cannot be upgraded over
+    // -- and the release notes have to say so rather than let someone discover
+    // it with a phone in their hand.
+    val keystorePath = providers.gradleProperty("chaos.keystore").orNull
+        ?: System.getenv("CHAOS_KEYSTORE")
+    val keystorePass = providers.gradleProperty("chaos.keystore.password").orNull
+        ?: System.getenv("CHAOS_KEYSTORE_PASSWORD")
+    val keyAliasName = providers.gradleProperty("chaos.key.alias").orNull
+        ?: System.getenv("CHAOS_KEY_ALIAS")
+    val keyPass = providers.gradleProperty("chaos.key.password").orNull
+        ?: System.getenv("CHAOS_KEY_PASSWORD")
+
+    signingConfigs {
+        if (keystorePath != null && file(keystorePath).exists()) {
+            create("chaos") {
+                storeFile = file(keystorePath)
+                storePassword = keystorePass
+                keyAlias = keyAliasName
+                keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             // **No shrinking.** R8 would strip unused framework code, which is
@@ -39,6 +78,14 @@ android {
             // the APK is already tiny. Turning it on would add a rules file to
             // get wrong and a class of crash that only happens in release.
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("chaos")
+        }
+        // **Debug too**, because that is what ships today. A release APK signed
+        // with one identity and a debug APK signed with another would still
+        // refuse to upgrade across the two, which is the same bug wearing a
+        // different hat.
+        getByName("debug") {
+            signingConfigs.findByName("chaos")?.let { signingConfig = it }
         }
     }
 

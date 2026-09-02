@@ -59,10 +59,15 @@ What that file records, in the shape it matters here:
   reproduced.
 - **The `.deb`, the AppImage and the arm64 Linux tarball have never been
   executed by anybody.** What is verified is the source they are built from.
-- **The Android app has never run on a phone.** The published APK installs,
-  launches and draws its interface on an emulator, then crashes entering a mode
-  inside translated code that cannot be attributed to Chaos. A real device
-  settles it in one minute and nobody has done it.
+- **An Android release cannot be installed over the previous one.** Every APK is
+  signed with a throwaway key generated fresh on the CI runner, so Android
+  refuses the upgrade with *"App not installed"* — **uninstall the old version
+  first**. The build accepts a real keystore and one repository secret fixes it
+  permanently: `docs/graph/backlog/android-upgrades-need-a-keystore.md`.
+- **The Android app runs, and crashed once on an emulator.** The published APK
+  installs, launches and draws its interface; entering a mode crashed inside
+  translated code that cannot be attributed to Chaos. It has since been run on a
+  real device, where it installs and opens.
 - **iOS does not exist**, and is parked deliberately.
 - **`chaos scan` is not built** and says so when you run it.
 - **Embeddings work on the dense path and are refused by name on V4-Flash.**

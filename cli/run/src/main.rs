@@ -4710,6 +4710,7 @@ fn run(
             prompt,
             n_predict,
             1024,
+            prefill_block,
             cache_budget,
             trunk_quant,
             perplexity,
@@ -5117,6 +5118,19 @@ fn perplexity_deepseek4(
     Ok(())
 }
 
+/// Tokens per prefill pass on the deepseek4 path.
+///
+/// The ring allows 897; this is what the arena affords. A pass costs about
+/// 1.5 MiB of arena a token, so 897 would want roughly 3 GiB — and on a 15.7 GiB
+/// machine that comes straight out of the 7.38 GiB the trunk needs to stay
+/// resident. 512 keeps the arena near 1.9 GiB and leaves the trunk room, and `-b`
+/// lowers it further for a smaller machine.
+///
+/// Larger passes are genuinely cheaper per token — a 17-token pass selects 39.7
+/// distinct experts a layer where a 166-token pass selects 122.8, which is
+/// sublinear — so this is a memory trade rather than a free choice.
+const DEEPSEEK4_PASS_CAP: usize = 512;
+
 #[allow(clippy::too_many_arguments)]
 fn run_deepseek4(
     model: &Model,
@@ -5124,6 +5138,7 @@ fn run_deepseek4(
     prompt: &str,
     n_predict: usize,
     arena_mib: usize,
+    prefill_block: usize,
     expert_cache_budget: Option<u64>,
     trunk_quant: Option<chaos_gguf::GgmlType>,
     perplexity: Option<usize>,
@@ -5158,6 +5173,30 @@ fn run_deepseek4(
     // and swapping is slower than the streaming it was meant to replace, so the
     // reserve is deliberate and what does not fit is reported rather than hidden.
     let machine = chaos_probe::Machine::probe(std::path::Path::new("."), false);
+
+    // **How many tokens one prefill pass takes, and how big an arena that needs.**
+    //
+    // The ring allows 897 and this path had a **hardcoded 1 GiB arena**, which
+    // held only while nothing chunked a long prompt. The moment one did, a
+    // 707-token pass asked ggml for 1,105,487,120 bytes against 1,073,741,824 and
+    // **ggml aborted the process** — `GGML_ASSERT(obj_new)`, not an error anyone
+    // can catch. The same shape of bug the dense path had, where the arena was a
+    // hardcoded `2 << 30` and a 651-token prompt killed it.
+    //
+    // So the pass is capped at what an arena this machine can spare will hold,
+    // and the arena is computed from the pass rather than guessed: ~1.5 MiB a
+    // token measured, taken at 3 to leave headroom, over a 384 MiB floor.
+    // `arena_mib` stays a floor so short prompts behave exactly as before.
+    //
+    // **Both halves have to be decided here**, above the reserve, because the
+    // reserve is what residency is allowed to spend and an arena that grows after
+    // the budget is computed is an arena that makes the OS swap.
+    // The ring's limit and the arena's cap, whichever binds first; `-b` may then
+    // lower it but not raise it past either.
+    let ceiling = chaos_arch::max_pass_tokens(&config).clamp(1, DEEPSEEK4_PASS_CAP);
+    let pass_tokens = prefill_block.clamp(1, ceiling);
+    let arena_mib = arena_mib.max(384 + 3 * pass_tokens);
+
     // Compute arena, plus the expert slices in flight, plus slack for the OS.
     // A flat constant here is either wasteful or wrong depending on the block.
     let reserve = ((arena_mib as u64) << 20) + (512 << 20) + (768 << 20);
@@ -5372,7 +5411,31 @@ fn run_deepseek4(
     // One cache for the whole session: the prompt fills it, and each generated
     // token appends a single row instead of re-running the sequence.
     let mut kv = chaos_arch::Deepseek4Cache::new(config.n_layer, config.kv_lora_rank);
-    let logits = chaos_arch::forward(&fw, &mut kv, &seq, arena_mib << 20)?;
+
+    // **Chunk the prompt, because one pass cannot hold it.** The raw latents live
+    // in a ring and a single pass must fit inside it, so this model takes 897
+    // tokens at a time — a limit on the *batch*, not on the sequence.
+    //
+    // Until now nothing here chunked, so a 4040-token prompt was refused with
+    // advice no code path could take: *"prefill in blocks of 897 or fewer (-b)"*,
+    // while `-b` never reached this architecture at all. Found while trying to
+    // measure the long-context parity cell, which could not be measured for that
+    // reason rather than for any reason about the engine's speed.
+    //
+    // `-b` still narrows it if a smaller block is wanted; it cannot widen it past
+    // what the ring holds.
+    let pass = pass_tokens;
+    let mut logits = Vec::new();
+    let blocks = seq.len().div_ceil(pass.max(1));
+    if blocks > 1 {
+        chaos_arch::info!(
+            "prefill    {} tokens in {blocks} blocks of at most {pass} (this path's pass limit)",
+            seq.len()
+        );
+    }
+    for chunk in seq.chunks(pass.max(1)) {
+        logits = chaos_arch::forward(&fw, &mut kv, chunk, arena_mib << 20)?;
+    }
     let prefill_secs = t_prefill.elapsed().as_secs_f64();
     chaos_arch::info!(
         "prefill    {} tokens in {prefill_secs:.1}s ({:.2} tok/s)",

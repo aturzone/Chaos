@@ -1045,6 +1045,26 @@ impl<'m> Deepseek4Forward<'m> {
         blocks <= self.config.indexer_top_k as i64
     }
 
+    /// The most tokens one forward pass can take on this model.
+    ///
+    /// Delegates to [`max_pass_tokens`], which a caller can reach before it has
+    /// built a forward at all — and it has to, because the compute arena is sized
+    /// from this number and the arena is decided before the model is loaded.
+    ///
+    /// **A limit on the batch, not on the sequence.** The raw latents live in a
+    /// ring of [`RAW_RING`] slots and raw attention is sliding, so a conversation
+    /// may be far longer than this — but a single pass must fit inside the ring,
+    /// because every position in the pass has to stay visible while it runs.
+    ///
+    /// Exposed because a caller that does not know this number cannot chunk a
+    /// long prompt, and until now none did: `chaos-run` handed the whole prompt
+    /// to one `forward` call and the engine refused a 4040-token file with advice
+    /// (*"prefill in blocks of 897 or fewer (-b)"*) that no code path could take,
+    /// because `-b` never reached this architecture.
+    pub fn max_pass_tokens(&self) -> usize {
+        max_pass_tokens(&self.config)
+    }
+
     /// Tensor names one block needs, plus the globals for block 0.
     pub fn block_tensor_names(&self, il: u32) -> Vec<String> {
         let mut names = Vec::new();
@@ -2888,6 +2908,26 @@ pub fn head(fw: &Deepseek4Forward<'_>, streams: &[f32], arena: usize) -> Result<
 }
 
 /// Prefill: every block in order, then the head. Returns one logit per token id.
+/// The most tokens one forward pass can take, from the config alone.
+///
+/// **A limit on the batch, not on the sequence.** The raw latents live in a ring
+/// of `RAW_RING` slots and raw attention is sliding, so a conversation may be far
+/// longer than this — but every position in a single pass has to stay visible
+/// while that pass runs, so the pass itself must fit the ring.
+///
+/// Takes a config rather than a forward because the caller needs it *early*: the
+/// compute arena is sized from the pass, and the arena is subtracted from the RAM
+/// residency is allowed to use, so both are decided before the model is loaded.
+pub fn max_pass_tokens(config: &Deepseek4Config) -> usize {
+    let window = config.sliding_window as i64;
+    let limit = if window > 0 {
+        (RAW_RING - window + 1).max(1)
+    } else {
+        RAW_RING
+    };
+    limit as usize
+}
+
 pub fn prefill(fw: &Deepseek4Forward<'_>, tokens: &[i32], arena: usize) -> Result<Vec<f32>> {
     // No sequence limit any more — the raw latents live in a ring and the
     // compressed half grows. What is still bounded is **one pass**, and

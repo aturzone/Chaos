@@ -482,6 +482,26 @@ fn connect(args: &[String]) -> i32 {
                 }
                 i += 2;
             }
+            // **An unknown flag is refused by name, not taken as the route.**
+            //
+            // This arm used to push everything it did not recognise, so
+            // `chaos connect --port 18080 --status` made `--port` the *hostname*
+            // and answered `cannot resolve --port:8080: No such host is known`.
+            // Reported as "devices cannot connect to each other", which is what
+            // that message looks like from the outside — and the route is
+            // positional, so there was never a `--port` to type.
+            //
+            // The same defect E7 found in 43 of `chaos-run`'s flags: an argument
+            // that is not understood must be named, not absorbed.
+            arg if arg.starts_with("--") => {
+                eprintln!("chaos connect: unknown option {arg:?}.");
+                eprintln!();
+                eprintln!("The route is positional, not a flag:");
+                eprintln!("  chaos connect 192.168.1.20:8080 \"your prompt\"");
+                eprintln!();
+                eprintln!("Options: --max-tokens N (or -n N). Nothing else.");
+                return 2;
+            }
             _ => {
                 rest.push(args[i].clone());
                 i += 1;

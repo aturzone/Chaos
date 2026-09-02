@@ -152,6 +152,25 @@ are the measurement that killed one.
 
 ## Correctness, which fails silently here
 
+- **A green test suite is not a working product, and v0.0.30 proved it.** That
+  release passed **999 tests, clippy, fmt and four document checks** — and its
+  front door was broken: `chaos connect` took any unrecognised `--flag` as the
+  **hostname**, so `chaos connect --port 8080` answered `cannot resolve
+  --port:8080: No such host is known`. From outside that reads as *"devices
+  cannot connect and the QR feature is missing"*, which is exactly how it was
+  reported, in the first minutes of testing. **Nothing had ever run the
+  subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
+  does now, 29 checks, in CI.
+- **An unrecognised argument must be named, never absorbed.** E7 found this in
+  43 of `chaos-run`'s flags and it survived untouched in `chaos connect`, whose
+  catch-all arm pushed anything it did not know into the positional list. A
+  `_ =>` arm that accepts unknown `--` arguments is the bug, every time.
+- **A document can be stale in the direction of *understating* what works.**
+  Three places in two files said `/v1/embeddings` answers 501 for weeks after it
+  was implemented on the dense path — and a `SUPPORT.md` written from them
+  repeated it the same day. **Ask the endpoint; do not read the note.**
+
+
 - **A pre-tokenizer transcribed from llama.cpp can be missing an entire
   alternative, and nothing will say so.** `joyai-llm` (DeepSeek-V4-Flash) begins
   `[!"#$%&'()*+,\-./:;<=>?@\[\\]^_`{|}~][A-Za-z]+` — one ASCII punctuation

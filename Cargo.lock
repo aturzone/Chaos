@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "chaos-android"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-model",
  "chaos-probe",
@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-app"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
  "chaos-config",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-arch"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
  "chaos-ggml",
@@ -39,11 +39,11 @@ dependencies = [
 
 [[package]]
 name = "chaos-build"
-version = "0.0.23"
+version = "0.0.30"
 
 [[package]]
 name = "chaos-cli"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-config",
  "chaos-grammar",
@@ -53,11 +53,11 @@ dependencies = [
 
 [[package]]
 name = "chaos-config"
-version = "0.0.23"
+version = "0.0.30"
 
 [[package]]
 name = "chaos-ggml"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-gguf",
  "chaos-model",
@@ -65,22 +65,22 @@ dependencies = [
 
 [[package]]
 name = "chaos-gguf"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
 ]
 
 [[package]]
 name = "chaos-grammar"
-version = "0.0.23"
+version = "0.0.30"
 
 [[package]]
 name = "chaos-http"
-version = "0.0.23"
+version = "0.0.30"
 
 [[package]]
 name = "chaos-image"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
  "chaos-ggml",
@@ -92,18 +92,18 @@ dependencies = [
 
 [[package]]
 name = "chaos-io"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
 ]
 
 [[package]]
 name = "chaos-jinja"
-version = "0.0.23"
+version = "0.0.30"
 
 [[package]]
 name = "chaos-model"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
  "chaos-gguf",
@@ -114,28 +114,28 @@ dependencies = [
 
 [[package]]
 name = "chaos-plan"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-gguf",
 ]
 
 [[package]]
 name = "chaos-probe"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
 ]
 
 [[package]]
 name = "chaos-qr"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-probe",
 ]
 
 [[package]]
 name = "chaos-run"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-arch",
  "chaos-build",
@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-serve"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-arch",
  "chaos-build",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-setup"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-app",
  "chaos-build",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-tokenizer"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-gguf",
  "chaos-model",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "chaos-worker"
-version = "0.0.23"
+version = "0.0.30"
 dependencies = [
  "chaos-build",
  "chaos-ggml",

@@ -8,6 +8,155 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.30] — 2026-09-02
+
+**The first release built to LTS standard, and the first tag in twenty-nine
+rungs.** v0.0.24 through v0.0.29 were phases of work, never tagged: 23 releases
+went out in 21 days once and none of them got a stabilisation period, so this
+time nothing shipped until there was something to stand behind.
+
+**What "LTS" means here is written down, and it is narrower than the phrase
+usually implies** — [SUPPORT.md](SUPPORT.md): the CLI's flags, the HTTP
+endpoints, the settings file and the catalogue layout stop moving; correctness
+bugs get fixed on this release and not only on `main`; and every claim in these
+notes was measured on hardware with the command line recorded. It does **not**
+mean a support window in years — one person cannot promise that — so the promise
+is structural instead: the newest LTS is supported until the next one exists.
+
+**It does not mean parity with llama.cpp on every measure.** The gate for this
+release is *every parity cell **measured***, not every cell won — Atur's decision,
+because counting cells won can never reach 100% from here and a gate that cannot
+be met is a reason never to tag. The table is **19 cells** (recounted: it claimed
+18), all 19 now have a number or a written reason, and **three read
+`unmeasurable here`** because llama.cpp will not produce a stable figure for
+V4-Flash on this machine — it returned 0.16–0.47 tok/s across eight runs of one
+command line, and hung outright after 40 minutes on a 4040-token prefill with all
+threads waiting and zero CPU. `docs/graph/backlog/lts-parity-criteria.md` has
+every cell.
+
+### Faster, and each one through a gate
+
+**DeepSeek-V4-Flash generation went 0.509 → 0.728 tok/s, 1.43x**, from two
+changes that are *byte-identical* — 50 of 50 answers unchanged. A third lever was
+built, measured, and **refused by the quality gate**.
+
+- **The block tail was computed twice.** Freezing it is worth **1.120x**, proved
+  inside one run using the three hash layers as an untouched control: the argsort
+  route now pays 0.0074 + 0.0086 against the hash layers' 0.0000 + 0.0159 —
+  equal sums, though an argsort block does more work. `CHAOS_NO_FREEZE=1` turns
+  it off, which is why the A/B is honest.
+- **The expert cache defaulted to zero on V4-Flash**, and `--auto` never ran on
+  that model at all. Sized from total RAM now — `clamp(total − resident − 5 GiB,
+  0, 6 GiB)` — which is **1.20x**. The old hint, *"`--cache <GiB>` is now worth
+  measuring"*, pointed at a cliff: 3 GiB measured 0.721 tok/s and 6 GiB measured
+  0.352 while the hit rate kept climbing.
+- **`--trunk-quant q4_k` was REFUSED and no speed figure from it is quoted** —
+  the gate's own rule. It converts the always-read trunk `Q8_0 → Q4_K` at load
+  (resident **7.38 → 4.26 GiB**, cache 3.34 → 6.00, hits 28.3% → 34.0%) and then
+  failed two of the three *lossy* checks independently: **20 of 50 answers
+  byte-identical, 40.0% against a 95% bar**, and perplexity **+3.674%** against a
+  +1% band. Only the checkable-answer check passed — 41 of 50, exactly the
+  baseline's 41 — so a 7% weight error changes how the model words things in 60%
+  of cases and what it knows in none. The flag stays in the tree **off by
+  default**, documented as failing in `--help`, in its module docs, and in a line
+  printed at run time.
+- **Two `cont` calls left the dense KV path**: byte-identical, **+7.1% at 4031
+  tokens** and +2.5% at 500, across all six alternating pairs.
+
+### Every platform, actually run
+
+- **Linux could not build from the README, and now a model runs there.** cmake
+  emits `libggml-base.a` under GCC and both build scripts looked only for
+  `ggml-base.a`, so the documented instructions produced a file the error
+  message called missing. CI never caught it because CI stages the archives with
+  `sed 's/^lib//'`. Fixed, and on Debian 12: Qwen2-0.5B at 50.01 tok/s,
+  V4-Flash generating, and the suite passing with Windows's exact counts.
+- **The published APK installs, launches and renders its interface** on an
+  android-34 x86_64 emulator — its arm64 library runs because that image lists
+  `x86_64,arm64-v8a`. It then crashes entering a mode, in one anonymous frame of
+  translated code with `libchaos_android.so` never mapped, which is **not
+  attributed to Chaos**. Still never run on a phone.
+- **The Windows installer's install was verified from the artefact on disk**, and
+  the missing `chaos.exe` in it is the pre-v0.0.22 gap — evidence that fix
+  mattered.
+
+### Any machine, any model
+
+- **`chaos-pull` picks the quant that fits your machine** instead of advising you
+  to. It probes before choosing, takes the largest quant whose always-read set
+  fits, says what it passed over and why, and **predicts tok/s only where the law
+  is calibrated** — declining for streaming containers and for anything outside
+  1–24 GiB resident. Its one prediction here, 8.2 tok/s for Qwen3-4B, is within
+  1% of the measured 8.27.
+- **The deepseek4 path reports which threads it used**, because generation wants
+  2–4 and prefill wants all of them.
+
+### Guarded rather than documented
+
+- **`scripts/quality-gate.sh`** — 50 checkable prompts with **a different bar per
+  lever**: *exact* needs 100% byte-identical, *lossy* needs ≥95% plus no
+  checkable regression plus perplexity within 1%. Validated against 1 MiB of
+  zeros written into a container: 22.0% identical, four checkables lost,
+  perplexity +1.16% — all three checks fired independently.
+- **`scripts/check-docs.sh`** — the documents are counted now, not assumed.
+  **Ten graph nodes were in no index line at all**, which in a repository whose
+  own instructions say "read `INDEX.md` first" means ten nodes nobody would ever
+  read. 46 of 148 declare no topic; that debt is **ratcheted** — today's count per section is a ceiling, so adding an undeclared node fails and fixing files lets the ceiling come down.
+- **`scripts/check-readme.sh`** — the README carries three things and nothing
+  else, enforced: the bars, the document map, and tok/s for five fixed models
+  with the machine named and dated. It was 393 lines once.
+- **Perplexity reaches the streaming path.** It was plumbed to the dense runner
+  and the deepseek4 dispatch returned before it, so the flag was silently ignored
+  on the one model this project is built around — a third of the *lossy* bar,
+  unmeasurable, for every lossy lever rather than for one.
+
+### The one thing this release does NOT claim, stated up front
+
+**DeepSeek-V4-Flash predicts measurably worse than llama.cpp, and it is not
+fixed here.** Perplexity on real prose at chunk 512, both engines scoring the
+same tokens with the same windowing:
+
+```
+  ours       18.5548
+  llama.cpp  14.1034 +/- 1.79378     +31.6%, outside the error bar
+```
+
+The instrument is trustworthy: in the same session Qwen3-4B agreed to **-1.44%**
+and Qwen3-30B-A3B to **+0.37%**. So this is a property of our deepseek4 forward
+pass, and **V4-Flash's place in `VERIFIED_ARCHITECTURES` rests on an eight-prompt
+greedy diff that cannot see a 31% distribution gap.**
+
+It affects that one architecture. The other nine are unaffected, and on
+Qwen3-30B-A3B -- the other streaming model -- Chaos agrees with llama.cpp on
+quality and is **1.38x ahead** on long-context generation, winning every pairing.
+
+Two suspects, both already documented in this repository as unverified: the
+compressed **YaRN RoPE** branch (*"transcribed, not verified"*, 41 of 43 layers)
+and the **128-token sliding window** (never exercised, because the oracle capture
+was five tokens). The hunt is open, the method is an element-sum diff against
+`llama-eval-callback` past 128 tokens, and no parameter will be changed on a
+hunch.
+
+### Retracted
+
+Kept here because a retraction is part of the record.
+
+- *"Proven: Qwen3-30B-A3B"* — `qwen3moe` is not in `VERIFIED_ARCHITECTURES` and
+  needs `--force`; its eight-prompt diff came back 1 FAIL.
+- *"The routed expert matmuls are 0.004 s, under 1%"* — they are **40%**. The
+  figure came from subtracting an expert read from a phase timer that measured
+  construction plus the read.
+- *"88% of `F` is the hyper-connection algebra"* — it is **8%**; attention is 40%.
+- *"4.26 tok/s is the ceiling"* — that was a disk bound with the arithmetic set
+  to zero. The arithmetic bound is three times lower: **1.5–1.8 tok/s** with the
+  disk removed entirely.
+- *"C7's argument is to move the trunk to a dtype with a kernel"* — `Q8_0` is the
+  *fastest* of F32/BF16/Q8_0 at the trunk's own shape.
+- *"The TinyLlama chat template is wrong"* — filed and withdrawn within the hour:
+  the detector was right and the test was stale.
+- *"`-t` is ignored on the deepseek4 path"* — it is bridged via `CHAOS_THREADS`.
+  The evidence was one run taken after three others had starved the machine.
+
 ## [0.0.23] — 2026-08-28
 
 Four decisions the v0.0.22 audit left open, taken and implemented.

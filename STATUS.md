@@ -5,8 +5,10 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-08-31 · **Version**: v0.0.23, tagged 2026-08-28 ·
-**Branch**: `ticket/update-from-inside` open as PR #150; `main` verified at v0.0.23.
+**Last updated**: 2026-09-02 · **Version**: v0.0.30, tagged 2026-09-02 ·
+**Branch**: `main`, verified at v0.0.30 — the first tag in twenty-nine rungs, and the
+first built to the standard `SUPPORT.md` defines. Two of eighteen parity cells are met,
+which is stated on the release page rather than left to be discovered.
 
 > **This file was 5,144 lines and 104 dated sections until 2026-08-31.** It called
 > itself the single source of truth while being a reverse-chronological diary in
@@ -78,9 +80,42 @@ Each release's contents and its gate are in the plan; the short form:
 
 ---
 
+## The largest open defect: V4-Flash predicts worse than llama.cpp
+
+**Found 2026-09-02, unfixed, and it outranks everything else on this list.**
+Perplexity on real prose at chunk 512, both engines scoring the same tokens with
+the same windowing and per-chunk BOS:
+
+```
+  ours       18.5548
+  llama.cpp  14.1034 +/- 1.79378      +31.6%, outside the error bar
+  at chunk 128: 35.8951 against 28.5509 +/- 4.54   +25.7%
+```
+
+**The instrument is validated, in the same session**: Qwen3-4B agrees with
+llama.cpp to **-1.44%** and Qwen3-30B-A3B to **+0.37%**. So this is a property of
+the deepseek4 forward pass, not of the ruler — and it means **V4-Flash's place in
+`VERIFIED_ARCHITECTURES` rests on an eight-prompt greedy diff that cannot see a
+31% distribution gap.** Nine architectures are unaffected.
+
+**The gap is roughly flat with context** (25.7% at 128 tokens, 31.6% at 512),
+which rules out RoPE-at-position as the main cause and points at something wrong
+from the first tokens. **Two cheap hypotheses are already eliminated**: the
+compressed YaRN RoPE branch (by the flatness) and the router-bias mistake the
+docs warned about — *"the bias steers selection only"* — which our code gets
+right, `get_rows(probs3, topk)` gathering from the **unbiased** probabilities.
+
+**What remains is the systematic method**, and the surface is large: the oracle
+fixtures cover **layers 0-3 of 43**. A five-token capture also cannot exercise an
+HCA layer's compressor at all (ratio 128) and the normal MoE routing path was
+never diffed. The next step is a `llama-eval-callback` capture past 128 tokens —
+300 tokens is prepared — and an element-sum diff, which is how all 43 layers were
+built in the first place. **No parameter gets changed on a hunch**;
+`research/stepwise-and-batched-disagree-2026-09-02.md` records why.
+
 ## The honest scoreboard
 
-**Current**: **999 tests** (0 failed, 46 ignored — the V4-Flash set needs the
+**Current**: **999 tests** (0 failed, 47 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

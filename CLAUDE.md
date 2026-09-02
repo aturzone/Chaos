@@ -50,7 +50,7 @@ Windows needs the **GNU** Rust toolchain plus MSYS2 mingw64 on PATH, and
 both halves**: every
 crate but `chaos-arch` builds, tests and lints without `GGML_LIB_DIR`, and
 `chaos-arch` must fail with its `GGML_LIB_DIR is not set` message rather than a
-wall of unresolved imports. **A full run reports 46 ignored** — they need a
+wall of unresolved imports. **A full run reports 47 ignored** — they need a
 real container on disk and skip silently without one, so a green run is not a
 full run. **The test-count comment above is machine-checked**:
 `scripts/check-test-count.sh` compares it with STATUS.md, CONTRIBUTING.md and

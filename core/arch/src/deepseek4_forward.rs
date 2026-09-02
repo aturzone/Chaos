@@ -2860,6 +2860,44 @@ pub fn block(
 /// Its gate block is the `pre` half only — nothing writes back into the streams
 /// after this, so there is no `post` and no combination matrix.
 pub fn head(fw: &Deepseek4Forward<'_>, streams: &[f32], arena: usize) -> Result<Vec<f32>> {
+    let hc_dim = fw.config.hc_dim() as usize;
+    // The last position only — the saving this function exists for.
+    let last = &streams[streams.len() - hc_dim..];
+    head_positions(fw, last, 1, arena)
+}
+
+/// The head over **every** position in `streams`, giving `[vocab, n_tokens]`.
+///
+/// # Why this exists
+///
+/// [`head`] projects one position, and that was worth 253 GFLOP on a long
+/// prefill — the whole sequence used to go through `output.weight` so that one
+/// row could be read. The cost of the saving was that per-position logits could
+/// only be obtained one forward pass at a time, which is how perplexity came to
+/// be scored a token at a time on both paths.
+///
+/// **That turned out to be more than slow.** A stepwise pass does not reproduce
+/// a batched one on this architecture: 64 tokens fed singly against the same 64
+/// in one pass gave cosine 0.970 and a *different* next token, so a stepwise
+/// perplexity cannot be compared with `llama-perplexity`, which evaluates each
+/// chunk as a batch. See
+/// `../../../docs/graph/research/stepwise-and-batched-disagree-2026-09-02.md`.
+///
+/// So this is the batched head: one pass scores a whole chunk, which makes the
+/// comparison valid **and** turns an hour of scoring into a minute.
+///
+/// # The arena
+///
+/// `[vocab, n_tokens]` at 129,280 x 512 x 4 bytes is 265 MB of logits before any
+/// intermediate, and **ggml aborts rather than refusing** when an arena runs out.
+/// Size `arena` from `n_tokens`; the caller knows the batch and this function
+/// cannot.
+pub fn head_positions(
+    fw: &Deepseek4Forward<'_>,
+    streams: &[f32],
+    n_tokens: i64,
+    arena: usize,
+) -> Result<Vec<f32>> {
     let config = &fw.config;
     let ctx = Context::new(arena)?;
     let wctx = Context::new_no_alloc(8 << 20)?;
@@ -2884,11 +2922,20 @@ pub fn head(fw: &Deepseek4Forward<'_>, streams: &[f32], arena: usize) -> Result<
     let hc = config.hc_mult as i64;
     let n_embd = config.n_embd as i64;
     let hc_dim = config.hc_dim() as usize;
-    let last = &streams[streams.len() - hc_dim..];
+    let nt = n_tokens.max(1);
+    // Checked rather than trusted: a short slice would read uninitialised arena
+    // and the numbers would look like logits.
+    let want = hc_dim * nt as usize;
+    if streams.len() != want {
+        return Err(crate::ArchError::Ggml(chaos_ggml::GgmlError::WrongSize {
+            expected: want,
+            actual: streams.len(),
+        }));
+    }
 
-    let x = ctx.new_f32_3d(n_embd, hc, 1)?;
-    x.set_f32(last)?;
-    let flat = ctx.reshape_2d(&x, hc_dim as i64, 1)?;
+    let x = ctx.new_f32_3d(n_embd, hc, nt)?;
+    x.set_f32(streams)?;
+    let flat = ctx.reshape_2d(&x, hc_dim as i64, nt)?;
     let normed = ctx.rms_norm(&flat, config.rms_eps)?;
     let mixes = ctx.mul_mat(weights.get("output_hc_fn.weight").expect("bound"), &normed)?;
 
@@ -2945,6 +2992,28 @@ pub fn prefill(fw: &Deepseek4Forward<'_>, tokens: &[i32], arena: usize) -> Resul
 /// uncached route would be the one every existing test took, leaving the
 /// incremental one unexercised until a user found it.
 pub fn forward(
+    fw: &Deepseek4Forward<'_>,
+    cache: &mut Deepseek4Cache,
+    tokens: &[i32],
+    arena: usize,
+) -> Result<Vec<f32>> {
+    let streams = forward_streams(fw, cache, tokens, arena)?;
+    head(fw, &streams, arena)
+}
+
+/// The same pass, stopping before the head — every position's hyper-connection
+/// state rather than the last position's logits.
+///
+/// **Split out so a caller can choose its head**, which is what perplexity needs.
+/// `head` projects only the final position through `output.weight`, a deliberate
+/// saving worth 253 GFLOP on a long prefill, and the consequence was that
+/// per-position logits could only be had one forward pass at a time. On this
+/// model that is ~1.4 s a scored token, and worse than slow: **a stepwise pass
+/// does not reproduce a batched one** — 64 tokens fed singly against the same 64
+/// in one pass gave cosine 0.970 and picked a different next token, which made a
+/// stepwise perplexity incomparable with llama.cpp's batched one.
+/// `../../../docs/graph/research/stepwise-and-batched-disagree-2026-09-02.md`.
+pub fn forward_streams(
     fw: &Deepseek4Forward<'_>,
     cache: &mut Deepseek4Cache,
     tokens: &[i32],
@@ -3061,7 +3130,7 @@ pub fn forward(
 
     let streams = streams.expect("at least one block");
     cache.n_past += tokens.len();
-    head(fw, &streams, arena)
+    Ok(streams)
 }
 
 /// Advance one token, reusing everything the cache already holds.

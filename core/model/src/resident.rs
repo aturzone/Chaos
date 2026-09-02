@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use chaos_gguf::GgmlType;
 use chaos_io::SkewedBuf;
 
 use crate::{Error, Model, Result};
@@ -40,6 +41,25 @@ pub struct ResidentSet {
     tensors: HashMap<String, Arc<SkewedBuf>>,
     bytes: u64,
     skipped: Vec<Skipped>,
+    /// Tensors whose bytes are no longer in the dtype the container stores.
+    ///
+    /// A resident tensor can be **converted after loading** — the trunk of a
+    /// mixed-precision container is stored at `Q8_0` while its routed experts
+    /// are 4-bit, and on a machine where residency is the binding constraint,
+    /// converting it buys RAM that nothing else can buy. What that breaks is the
+    /// assumption every binder made until now: that a tensor's type is whatever
+    /// the container's index says. So the set records the truth about the bytes
+    /// it holds, and a binder that asks gets the right answer.
+    ///
+    /// Empty unless something converted a tensor, which is the ordinary case.
+    ///
+    /// **An override deliberately survives [`take`](Self::take) and
+    /// [`put_back`](Self::put_back), and that is load-bearing.** Weight repacking
+    /// reads the type, takes the bytes, and can then be *declined* by ggml and
+    /// put them back. If taking a tensor cleared its override, the decline path
+    /// would return converted bytes to the set with the container's type
+    /// attached, and the next binder would read a `Q4_K` buffer as `Q8_0`.
+    overrides: HashMap<String, GgmlType>,
 }
 
 /// A tensor that was planned as resident but could not be loaded.
@@ -210,6 +230,7 @@ impl ResidentSet {
                 tensors,
                 bytes,
                 skipped: plan.skipped,
+                overrides: HashMap::new(),
             },
             report,
         ))
@@ -289,6 +310,7 @@ impl ResidentSet {
                 tensors,
                 bytes,
                 skipped,
+                overrides: HashMap::new(),
             },
             report,
         ))
@@ -366,6 +388,38 @@ impl ResidentSet {
     pub fn put_back(&mut self, name: String, bytes: Arc<SkewedBuf>) {
         self.bytes += bytes.len() as u64;
         self.tensors.insert(name, bytes);
+    }
+
+    /// Put a tensor back **in a different dtype**, and record that.
+    ///
+    /// The one way the set's contents stop matching the container's index. Used
+    /// by the trunk requantiser: it [`take`](Self::take)s a `Q8_0` tensor,
+    /// converts it to a K-quant, and hands the smaller bytes back through here.
+    ///
+    /// The override is what makes it safe. A binder that read `loc.ty` from the
+    /// container would create a `Q8_0` tensor over `Q4_K` bytes — the same
+    /// number of elements at 0.53 bytes each read as 1.06, so it would read
+    /// twice the buffer and get plausible-looking rubbish. **A wrong dtype here
+    /// is fluent nonsense, never a crash**, so [`type_of`](Self::type_of) exists
+    /// and every binder must ask.
+    pub fn replace(&mut self, name: String, ty: GgmlType, bytes: Arc<SkewedBuf>) {
+        self.bytes += bytes.len() as u64;
+        self.overrides.insert(name.clone(), ty);
+        self.tensors.insert(name, bytes);
+    }
+
+    /// The dtype of the bytes this set holds for `name`, if it is not the one
+    /// the container stores.
+    ///
+    /// `None` means "the container's index is still right", which is the answer
+    /// for every tensor of every model that has not been converted.
+    pub fn type_of(&self, name: &str) -> Option<GgmlType> {
+        self.overrides.get(name).copied()
+    }
+
+    /// How many tensors are held in a dtype the container does not name.
+    pub fn converted(&self) -> usize {
+        self.overrides.len()
     }
 
     /// Tensors that were planned but not loaded, and why.

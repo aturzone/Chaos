@@ -62,6 +62,9 @@
 #   bash scripts/quality-gate.sh --model M.gguf --lever exact
 #   bash scripts/quality-gate.sh --model M.gguf --lever lossy
 #
+#   # a lever that is a FLAG rather than an environment variable
+#   bash scripts/quality-gate.sh --model M.gguf --lever lossy #     --flags "--trunk-quant q4_k" --ppl scripts/ppl-corpus-stream.txt
+#
 # Exit 0 if the bar for that lever is met, 1 if it is not, and 2 if the harness
 # could not run -- which is never reported as a pass.
 set -uo pipefail
@@ -80,6 +83,24 @@ TOKENS=12                    # generated per prompt
 # tokens, which is how the first run of this script reported "could not be
 # measured" while the real message was sitting in stderr.
 PPL_CHUNK=128
+# **Two corpora, because the streaming path scores a token at a time.**
+# `long-prompt.txt` is 4040 tokens, which is right for a dense model. On
+# DeepSeek-V4-Flash a scored token costs ~1.4 s, because the head projects only
+# the final position and so per-position logits arrive one step at a time -- 4040
+# tokens would be over ninety minutes a side. `scripts/ppl-corpus-stream.txt` (14
+# paragraphs, ~700 tokens) is five whole chunks at `PPL_CHUNK`, 315 scored tokens,
+# about fifteen minutes a side.
+#
+# **Fewer tokens is a time budget here, not a precision one**: perplexity is
+# deterministic and both sides score exactly the same tokens, so the comparison
+# is exact for the tokens it covers. What a short corpus risks is being
+# unrepresentative -- so if a result lands near the 1% band, lengthen the corpus
+# and measure again rather than calling it.
+#
+# It also keeps the logits **exact**: a chunk is at most 128 tokens of context, and
+# skipping the unimplemented lightning indexer is only a no-op while
+# `n_tokens / 4` stays inside `indexer_top_k`. A single 1818-token pass printed
+# *"These logits are APPROXIMATE"*; a chunked one does not.
 
 MODEL=""
 LEVER=""
@@ -87,6 +108,15 @@ RECORD=0
 PROMPTS="scripts/quality-prompts.tsv"
 BASE=""
 PPL_CORPUS=""
+# Extra flags for `chaos-run`, so a lever that is a **flag** rather than an
+# environment variable can be gated at all.
+#
+# Every lever until now was an env var (`CHAOS_NO_FREEZE`, `CHAOS_NO_REPACK`), so
+# the same binary could be run both ways with nothing passed here. C7 is
+# `--trunk-quant q4_k`, and without this the gate could only ever have measured
+# the default. Echoed in the header below on purpose: a gate that does not say
+# which flags it used is a gate that could be comparing two of the same thing.
+EXTRA=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -97,6 +127,7 @@ while [ $# -gt 0 ]; do
     --baseline) BASE="${2:-}"; shift 2 ;;
     --ppl)      PPL_CORPUS="${2:-}"; shift 2 ;;
     --tokens)   TOKENS="${2:-}"; shift 2 ;;
+    --flags)    EXTRA="${2:-}"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -128,6 +159,15 @@ if [ "$N" -lt 50 ]; then
 fi
 echo "model    $MODEL"
 echo "prompts  $N, $TOKENS tokens each"
+# Word-split deliberately: this is a flag list, not a filename.
+# shellcheck disable=SC2206
+EXTRA_ARGS=()
+[ -n "$EXTRA" ] && EXTRA_ARGS=($EXTRA)
+if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
+  echo "flags    ${EXTRA_ARGS[*]}"
+else
+  echo "flags    none (the built-in default)"
+fi
 echo
 
 # **What the answer is, and what this got wrong for its whole first day.**
@@ -164,7 +204,7 @@ OUT=$(mktemp)
 right=0
 while IFS=$'\t' read -r expected prompt; do
   [ -n "${prompt:-}" ] || continue
-  gen=$("$EXE" "$MODEL" "$prompt" -n "$TOKENS" --temp 0 --no-perf 2>/dev/null | extract)
+  gen=$("$EXE" "$MODEL" "$prompt" -n "$TOKENS" --temp 0 --no-perf     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} 2>/dev/null | extract)
   # **An empty completion is a harness failure, not an answer.** A model that
   # printed nothing and a model that printed the wrong thing are both "not
   # identical", and reporting the first as the second is how a broken run gets
@@ -192,7 +232,7 @@ echo "checkable answers correct: $right of $N"
 # ---- perplexity, when a corpus is given -----------------------------------
 ppl=""
 if [ -n "$PPL_CORPUS" ] && [ -f "$PPL_CORPUS" ]; then
-  ppl_out=$("$EXE" "$MODEL" -f "$PPL_CORPUS" --perplexity --ppl-chunk "$PPL_CHUNK" 2>&1)
+  ppl_out=$("$EXE" "$MODEL" -f "$PPL_CORPUS" --perplexity --ppl-chunk "$PPL_CHUNK"     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} 2>&1)
   ppl=$(printf '%s' "$ppl_out" | grep -oE 'perplexity [0-9]+\.[0-9]+' | head -1 | awk '{print $2}')
   if [ -n "$ppl" ]; then
     echo "perplexity: $ppl  (chunk $PPL_CHUNK)"

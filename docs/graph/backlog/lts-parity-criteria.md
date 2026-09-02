@@ -67,7 +67,7 @@ measured back to back in one session with both command lines recorded.
 | criterion | V4-Flash | Qwen3-30B-A3B | Qwen3-4B dense |
 |---|---|---|---|
 | load / time-to-first-token | 1.25x behind | — | — |
-| prefill tok/s | 1.25x behind | **ahead** @565, @2206 | **38.5 vs 111.2 — 2.9x behind** |
+| prefill tok/s | 1.25x behind | **ahead** @565, @2206 | **83.28 vs 102.91 — 1.24x behind** (re-measured 2026-09-02; the ranges touch — llama.cpp's worst run, 89.18, is slower than Chaos's best, 90.08) |
 | generation tok/s | **UNMEASURABLE HERE** — Chaos **0.696** ±1%, llama.cpp **0.16–0.47** across 8 runs of one command line, drifting down within every sequence even with Chaos never started. No ratio published: best gives 1.70x, alternating median 2.32x, worst 4.35x. `../research/the-v4flash-parity-cell-does-not-reproduce-2026-09-01.md` | 1.07 vs 2.16 | **4.27 vs 5.90 — 1.38x behind** (Llama-3.2-1B: 10.12 vs 12.91, 1.28x) |
 | memory footprint at equal speed | **ours, by design** | ours | — |
 | long-context generation | untested (and the short cell is unmeasurable here) | untested | **3.13 vs 4.53 — 1.45x behind** at 4031 tokens, both engines stable. **The ratio FLIPS**: short context, same session, Chaos **8.39 vs 7.69 — 1.09x ahead**. Chaos slows **2.68x** with 4000 tokens of context against llama.cpp's **1.70x**. `../research/long-context-parity-qwen3-4b-2026-09-01.md` |
@@ -75,7 +75,70 @@ measured back to back in one session with both command lines recorded.
 | **the long-context generation gap is diagnosed** | — | — | **the KV cache is copied every token**: `cont(permute(kv))` costs **87.55 ms of a 306.7 ms token** at 4031 positions, a **3.25x** attention slope. Removing it projects to ~4.42 tok/s against llama.cpp's 4.49 — the whole gap. Diagnosed, not built: `../research/the-kv-cache-is-copied-every-token-2026-09-01.md` |
 | **quality (perplexity)** | untested | untested | **33.6434 vs 34.0293 — 1.13%** |
 
+**The release gate is "every cell measured", not "every cell won"** — Atur's
+decision, 2026-09-02, and it came from him noticing that the README's v0.0.30 bar
+said 20% while the release was being prepared.
+
+He was right, and the bar was measuring the wrong thing. Counting *cells won*
+against llama.cpp can never reach 100% from here: generation is 1.38x behind on
+dense Qwen3-4B and roughly 2x on Qwen3-30B-A3B, closing either is real
+engineering rather than a release step, and one cell is permanently
+`unmeasurable here`. A gate that cannot be met is not a gate, it is a reason
+never to tag — and this project has already been the other kind of wrong, with 23
+releases in 21 days and no stabilisation period for any of them.
+
+So the standard for tagging is: **every cell has a number, or a written reason
+why it cannot have one.** That is exactly what `SUPPORT.md` already promises —
+"every claim was measured on hardware with the command line recorded" — and it is
+a promise one person can keep. Beating llama.cpp everywhere is not.
+
+**The count, recounted.** This document said "18 cells" and that was wrong: the
+table is 8 criteria x 3 models = 24, less 5 marked `—` because the criterion does
+not apply to that model, so **19**. Six are `untested`:
+
+| model | cell |
+|---|---|
+| V4-Flash | long-context generation, long-context prefill, quality |
+| Qwen3-30B-A3B | long-context generation, long-context prefill, quality |
+
+**13 of 19 measured, 68%.** All six are measurable on this machine, and a seventh
+job is not on the list because it already has a number: the Qwen3-4B prefill cell
+is measured but **stale**, from before four fixes, so it is re-measured rather
+than counted again.
+
 **A cell can also be `unmeasurable here`, and one now is.** That is a third state beside `done` and `gap`, and it needs the same thing a `won't` needs: a reason written down. V4-Flash generation is the first — llama.cpp's figure on this container ranges **0.16 to 0.47 tok/s** for the same command line on the same machine, so alternating against it measures the operating system rather than the engines. Chaos's own figure is stable to 1%. Closing it needs a machine where a 144 GB working set does not fight a 15.7 GiB page cache, not more repetitions.
+
+**The streaming path can be scored at all now, as of 2026-09-02.** The quality
+row said `untested` for V4-Flash and the reason was not laziness:
+`--perplexity` is plumbed to `run_streaming` and the deepseek4 dispatch returns
+from `run` before that, so the flag was **silently ignored on that model** —
+found while putting C7 through the gate's *lossy* bar, a third of which is the
+perplexity band. It now scores a corpus with the dense path's windowing, so this
+cell has become measurable. **It is not measured against llama.cpp yet**, and it
+will not be until `llama-perplexity` has run the same corpus with the same
+chunking on the same machine, with both command lines recorded here.
+
+**The `38.5 vs 111.2` prefill cell was stale, and it was wrong in the direction
+that flattered llama.cpp.** Re-measured 2026-09-02 at a matched length, three
+alternating pairs in one session:
+
+```
+            chaos                                   llama.cpp
+  pair 1    90.08 tok/s (500 tokens in 5.6s)        102.91 ± 1.30  (pp512)
+  pair 2    83.28        (500 in 6.0s)              105.10 ± 0.71
+  pair 3    81.34        (500 in 6.1s)               89.18 ± 0.33
+  median    83.28                                   102.91          1.24x behind
+
+  chaos-run <model> -f <500 tokens> -n 1 --temp 0 -c 4096
+  llama-bench -m <model> -p 512 -n 0 -t 20 -r 3
+```
+
+**1.24x behind, not 2.9x**, and llama.cpp's own spread is 18% wide so the ranges
+touch: its worst run is slower than Chaos's best. The old figure predated the KV
+cache, the end of projecting every position through the output matrix, the arena
+fix and both `cont` removals — four changes, all of which postdate it. Chaos
+prefills 500 tokens against llama-bench's 512, which is stated rather than
+rounded away.
 
 **Quality is measured now, and it was the largest untested claim in this
 document.** `chaos-run --ppl-chunk N` reports perplexity using llama.cpp's

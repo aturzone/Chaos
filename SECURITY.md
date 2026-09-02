@@ -12,6 +12,10 @@ to that standard, and this section changes when it lands.
 | the newest release | ✅ |
 | anything earlier | ❌ upgrade first, then report |
 
+What "supported" covers for everything that is *not* a security problem — which
+bugs get fixed, what stays stable across an LTS, and the list of things that are
+explicitly not supported — is [SUPPORT.md](SUPPORT.md).
+
 **A version is not named here on purpose.** This file said "Chaos is at
 **v0.0.0**" through twenty-three releases -- the one document a stranger reads
 to decide whether a project is maintained, claiming it had never shipped. A

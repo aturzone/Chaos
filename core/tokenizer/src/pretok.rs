@@ -607,6 +607,17 @@ fn contraction_at(chars: &[char], i: usize) -> Option<usize> {
     best
 }
 
+/// The ASCII punctuation llama.cpp's `joyai-llm` rule accepts before letters.
+///
+/// Spelled from its own class rather than inferred from a Unicode category:
+/// `[!"#$%&'()*+,\-./:;<=>?@\[\\]^_`{|}~]`. Every printable ASCII character
+/// that is neither a letter, a digit, nor a space — which is what
+/// `is_ascii_punctuation` means, so it is used directly and this note records
+/// that the two were checked against each other rather than assumed equal.
+fn is_ascii_punct(c: char) -> bool {
+    c.is_ascii_punctuation()
+}
+
 /// DeepSeek-V4-Flash's `joyai-llm`, unchanged and still verified against it.
 ///
 /// ```text
@@ -634,6 +645,22 @@ fn joyai(text: &str) -> Vec<String> {
 
         if is_cjk(chars[i]) {
             while i < chars.len() && is_cjk(chars[i]) {
+                i += 1;
+            }
+            out.push(chars[start..i].iter().collect());
+            continue;
+        }
+
+        // **llama.cpp's first alternative**, which this function used to omit:
+        // one ASCII punctuation mark plus the ASCII letters after it, as a
+        // single piece. `.md` and `'s`, not `.` + `md` and `'` + `s`.
+        //
+        // It must be tried before the punctuation run below, exactly as it is
+        // first in llama.cpp's alternation — otherwise ` ?[\p{P}\p{S}]+` eats
+        // the mark and the letters are left to start a piece of their own.
+        if is_ascii_punct(chars[i]) && chars.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic()) {
+            i += 1;
+            while i < chars.len() && chars[i].is_ascii_alphabetic() {
                 i += 1;
             }
             out.push(chars[start..i].iter().collect());

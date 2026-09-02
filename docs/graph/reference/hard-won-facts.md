@@ -152,6 +152,23 @@ are the measurement that killed one.
 
 ## Correctness, which fails silently here
 
+- **A pre-tokenizer transcribed from llama.cpp can be missing an entire
+  alternative, and nothing will say so.** `joyai-llm` (DeepSeek-V4-Flash) begins
+  `[!"#$%&'()*+,\-./:;<=>?@\[\\]^_`{|}~][A-Za-z]+` — one ASCII punctuation
+  mark plus the ASCII letters after it, as **one piece**. Ours started at the
+  *second* alternative, so `SUPPORT.md` came out `.` + `md` and `project's` came
+  out `'` + `s`. Cost: **+31.6% perplexity against llama.cpp, which fell to
+  +4.1% and inside its error bar the moment it was fixed.** Splitting a piece the
+  model only ever saw whole is out of distribution, not a harmless finer split.
+  **Diff the ids against `llama-tokenize -m M -f FILE --ids` on a real container
+  before believing any pre-tokenizer**, and use prose with punctuation in it.
+- **A test that checks *which* pre-tokenizer is selected proves nothing about
+  what it produces.** `v4flash_still_uses_joyai_llm_unchanged` passed before and
+  after that fix. So did the eight-prompt greedy diff that put the architecture
+  in `VERIFIED_ARCHITECTURES`: short prompts, and a wrong split still reads as
+  fluent English.
+
+
 - **An autoencoder is checked by round trip, not by looking.** A decoder alone
   can only be judged by what it produces, and a subtly wrong one produces a
   plausible picture. Running the *encoder* too gives a number: the two halves

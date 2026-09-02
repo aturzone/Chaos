@@ -5095,6 +5095,16 @@ fn perplexity_deepseek4(
     if tokens.len() < 2 {
         return Err("perplexity needs at least 2 tokens; use -f with a real corpus".into());
     }
+    // A chunk is scored in **one** pass now, so a chunk cannot be larger than a
+    // pass. Refused by name rather than left for `forward` to reject mid-run,
+    // which would waste the whole model load.
+    let pass = chaos_arch::max_pass_tokens(config);
+    if chunk_size > pass {
+        return Err(format!(
+            "--ppl-chunk {chunk_size} is larger than this path's {pass}-token pass. A chunk              is scored in one batched pass, which is what makes the number comparable with              llama-perplexity. Use --ppl-chunk {pass} or less."
+        )
+        .into());
+    }
     let mut total_nll = 0f64;
     let mut counted = 0usize;
     let mut chunks = 0usize;
@@ -5112,20 +5122,32 @@ fn perplexity_deepseek4(
         // llama.cpp's rule, per chunk. See `with_bos_first`.
         let owned = with_bos_first(chunk, bos);
         let chunk = &owned[..];
-        let mut logits = chaos_arch::forward(fw, &mut cache, &chunk[..1], arena)?;
-        for i in 1..chunk.len() {
-            if logits.len() < vocab {
-                return Err(format!("logits too small: {} < {vocab}", logits.len()).into());
-            }
-            if i >= first_scored {
-                let row = &logits[logits.len() - vocab..];
-                total_nll += chaos_arch::neg_log_prob(row, chunk[i] as usize);
-                counted += 1;
-            }
-            // The last position predicts nothing further, so do not pay for it.
-            if i + 1 < chunk.len() {
-                logits = chaos_arch::step(fw, &mut cache, chunk[i], arena)?;
-            }
+
+        // **One batched pass for the whole chunk**, which is what makes this
+        // comparable with `llama-perplexity` at all -- it evaluates a chunk as a
+        // batch too. Feeding tokens singly does *not* reproduce a batched pass
+        // here: 64 tokens one at a time against the same 64 in one pass gave
+        // cosine 0.970 and picked a different next token, so a stepwise score
+        // measured a path llama.cpp never takes.
+        //
+        // It is also about 500x less work: one pass instead of one per token, at
+        // ~1.4 s a pass on this model.
+        let streams = chaos_arch::forward_streams(fw, &mut cache, chunk, arena)?;
+        let all = chaos_arch::head_positions(fw, &streams, chunk.len() as i64, arena)?;
+        if all.len() != vocab * chunk.len() {
+            return Err(format!(
+                "expected {} logits for {} positions, got {}",
+                vocab * chunk.len(),
+                chunk.len(),
+                all.len()
+            )
+            .into());
+        }
+        // Position `i - 1` predicts token `i`.
+        for i in first_scored..chunk.len() {
+            let row = &all[(i - 1) * vocab..i * vocab];
+            total_nll += chaos_arch::neg_log_prob(row, chunk[i] as usize);
+            counted += 1;
         }
         chunks += 1;
         let ppl = (total_nll / counted as f64).exp();

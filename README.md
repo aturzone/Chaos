@@ -141,7 +141,7 @@ Architectures     10%  [##..................]  14 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
 Browser UI        33%  [######..............]  2 of 6 — tracked, not a priority
 V4-Flash speed    14%  [##..................]  0.728 of 5 tok/s
-Documents         68%  [#############.......]  100 of 146 graph nodes in order
+Documents         68%  [#############.......]  102 of 148 graph nodes in order
 ```
 
 "Verified" here means diffed, and **every one of the 14 architectures was diffed against

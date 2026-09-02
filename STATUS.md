@@ -5,8 +5,10 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-08-31 · **Version**: v0.0.23, tagged 2026-08-28 ·
-**Branch**: `ticket/update-from-inside` open as PR #150; `main` verified at v0.0.23.
+**Last updated**: 2026-09-02 · **Version**: v0.0.30, tagged 2026-09-02 ·
+**Branch**: `main`, verified at v0.0.30 — the first tag in twenty-nine rungs, and the
+first built to the standard `SUPPORT.md` defines. Two of eighteen parity cells are met,
+which is stated on the release page rather than left to be discovered.
 
 > **This file was 5,144 lines and 104 dated sections until 2026-08-31.** It called
 > itself the single source of truth while being a reverse-chronological diary in
@@ -78,9 +80,38 @@ Each release's contents and its gate are in the plan; the short form:
 
 ---
 
+## FIXED the same day: V4-Flash's pre-tokenizer was missing a rule
+
+**Found and fixed 2026-09-02.** V4-Flash measured **+31.6%** worse than
+llama.cpp in perplexity. The cause was one missing alternative in the
+`joyai-llm` pre-tokenizer, and the fix closed it:
+
+```
+  before   18.5548     +31.6%
+  after    14.6877      +4.1%   <- inside llama.cpp's 14.1034 +/- 1.79
+```
+
+`joyai-llm` begins `[!"#$%&'()*+,\-./:;<=>?@\[\\]^_`{|}~][A-Za-z]+` — one
+ASCII punctuation mark plus the letters after it, as **one piece**. Ours was
+transcribed from the *second* alternative onward, so `SUPPORT.md` became `.` +
+`md` and `project's` became `'` + `s`. **Our ids now match `llama-tokenize`
+exactly, 294 for 294.**
+
+**Why four separate checks missed it**: it is the only `joyai-llm` container in
+existence, so every other model agreed; the test named
+`v4flash_still_uses_joyai_llm_unchanged` only checks *which* pre-tokenizer is
+selected, and passes either way; the eight-prompt greedy diff that put the
+architecture in `VERIFIED_ARCHITECTURES` cannot see a distribution gap; and the
+perplexity harness that would have caught it **did not exist on this path** until
+the same day.
+
+**Quality against llama.cpp, all three models, instrument validated in one
+session:** Qwen3-4B **-1.44%**, Qwen3-30B-A3B **+0.37%**, V4-Flash **+4.1%**.
+Parity on quality across the range.
+
 ## The honest scoreboard
 
-**Current**: **999 tests** (0 failed, 46 ignored — the V4-Flash set needs the
+**Current**: **999 tests** (0 failed, 48 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

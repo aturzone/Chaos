@@ -5,11 +5,40 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-09-03 · **Version**: v0.0.31, tagged 2026-09-03 ·
-**Branch**: `main`, verified at v0.0.31. **v0.0.30 shipped with a broken front door
+**Last updated**: 2026-09-03 · **Version**: v0.0.32, tagged 2026-09-03 ·
+**Branch**: `main`, verified at v0.0.32.
+
+**v0.0.32 fixes the last report Atur had open: the book.** *"the book of QR code
+for Core mode is not available!!! that book where is it!!"* — and it was not, for
+three different reasons, none of which a test could have caught because none of
+them was in the pages:
+
+- **The window could only reach the art through a running engine.** The pages
+  were a route on the child `chaos-serve`, so the book was a feature of a loaded
+  model: turn the dial to CORE, press the button before pressing LOAD, and the
+  browser said the site could not be reached. `gui/app/src/brand.rs` now serves
+  the same assembled bytes from the window itself, on loopback, with no model.
+- **The reader could not open a camera even with a model loaded.** `getUserMedia`
+  is refused outside a secure context, and a LAN address is not one — so CORE
+  mode handed the reader exactly the address that cannot work. Loopback is a
+  secure context; the mark still *encodes* the LAN address, because the page
+  prefers an injected endpoint over its own origin.
+- **On the phone it was findable only if you already knew where it was**: bottom
+  of the SETTINGS tab, inside a scroll view, behind a button labelled MARK.
+  The mode badge is now the door, as it already is on the desktop's rail.
+
+**The enabling change was one CLAUDE.md had recommended and nobody had taken**:
+`grimoire` is string assembly with no ggml reference, and while it lived in
+`chaos-arch` the two tiers that most want to show the art could not — the window
+would have had to link ggml. It is now `chaos-grimoire`, its own crate with zero
+dependencies; `chaos_arch::grimoire` is a `pub use` of it, so the server is
+untouched. **The APK build stopped compiling a host llama.cpp** to write two HTML
+files: `chaos-qr --emit-pages` does it with no C toolchain.
+
+**v0.0.30 shipped with a broken front door
 and a green test suite** — `chaos connect` took any unknown `--flag` as the hostname,
 so it looked like the QR pages and device-to-device connection were missing when both
-worked. `scripts/smoke-the-surface.sh` now runs 29 checks against the built binaries in
+worked. `scripts/smoke-the-surface.sh` now runs 30 checks against the built binaries in
 CI: every subcommand, every node route, and one machine asking another.
 
 > **This file was 5,144 lines and 104 dated sections until 2026-08-31.** It called
@@ -43,11 +72,18 @@ none of them got a stabilisation period, which is the whole complaint.
 v0.0.24  One truth                    [####################] 100%  merged #151
 v0.0.25  Guard the binary             [####################] 100%  merged #152
 v0.0.26  Measure before optimising    [####################] 100%  merged #153-155
-v0.0.27  Quality harness, then levers [########------------]  40%  <- harness in
-v0.0.28  Any machine, any model       [###########---------]  55%
-v0.0.29  Every platform, actually run [#######-------------]  35%
-v0.0.30  LTS                          [#-------------------]   6%
+v0.0.27  Quality harness, then levers [####################] 100%  2 passed, 1 refused
+v0.0.28  Any machine, any model       [################----]  80%  needs other machines
+v0.0.29  Every platform, actually run [##############------]  70%  macOS is what is left
+v0.0.30  LTS                          [####################] 100%  19 of 19 cells measured
 ```
+
+**This block was stale until 2026-09-03** and read 40/55/35/6% while the README
+said 100/100/80/70/100 and two versions were already tagged — the exact drift
+the v0.0.24 rung exists to remove, in the file that calls itself the single
+source of truth. `scripts/check-readme.sh` machine-checks the README's copy
+against `CHECKLIST.md`; nothing checked this one, so **read the ladder from the
+README**, which is enforced.
 
 Each release's contents and its gate are in the plan; the short form:
 
@@ -145,7 +181,7 @@ ending on a boundary. The 300-token oracle capture already exists.
 
 ## The honest scoreboard
 
-**Current**: **999 tests** (0 failed, 48 ignored — the V4-Flash set needs the
+**Current**: **1003 tests** (0 failed, 49 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 
@@ -181,7 +217,11 @@ with a claimed lead either — the ranges overlap.
 
 ## What is open, in the order it is worth taking
 
-**Nothing below is blocking a merge. All of it is blocking v0.0.30.**
+**Nothing below is blocking a merge, and v0.0.30 has shipped.** This list still
+said "all of it is blocking v0.0.30" two versions after that tag; items 7, 8 and
+9 were done and still written here as open. **Each one below was re-checked
+against the code on 2026-09-03**, and what closed says so with the line that
+proves it.
 
 1. ~~**No CI job runs the correctness suite against a real model.**~~ **Closed
    2026-08-31.** CI now fetches a 397 MB Qwen2-0.5B, verifies it is really a GGUF, and
@@ -244,12 +284,17 @@ with a claimed lead either — the ranges overlap.
 6. **The APK has never run on a phone**, only an emulator; `chaos-android` has 1 test.
    The SDK cannot be installed here (`dl.google.com` 404s this network), so CI is the
    only build.
-7. **`chaos-run` has 8 tests** and is the binary most people type.
-8. **The port is bound after the model loads** — a 144 GB model reads for minutes and
-   then fails on a taken port, with the raw OS string naming neither the port nor
-   `chaos stop`. `chaos-serve.rs:207-209` already states the principle it violates.
-9. **`finish_reason` is not surfaced** to `chaos connect` — long answers stop mid-word
-   with no explanation and no flag to raise the cap.
+7. ~~**`chaos-run` has 8 tests**~~ **Closed.** It has **16**, across four files:
+   `a_bad_value_is_refused` 5, `forward_pass_is_not_broken` 4,
+   `refused_flags_decline` 7, plus one ignored polyfill test that needs a
+   container.
+8. ~~**The port is bound after the model loads**~~ **Closed.** `chaos-serve`
+   binds at `lib.rs:220` and opens the container at `222` — the listener first,
+   with `port_taken_message` on failure, so a 144 GB model no longer reads for
+   minutes before failing on a taken port.
+9. ~~**`finish_reason` is not surfaced**~~ **Closed.** `chaos_cli::finish_reason`
+   parses it out of the stream and `cli/chaos/src/main.rs:564` reports it, so an
+   answer cut off at the cap says so instead of stopping mid-word.
 10. Smaller and honest: `chaos scan` is declared NOT BUILT; zsh and fish completions are
     generated but never sourced; no contrast audit or screen-reader story for the
     window; full-disk behaviour deliberately unmeasured; `strip` has never been run and

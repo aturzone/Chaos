@@ -50,12 +50,17 @@ A signing key is not committed to this repository on purpose: it is public, and 
 committed key lets anyone build an APK that Android will accept as an upgrade
 over a user's install.
 
-```bash
-keytool -genkeypair -v -keystore chaos-release.keystore \
-  -alias chaos -keyalg RSA -keysize 4096 -validity 10000
+**One command**, `scripts/make-release-keystore.sh`, added in v0.0.32 so this is
+not four steps from memory:
 
-base64 -w0 chaos-release.keystore > chaos-release.keystore.b64
+```bash
+bash scripts/make-release-keystore.sh
 ```
+
+It refuses to overwrite an existing keystore -- replacing the key is the same
+failure as having none -- asks `keytool` for a password (nothing in the script
+reads, stores or transmits it), writes the keystore and its base64, and prints
+what to paste into each of the four secrets. Both files are gitignored.
 
 Then four repository secrets (Settings → Secrets and variables → Actions):
 

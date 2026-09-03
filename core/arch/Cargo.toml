@@ -15,6 +15,9 @@ chaos-io = { path = "../../core/io" }
 chaos-model = { path = "../../core/model" }
 chaos-probe = { path = "../../core/probe" }
 chaos-grammar = { path = "../../core/grammar" }
+# The brand pages, re-exported as `chaos_arch::grimoire` so the server and
+# `--emit-pages` keep their path. No ggml, no dependencies of its own.
+chaos-grimoire = { path = "../../core/grimoire" }
 chaos-jinja = { path = "../../core/jinja" }
 chaos-tokenizer = { path = "../../core/tokenizer" }
 

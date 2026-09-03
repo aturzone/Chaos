@@ -68,3 +68,10 @@ android/app/src/main/assets/brand/
 # would be read as a regression. `scripts/quality-gate.sh` records one on
 # demand and says so.
 quality-baseline/
+
+# **A signing key must never be committed.** The repository is public, and a
+# committed key lets anyone build an APK Android accepts as an upgrade over a
+# user's install. `scripts/make-release-keystore.sh` writes both of these.
+*.keystore
+*.keystore.b64
+*.jks

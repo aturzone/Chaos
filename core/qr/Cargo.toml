@@ -15,6 +15,9 @@ categories = ["command-line-utilities"]
 # For --route: the address another machine can reach, which is a fact about
 # this machine and so lives with the rest of them.
 chaos-probe = { path = "../../core/probe" }
+# For --emit-pages: the two brand pages, assembled. No ggml, which is the
+# whole reason the emitter lives on this binary and not on chaos-serve.
+chaos-grimoire = { path = "../../core/grimoire" }
 
 [[bin]]
 name = "chaos-qr"

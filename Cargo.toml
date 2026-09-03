@@ -22,6 +22,7 @@ members = [
     "core/probe",     # hardware, and how much memory can be reclaimed
     "core/plan",      # prediction and residency policy
     "core/qr",        # QR encoding, so a headless node can print its route
+    "core/grimoire",  # the brand pages, assembled -- no ggml, so every tier can show them
     "core/model",     # sharded resolution, partial reads, the catalogue
     "core/tokenizer", # byte-level BPE
     "core/grammar",   # constrained decoding, and the workspace's JSON parser
@@ -46,7 +47,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.31"
+version = "0.0.32"
 edition = "2021"
 rust-version = "1.82"
 license = "Apache-2.0"

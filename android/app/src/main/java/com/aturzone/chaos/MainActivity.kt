@@ -154,18 +154,6 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Keep the address and key.
-     *
-     * **Not only in `onPause`.** That was the first version, and it loses them
-     * whenever the process is *killed* rather than paused — swiped away from
-     * recents, or reclaimed by the system, both of which skip `onPause`
-     * entirely. Found by force-stopping the app on an emulator and watching the
-     * server address revert to the placeholder.
-     *
-     * So it is saved on CONNECT as well, which is the moment the values are
-     * known to be the ones the user meant.
-     */
-    /**
      * Run a model on this phone.
      *
      * **Where the models live matters.** `getExternalFilesDir` is a directory
@@ -281,7 +269,27 @@ class MainActivity : Activity() {
         pages += "MONITOR"
         pages += "SETTINGS"
 
-        findViewById<TextView>(R.id.mode_badge).text = mode
+        val badge = findViewById<TextView>(R.id.mode_badge)
+        badge.text = mode
+        /*
+         * **The badge is the door to the book**, which is how the desktop does
+         * it too: there the badge at the foot of the rail is the CHAOS page's
+         * only entrance.
+         *
+         * Atur, testing v0.0.31 on a phone: *"the book of QR code for Core mode
+         * is not available!!! that book where is it!!"* It was there -- bottom
+         * of the SETTINGS tab, inside a scroll view, behind a button labelled
+         * MARK. Present and unfindable are the same thing to the person holding
+         * the phone, so the mode he is looking at is now the way in.
+         */
+        // **Spoken as the mode plus what tapping does**, not instead of the
+        // mode: a bare "Show the mark" would take the one fact the badge
+        // exists to state away from a screen reader.
+        badge.contentDescription = getString(R.string.badge_opens_the_book, mode)
+        badge.setOnClickListener {
+            remember()
+            BrandActivity.open(this, BrandActivity.PAGE_MARK, address.text.toString())
+        }
 
         val buttons = mapOf(
             "CHAT" to R.id.tab_chat,
@@ -383,6 +391,18 @@ class MainActivity : Activity() {
     /** The engine, while it runs. */
     private var engine: Process? = null
 
+    /**
+     * Keep the address and key.
+     *
+     * **Not only in `onPause`.** That was the first version, and it loses them
+     * whenever the process is *killed* rather than paused — swiped away from
+     * recents, or reclaimed by the system, both of which skip `onPause`
+     * entirely. Found by force-stopping the app on an emulator and watching the
+     * server address revert to the placeholder.
+     *
+     * So it is saved on CONNECT as well, which is the moment the values are
+     * known to be the ones the user meant.
+     */
     private fun remember() {
         getSharedPreferences("chaos", Context.MODE_PRIVATE).edit()
             .putString("address", address.text.toString().trim())

@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 999 tests
+cargo test --release          # 1003 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -46,11 +46,11 @@ cargo build --release
 Windows needs the **GNU** Rust toolchain plus MSYS2 mingw64 on PATH, and
 `.cargo/config.toml`'s `link-self-contained=no` must stay.
 
-**Twelve of the thirteen CI-checked crates build with no ggml, and CI enforces
+**Thirteen of the fourteen CI-checked crates build with no ggml, and CI enforces
 both halves**: every
 crate but `chaos-arch` builds, tests and lints without `GGML_LIB_DIR`, and
 `chaos-arch` must fail with its `GGML_LIB_DIR is not set` message rather than a
-wall of unresolved imports. **A full run reports 48 ignored** — they need a
+wall of unresolved imports. **A full run reports 49 ignored** — they need a
 real container on disk and skip silently without one, so a green run is not a
 full run. **The test-count comment above is machine-checked**:
 `scripts/check-test-count.sh` compares it with STATUS.md, CONTRIBUTING.md and
@@ -71,7 +71,9 @@ resolution, partial reads, catalogue, release checks · `tokenizer` byte-level
 BPE · `grammar` constrained decoding + the workspace's JSON parser · `jinja` chat
 templates · `arch` architectures + streaming forward pass · `image` PNG,
 safetensors, FLUX.2 VAE, the sampler · `qr` encoding, so a headless node can
-print its own route · `config` the settings file **both tiers read** · `http`
+print its own route · `grimoire` the brand pages, assembled — no ggml, so the
+window and the APK build can both show them · `config` the settings file **both
+tiers read** · `http`
 just enough HTTP/1.1 to ask a node for status and stream a completion, no curl,
 no TLS.
 
@@ -110,12 +112,16 @@ packages also lacked `chaos-draw` and `chaos-worker`.
 `every_binary_reaches_every_platform` is now the mechanism, in both directions
 and including `make-linux-packages.sh`, which no test had ever read.
 
-**The mark and the reader have one source, served by the node.**
-`assets/grimoire/*.html` plus embedded fonts are `include_str!`d by
-`chaos_arch::grimoire` and served at `/qr` and `/scan`; desktop and Android open
-that route rather than re-drawing it, and `core/qr` prints the same code in a
-bare terminal. **Edit the HTML, never a copy**, and keep it fetch-free — a test
-asserts 0 external references in the assembled page.
+**The mark and the reader have one source, and it reaches every tier without a
+model.** `assets/grimoire/*.html` plus embedded fonts are `include_str!`d by
+**`chaos-grimoire`** — its own crate, zero dependencies, no ggml — and
+`chaos_arch::grimoire` is a `pub use` of it. The node serves `/qr` and `/scan`;
+the **window serves the same bytes itself on loopback** (`gui/app/src/brand.rs`),
+which it must, because the art used to need a loaded model and **a camera only
+opens on a secure origin, so the reader cannot be handed a LAN address**; the APK
+carries them as assets emitted by `chaos-qr --emit-pages`; `core/qr` prints the
+same code in a bare terminal. **Edit the HTML, never a copy**, and keep it
+fetch-free — a test asserts 0 external references in the assembled page.
 
 ## Traps — **read `docs/graph/reference/hard-won-facts.md` before proposing any
 optimisation.** About half its entries are the measurement that killed an
@@ -250,9 +256,10 @@ is untested and the only measured number is 4.3x *slower* on streaming MoE.
 cannot be built here (`dl.google.com` 404s); `chaos scan` is declared NOT BUILT;
 zsh and fish completions are generated but never sourced; a long upgrade jump from
 0.0.2 is untested; there is no contrast audit or screen-reader story for the
-window. **One cheap idea worth taking**: `chaos_arch::grimoire` has zero ggml
-references, so moving it to its own crate would let the APK step emit the brand
-pages with no C toolchain and delete the host-ggml build that step now needs.
+window. ~~**One cheap idea worth taking**: `chaos_arch::grimoire` has zero ggml
+references, so moving it to its own crate…~~ **Done in v0.0.32**: `chaos-grimoire`
+is its own crate, the APK step builds `chaos-qr` instead of a host llama.cpp, and
+the window shows the book with no model loaded.
 
 1. **The frontier on a machine with real memory** — this laptop is the curve's
    left-hand edge, so the two numbers worth bringing back are `F` on a bigger

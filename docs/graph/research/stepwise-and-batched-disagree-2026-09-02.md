@@ -126,6 +126,41 @@ The oracle capture at 300 tokens already exists
 diff our compressed-half tensors at a length ending on a boundary against
 llama.cpp's, which is how all 43 layers were built in the first place.
 
+### One candidate eliminated by hand, 2026-09-03
+
+**The ring alignment is not the bug.** The obvious suspect was
+`compressor_project`'s ring: the stepwise path assembles a completed block from
+*ring rows plus one batch row*, where the batched path takes all four from the
+batch, and an off-by-one in that mapping would land exactly on a block boundary
+and nowhere else.
+
+It was checked by hand at `pos0` = 3, 7, 8 and 11, following `row_of(q) =
+state_rows + q - pos0` against what the ring actually holds after `keep = 8`
+rows and the drain:
+
+| `pos0` | ring holds | front pad | block's rows land at | correct? |
+|---|---|---|---|---|
+| 3 | positions 0-2 | 5 zero rows | 5, 6, 7, and 8 from the batch | yes |
+| 7 | positions 0-6 | 1 zero row | 5, 6, 7, 8 | yes |
+| 11 | positions 3-10 (drained) | none | 5, 6, 7, 8 | yes |
+
+The overlap half checks out too: for block 0 it reads `p = -4..-1`, every one
+resolving to `zero_row`, which is the appended pad row — 0 for the kv state and
+`-inf` for the score, so the softmax ignores it. Both paths do that identically.
+The APE index `(pos0 + p) % ratio` also agrees, 0/1/2/3 either way.
+
+So the divergence is **not** a misaligned ring, and the front-pad arithmetic is
+right. What that leaves is the projection itself (`mul_mat` over one column
+against four is a different ggml kernel, but that is a 1e-3 effect and would not
+give 0.98) or how the compressed half is **consumed** at `nt = 1` — four tokens
+is simply the first length at which a non-empty compressed half enters the
+attention output at all, which is why the error appears there.
+
+**This is a narrowing, not a diagnosis, and it went as far as reading gets.**
+The next step is unchanged and is a measurement: diff the compressed-half
+tensors against llama.cpp at a boundary length. Reading further would be
+guessing, and this repository has a rule about that.
+
 ## What it means for the parity gate
 
 **V4-Flash's quality cell cannot be measured comparably yet**, and it now has a

@@ -111,6 +111,38 @@ the same day.
 session:** Qwen3-4B **-1.44%**, Qwen3-30B-A3B **+0.37%**, V4-Flash **+4.1%**.
 Parity on quality across the range.
 
+## Open, and the largest one: V4-Flash generation disagrees with its own prefill
+
+**Found 2026-09-03, located to a boundary, not yet fixed.** Feeding V4-Flash one
+token at a time does not reproduce a batched prefill — and the disagreement
+appears exactly when a **compressed block completes**:
+
+```
+  tokens  cosine     max |diff|   completes a block?
+       3  0.999866      0.4808    no    <- the paths agree
+       4  0.981401      4.9674    yes   <- 10x the error, immediately
+       5  0.996695      2.5935    no
+       8  0.984060      5.5758    yes
+```
+
+`CSA_RATIO` is 4, so three tokens is the only length that never closes a block.
+There the paths agree to 0.99987 — floating-point reordering and nothing more.
+At four, the error jumps ten-fold; five, six and seven end mid-block and recover.
+
+**Tie-breaking cannot do that**: a near-tie in routing has no reason to care
+whether the final position lands on a multiple of four. And it is not academic —
+**generation always takes the stepwise path**, so every token a user reads comes
+from the side that disagrees.
+
+Two earlier readings were wrong and are retracted: that the divergence
+*accumulates* (it is present at four tokens and no worse at thirty-two), and the
+first sweep's design, which sampled only multiples of four and so could not have
+found the boundary it was looking for.
+
+Next: diff our compressed-half tensors against `llama-eval-callback` at a length
+ending on a boundary. The 300-token oracle capture already exists.
+`research/stepwise-and-batched-disagree-2026-09-02.md`.
+
 ## The honest scoreboard
 
 **Current**: **999 tests** (0 failed, 48 ignored — the V4-Flash set needs the

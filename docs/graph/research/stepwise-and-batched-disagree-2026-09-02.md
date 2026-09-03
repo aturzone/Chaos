@@ -1,6 +1,6 @@
 ---
 topic: Feeding V4-Flash one token at a time does not reproduce a batched prefill — the two paths predict different next tokens after 63 steps, which makes a stepwise perplexity incomparable to any batched engine and raises a question about generation itself
-status: open — the divergence is measured, its cause is not attributed
+status: ANSWERED — the divergence appears exactly when a compressed block completes, so it is structural rather than tie-breaking. The defect itself is not yet located.
 links:
   - requantising-the-trunk-2026-09-02.md
   - ../backlog/score-a-chunk-from-one-batched-pass.md
@@ -68,6 +68,63 @@ accumulation should look like a smooth random walk; a structural bug in how the
 compressed half or the sliding ring is filled at batch size 1 should show a step
 change — most likely at a multiple of `CSA_RATIO`, which is 4, since the
 compressed half is built per block of four tokens.
+
+
+## ANSWERED 2026-09-03: it is the block boundary, not tie-breaking
+
+The sweep, at nine lengths. The final position's logits, batched against stepwise:
+
+```
+  tokens  cosine     max |diff|   completes a block?
+       3  0.999866      0.4808    no    <- the paths AGREE
+       4  0.981401      4.9674    yes   <- 10x the error, immediately
+       5  0.996695      2.5935    no
+       6  0.996145      2.4938    no
+       7  0.990928      3.3050    no
+       8  0.984060      5.5758    yes   <- worst of the small lengths
+      16  0.990389      2.9377    yes
+      32  0.985793      4.2033    yes
+      64  0.970304      4.3346    yes
+```
+
+**At three tokens the two paths agree to cosine 0.99987**, a max logit difference
+of 0.48 — floating-point reordering, nothing more. Three tokens is the only
+length here that never completes a compressed block, because `CSA_RATIO` is 4.
+
+**At four, the first complete block, the error jumps ten-fold.** Five, six and
+seven end mid-block and recover to 0.99+. Eight ends on a boundary and falls
+again, to the worst value of any small length.
+
+**Tie-breaking cannot do that.** A near-tie in routing has no reason to care
+whether the final position sits on a multiple of four. Something about
+completing a compressed block differs between one pass of *n* tokens and *n*
+passes of one, and it is worth roughly ten times the ordinary numerical noise.
+
+**This is not a measurement artefact and it is not academic**: generation always
+takes the stepwise path. Every token a user reads comes from the side of this
+comparison that disagrees.
+
+### Two earlier readings, both wrong, both mine
+
+- *"The divergence accumulates over steps."* It does not. It is present at four
+  tokens and no worse at thirty-two.
+- The first sweep sampled **4, 8, 16, 32, 64 — every one a multiple of four**,
+  and its "block boundary" column read `yes` on every row. It was built to find a
+  cliff at a block boundary and could not have seen one. The odd lengths are the
+  informative ones and they were missing.
+
+### Where to look
+
+`compressor(...)` in the `(AttentionKind::CompressedSparse, true)` arm of the
+block builder, and whatever decides that a block is complete. The question is
+what the batched path writes into the compressed half when a pass ends exactly
+on a boundary, and what the stepwise path writes when the *last of four*
+single-token passes closes the same block.
+
+The oracle capture at 300 tokens already exists
+(`llama-eval-callback`, `--no-repack`), so the next step needs no new fixture:
+diff our compressed-half tensors at a length ending on a boundary against
+llama.cpp's, which is how all 43 layers were built in the first place.
 
 ## What it means for the parity gate
 

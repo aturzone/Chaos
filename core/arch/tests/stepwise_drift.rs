@@ -36,9 +36,17 @@ use chaos_model::Model;
 const DEFAULT_PATH: &str =
     r"C:\Projects\models\v4flash\DeepSeek-V4-Flash-UD-Q4_K_XL-00001-of-00005.gguf";
 
-/// The lengths to compare at. `CSA_RATIO` is 4, so a bug that lands on block
-/// boundaries has four chances to show itself before 64.
-const LENGTHS: [usize; 5] = [4, 8, 16, 32, 64];
+/// The lengths to compare at.
+///
+/// **The first version of this list was 4, 8, 16, 32, 64 — every one of them a
+/// multiple of `CSA_RATIO`.** The whole point was to see whether a *block
+/// boundary* behaves differently from a partial block, and a sample containing
+/// only boundaries cannot show that. The "block boundary" column read `yes` on
+/// every row, which is what gave it away.
+///
+/// So the odd lengths are here now, and they are the informative ones: 5, 6 and
+/// 7 leave a block half-built, and 3 never completes one at all.
+const LENGTHS: [usize; 9] = [3, 4, 5, 6, 7, 8, 16, 32, 64];
 
 fn open() -> Option<Model> {
     let p = std::env::var("CHAOS_TEST_GGUF")

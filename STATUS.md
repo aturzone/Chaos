@@ -6,7 +6,8 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 — fix this file.
 
 **Last updated**: 2026-09-03 · **Version**: v0.0.32, tagged 2026-09-03 ·
-**Branch**: `main`, verified at v0.0.32.
+**Branch**: `main`, verified at v0.0.32 — 1003 tests, 0 failed, fmt and clippy
+clean, re-run on `main` itself after the merge.
 
 **v0.0.32 fixes the last report Atur had open: the book.** *"the book of QR code
 for Core mode is not available!!! that book where is it!!"* — and it was not, for

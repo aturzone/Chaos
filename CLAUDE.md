@@ -148,9 +148,12 @@ appealing idea. The five that bite most often:
 - Implementation goes on `ticket/<name>` branches + PR. **Claude owns git end to
   end**: merge when CI is green, close what it supersedes, delete the branch,
   prune, leave `main` verified. Docs may go to main.
-- **Git hygiene, each rule bought with a mistake.** Verify containment with
-  `git merge-base --is-ancestor <branch> origin/main` *before* deleting, never
-  from "it was merged". After merging, `git checkout main` is not enough — a
+- **Git hygiene, each rule bought with a mistake.** Verify containment *before*
+  deleting, never from "it was merged" — but **`--is-ancestor` is the wrong
+  test here and always says no**: PRs are squash-merged, so a branch tip is
+  never an ancestor of `main` by construction. Compare **content**:
+  `git diff --name-only <branch> main` must list only files `main` moved on
+  *after* the merge. After merging, `git checkout main` is not enough — a
   local `main` with no upstream makes `git pull` a silent no-op; fast-forward
   from `origin/main` explicitly and check a file only the merge added. Then
   **re-run tests on `main` itself**. GitHub parses only the *first* issue in

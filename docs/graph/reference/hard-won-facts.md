@@ -352,6 +352,14 @@ are the measurement that killed one.
 
 ## Measurement
 
+- **Never edit a script while bash is running it.** Bash reads a script
+  *incrementally*, so inserting a comment into `quality-gate.sh` during a
+  35-minute run shifted every byte after the read point and the run died with
+  `syntax error near unexpected token 'done'` — in a file that was, and is,
+  perfectly valid. **The script was not corrupted; the execution was.** Copy it
+  somewhere first and run the copy, or wait. This was walked into an hour after
+  the same session avoided it deliberately for another script.
+
 - **`long-prompt.txt` is not a perplexity corpus, and using it as one wasted an
   evening.** It is 41 unique lines repeated to 80, every one of them *"Paragraph
   N. The engine keeps the always-read weights resident..."*. Given 257 tokens of

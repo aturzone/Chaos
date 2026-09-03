@@ -51,14 +51,23 @@ android {
     // to the debug key, which still installs and still cannot be upgraded over
     // -- and the release notes have to say so rather than let someone discover
     // it with a phone in their hand.
-    val keystorePath = providers.gradleProperty("chaos.keystore").orNull
-        ?: System.getenv("CHAOS_KEYSTORE")
-    val keystorePass = providers.gradleProperty("chaos.keystore.password").orNull
-        ?: System.getenv("CHAOS_KEYSTORE_PASSWORD")
-    val keyAliasName = providers.gradleProperty("chaos.key.alias").orNull
-        ?: System.getenv("CHAOS_KEY_ALIAS")
-    val keyPass = providers.gradleProperty("chaos.key.password").orNull
-        ?: System.getenv("CHAOS_KEY_PASSWORD")
+    // **An absent secret arrives as an EMPTY STRING, not as null**, because the
+    // workflow sets these from `secrets.*` unconditionally and an undefined
+    // secret expands to nothing. The first version of this block read
+    // `System.getenv(...)` straight into a `String?` and got `""`, which is not
+    // null, so the guard below called `file("")` and every release APK build
+    // died at configuration time with `Cannot convert '' to File` -- the exact
+    // case this code exists to handle gracefully. It shipped that way because
+    // the keystore support landed after v0.0.31 was tagged and no release build
+    // ran it until v0.0.32.
+    fun setting(property: String, variable: String): String? =
+        (providers.gradleProperty(property).orNull ?: System.getenv(variable))
+            ?.takeIf { it.isNotBlank() }
+
+    val keystorePath = setting("chaos.keystore", "CHAOS_KEYSTORE")
+    val keystorePass = setting("chaos.keystore.password", "CHAOS_KEYSTORE_PASSWORD")
+    val keyAliasName = setting("chaos.key.alias", "CHAOS_KEY_ALIAS")
+    val keyPass = setting("chaos.key.password", "CHAOS_KEY_PASSWORD")
 
     signingConfigs {
         if (keystorePath != null && file(keystorePath).exists()) {

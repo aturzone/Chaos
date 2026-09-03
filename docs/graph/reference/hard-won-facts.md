@@ -161,6 +161,26 @@ are the measurement that killed one.
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
   does now, 30 checks, in CI.
+- **An absent CI secret arrives as an empty string, not as absent.** A workflow
+  that sets `env: FOO: ${{ secrets.FOO }}` from an undefined secret exports
+  `FOO=`, so `System.getenv("FOO")` is `""` and not `null`. The Android signing
+  block read it into a `String?`, found a non-null value, and called `file("")`
+  — `Cannot convert '' to File`, at configuration time, killing **every** release
+  APK build. The no-secret path was the one that code existed to support, and it
+  was the only path that could not work. `?.takeIf { it.isNotBlank() }`.
+- **Code merged after a tag has never been through a release build.** The keystore
+  support landed in `024c759`, after v0.0.31 was tagged at `5fdd79d`, so the first
+  release workflow to evaluate it was v0.0.32's — and it failed. CI is not the
+  release workflow: seven jobs of `cargo test` say nothing about the APK, the
+  installer or the staging loops. **After merging anything that touches
+  `release.yml` or a build file, the next tag is the test**, so expect to re-point
+  it rather than assuming a green CI means a green release.
+- **`gh run view <id> --log-failed` works here.** `CLAUDE.md` said CI logs could
+  not be read from this machine, on the strength of the logs endpoint redirecting
+  to a host that does not resolve. `gh` does not use that path, and reading the
+  log named the failing line and the message in one call. **A documented
+  impossibility is worth retesting before working around it.**
+
 - **A camera only opens on a secure origin, so loopback and the LAN address are
   not interchangeable.** `getUserMedia` is refused outside a secure context:
   `https://` counts and **`127.0.0.1` counts**, a LAN address does not. The

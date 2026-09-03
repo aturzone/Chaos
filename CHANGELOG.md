@@ -17,6 +17,14 @@ which is why every test of them passed.
 
 ### Fixed
 
+- **Every release APK build was broken and no release had run the code yet.**
+  The keystore support merged after v0.0.31 was tagged, so v0.0.32's was the
+  first release workflow to evaluate it — and it died at configuration time with
+  `Cannot convert '' to File`. An undefined repository secret exports an **empty
+  string**, not nothing, so `System.getenv("CHAOS_KEYSTORE")` returned `""`, the
+  non-null guard passed, and `file("")` threw. The no-secret path was the one
+  case that block existed to handle gracefully.
+
 - **The window showed the art only while a model was loaded.** The mark and the
   reader were routes on the child `chaos-serve`, so pressing the button before
   pressing LOAD opened a browser tab that could not reach the site. The window

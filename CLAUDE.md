@@ -240,9 +240,13 @@ not "on screen"**: `layout` parks unreachable rail buttons at `(-3200,-3200)`.
 `run-through.ps1` now enters a mode first and covers the CHAOS page; it used to
 report a clean pass over an app that had never left its launch screen.
 
-**CI logs cannot be read from this machine** — the logs endpoint redirects to an
-Azure blob host that does not resolve here. Reproduce a CI failure locally from the
-workflow's own commands instead; that found v0.0.22's release failure in one try.
+**CI logs CAN be read from this machine** — `gh run view <id> --log-failed`
+returns the real log, which is how v0.0.32's Android failure was found in one
+call. The old note here said they could not, on the strength of the *logs
+endpoint* redirecting to an Azure blob host that does not resolve; `gh` does
+not use that path. Reproducing a failure locally from the workflow's own
+commands is still the better move when the log is not conclusive — that found
+v0.0.22's release failure in one try — but read the log first.
 
 **Retracted, do not requote** (Roadmap 7 has the standing figures;
 `where-we-stand-vs-llamacpp-2026-08-16.md` has the method): "V4-Flash prefill

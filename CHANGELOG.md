@@ -51,6 +51,18 @@ which is why every test of them passed.
 - Thirteen of the fourteen CI-checked crates now build with no ggml, up from
   twelve of thirteen, and CI enforces the new crate too.
 
+### Added
+
+- `scripts/make-release-keystore.sh` -- one command for the one step that cannot
+  be automated. Android still refuses to install a release over the previous one
+  because every APK is signed with a key Gradle generates fresh on the runner;
+  the build has accepted a real keystore since v0.0.31, and what was missing was
+  the key. The script refuses to overwrite an existing keystore, never reads the
+  password, and prints exactly what to paste into the four repository secrets.
+  Keystores are gitignored: the repository is public, and a committed signing
+  key lets anyone build an APK Android accepts as an upgrade over a user's
+  install.
+
 ## [0.0.31] — 2026-09-03
 
 **v0.0.30's front door was broken and its test suite was green.** 999 tests,

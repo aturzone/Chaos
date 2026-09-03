@@ -17,7 +17,16 @@ pub mod banner;
 mod deepseek4;
 mod deepseek4_forward;
 mod expert_cache;
-pub mod grimoire;
+/// The brand pages, assembled.
+///
+/// **Moved out to `chaos-grimoire`, re-exported here.** It is string
+/// assembly over two `include_str!`d HTML files with no ggml reference in
+/// it, and living in this crate meant the two tiers that most want to show
+/// the art could not: the window would have had to link ggml, and the APK
+/// build compiled a host llama.cpp in order to write two HTML files.
+///
+/// The path stays valid so the server and `--emit-pages` are untouched.
+pub use chaos_grimoire as grimoire;
 mod kv;
 pub mod log;
 mod logo_bitmap;

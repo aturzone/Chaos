@@ -49,7 +49,7 @@ mod windows_app {
     use chaos_app::nav::{self, Page};
     use chaos_app::theme::{self, metric, size, weight, Mode, Rgb, Theme};
     use chaos_app::win32::*;
-    use chaos_app::{art, catalog, client, models, settings, update};
+    use chaos_app::{art, brand, catalog, client, models, settings, update};
     use std::cell::RefCell;
     use std::process::{Child, Command};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1724,29 +1724,41 @@ mod windows_app {
         set_status("copied");
     }
 
-    /// Open `/qr` or `/scan` on whichever node this machine is talking to.
+    /// Open the book, or the reader, in the browser.
     ///
-    /// **The address is taken from the box on screen**, not rebuilt here. That
-    /// box already says the right thing for every role -- a CORE shows its LAN
-    /// address, ALONE shows loopback, a CLIENT shows the CORE it was pointed at
-    /// -- and a second derivation of the same string is a second thing to get
-    /// wrong when a role is added.
+    /// **Served by this process, not by the engine.** The pages used to be a
+    /// route on the child `chaos-serve`, which made the art a feature of a
+    /// loaded model: turn the dial to CORE, press SHOW MARK before pressing
+    /// LOAD, and the browser reported that the site could not be reached.
+    /// Atur found exactly that -- *"that book where is it!!"*. `brand` binds
+    /// loopback and answers the two paths itself, so the art needs no weights.
+    ///
+    /// **The reader has to be loopback for a second reason.** A camera only
+    /// opens in a secure context, and `http://192.168.1.20:8080` is not one, so
+    /// handing the reader this node's LAN address -- which is right for the
+    /// mark -- got `getUserMedia` refused every time.
+    ///
+    /// **The address in the box is still what the mark encodes.** That box says
+    /// the right thing for every role already (a CORE shows its LAN address,
+    /// ALONE shows loopback, a CLIENT shows the CORE it was pointed at), and
+    /// the page prefers an injected endpoint over the origin it was served
+    /// from, so serving from loopback does not change what another device
+    /// scans. An empty box is no longer refused: the book is worth showing
+    /// before a role is chosen, and the page falls back to the project's URL.
     ///
     /// The theme goes with it, so the page arrives in the same light or dark as
     /// the window that opened it rather than following the operating system and
     /// disagreeing with the app around it.
     fn open_brand_page(which: &str) {
         let addr = control_text(ctl(nav::ID_CORE_ADDR));
-        if addr.is_empty() {
-            set_status("no address yet -- choose a role on this page first");
-            return;
-        }
         // A CLIENT may have been given a bare `host:port`, and a URL needs a
         // scheme. Anything already carrying one is left alone.
-        let base = if addr.starts_with("http://") || addr.starts_with("https://") {
-            addr
+        let endpoint = if addr.is_empty() {
+            None
+        } else if addr.starts_with("http://") || addr.starts_with("https://") {
+            Some(addr)
         } else {
-            format!("http://{addr}")
+            Some(format!("http://{addr}"))
         };
         let dark = UI.with(|u| {
             u.borrow()
@@ -1755,11 +1767,25 @@ mod windows_app {
                 .unwrap_or(false)
         });
         let theme = if dark { "dark" } else { "light" };
-        shell_open(&format!("{base}/{which}?theme={theme}"));
-        set_status(match which {
-            "scan" => "opened the reader in your browser -- point it at another node's mark",
-            _ => "opened the mark in your browser -- scan it from another device",
-        });
+        let page = if which == "scan" {
+            brand::Page::Scry
+        } else {
+            brand::Page::Mark
+        };
+        match brand::open(page, endpoint.as_deref(), Some(theme)) {
+            Ok(url) => {
+                shell_open(&url);
+                set_status(match which {
+                    "scan" => {
+                        "opened the reader in your browser -- point it at another node's mark"
+                    }
+                    _ => "opened the mark in your browser -- scan it from another device",
+                });
+            }
+            // Loopback could not be bound. Rare, and worth naming rather than
+            // failing silently on a button press.
+            Err(e) => set_status(&format!("could not show the page: {e}")),
+        }
     }
 
     /// Put the right things in the address, key and status boxes for the role.

@@ -596,9 +596,9 @@ jobs:
         # **Generated, never committed.** The mark and the reader are two HTML
         # files under `assets/grimoire/`; what goes in the APK is those files
         # wrapped in a document with the fonts embedded, which is what
-        # `chaos_arch::grimoire` does for the server. Emitting them here means
-        # the phone shows the same bytes as the browser and there is no second
-        # copy of the wrapping to drift.
+        # `chaos_grimoire` does for the server. Emitting them here means the
+        # phone shows the same bytes as the browser and there is no second copy
+        # of the wrapping to drift.
         #
         # A host build is used rather than the Android one: this only writes
         # files, and cross-compiled binaries do not run on the runner.
@@ -606,31 +606,19 @@ jobs:
         # Without this step the APK still builds -- BrandActivity falls back to
         # fetching the page from the node -- but then the reader needs a node
         # in order to find one, which is backwards.
+        #
+        # **This used to compile a host llama.cpp.** The emitter lived on
+        # `chaos-serve`, which links ggml, so writing two HTML files meant a
+        # second full cmake of llama.cpp on every release -- and the step failed
+        # the first time it ever ran, on v0.0.22, because each `run:` is its own
+        # shell and the Android build's `GGML_LIB_DIR` was not set here.
+        # `grimoire` is now its own crate with no ggml reference and no
+        # dependencies, and `chaos-qr` carries the flag, so this builds in
+        # seconds with no C toolchain at all.
         run: |
-          # **A host ggml, because this runs the binary rather than shipping it.**
-          # This step failed the first time it ever ran, on v0.0.22: each `run:` is
-          # its own shell, so the GGML_LIB_DIR exported for the Android build above
-          # is not set here, and a host build of chaos-serve panics with
-          # "ggml not found". The source is already cloned by the previous step, so
-          # this is a second cmake and not a second download.
-          #
-          # The better fix is smaller than it looks and is not done here:
-          # `chaos_arch::grimoire` is pure string assembly with no ggml reference at
-          # all, so it could live in its own crate and be emitted by a binary that
-          # needs no C toolchain. That would delete this whole step's cost.
-          cmake -S /tmp/llamacpp -B /tmp/ggml-host -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-            -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_BLAS=OFF -DGGML_OPENMP=OFF \
-            -DLLAMA_CURL=OFF
-          cmake --build /tmp/ggml-host --target ggml-base ggml-cpu ggml -j"$(nproc)"
-          cd /tmp/ggml-host/ggml/src
-          for l in ggml-base ggml-cpu ggml; do cp -f "lib$l.a" "$l.a"; done
-          cd - >/dev/null
-          export GGML_LIB_DIR=/tmp/ggml-host/ggml/src
-
-          cargo build --release -p chaos-serve --bin chaos-serve
+          cargo build --release -p chaos-qr
           mkdir -p android/app/src/main/assets/brand
-          ./target/release/chaos-serve --emit-pages android/app/src/main/assets/brand
+          ./target/release/chaos-qr --emit-pages android/app/src/main/assets/brand
           ls -l android/app/src/main/assets/brand
           # The pages must be self-contained: the APK has no network at first run.
           for f in qr scan; do

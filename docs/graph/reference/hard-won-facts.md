@@ -160,7 +160,31 @@ are the measurement that killed one.
   cannot connect and the QR feature is missing"*, which is exactly how it was
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
-  does now, 29 checks, in CI.
+  does now, 30 checks, in CI.
+- **A camera only opens on a secure origin, so loopback and the LAN address are
+  not interchangeable.** `getUserMedia` is refused outside a secure context:
+  `https://` counts and **`127.0.0.1` counts**, a LAN address does not. The
+  window handed the reader its own LAN address — right for the mark, which
+  another device has to reach — and got a page that loaded, drew its circle and
+  explained it could not use a camera. **Serve a page that needs a device from
+  loopback, and pass the outward-facing address in as data.**
+- **A feature can be complete, tested, shipped everywhere and still
+  unreachable.** The brand pages had tests proving they fetch nothing external,
+  embed their fonts, carry their licence and take an injected route; all green
+  while Atur could not open the book on either tier. All three causes were in the
+  last inch — which process serves the bytes, which of two addresses reaches a
+  camera, which screen the entrance is on. **Test the way in, not only the
+  thing.**
+- **"Present" and "findable" are the same question to the user.** The phone's
+  book was real, asset-bundled and unit-tested, at the bottom of the last tab
+  inside a scroll view behind a button labelled `MARK`. It was reported as
+  missing, and that report was correct.
+- **A crate's dependencies decide which tiers can use it, so check what a module
+  actually needs before leaving it where it is.** `grimoire` is string assembly
+  with no ggml reference, and living inside `chaos-arch` — the one crate that
+  needs a compiled ggml — meant the window could not assemble a page and the
+  Android release compiled a **host llama.cpp to write two HTML files**. Moving
+  it out was recommended in `CLAUDE.md` for weeks before anything forced it.
 - **An unrecognised argument must be named, never absorbed.** E7 found this in
   43 of `chaos-run`'s flags and it survived untouched in `chaos connect`, whose
   catch-all arm pushed anything it did not know into the positional list. A

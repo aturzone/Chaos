@@ -13,7 +13,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-999%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-1003%20passing-brightgreen">
 </p>
 
 > **This file carries three things and nothing else**: the progress bars, the
@@ -141,7 +141,7 @@ Architectures     10%  [##..................]  14 of the 141 it declares
 GPU backends      20%  [####................]  1 of 5, Vulkan only
 Browser UI        33%  [######..............]  2 of 6 — tracked, not a priority
 V4-Flash speed    14%  [##..................]  0.728 of 5 tok/s
-Documents         69%  [#############.......]  103 of 149 graph nodes in order
+Documents         69%  [#############.......]  104 of 150 graph nodes in order
 ```
 
 "Verified" here means diffed, and **every one of the 14 architectures was diffed against

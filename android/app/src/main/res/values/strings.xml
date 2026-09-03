@@ -63,6 +63,7 @@
     <string name="mon_endpoint">ENDPOINT
 %1$s</string>
     <!-- The mark and the reader. -->
+    <string name="badge_opens_the_book">%1$s. Show the mark.</string>
     <string name="the_mark">MARK</string>
     <string name="read_code">SCAN</string>
     <string name="brand_note_mark">Point another device at this. It leads to %1$s.</string>

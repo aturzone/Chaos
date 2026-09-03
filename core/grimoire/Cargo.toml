@@ -1,0 +1,36 @@
+# The brand pages, assembled: the burning grimoire and the scrying circle.
+#
+# **Its own crate because of what it does NOT need.** This is string assembly
+# over two `include_str!`d HTML files -- no ggml, no C toolchain, no
+# dependencies at all -- and it used to live inside `chaos-arch`, the one crate
+# in the workspace that cannot build without a compiled ggml.
+#
+# That cost two things, both of them real:
+#
+# - **The desktop window could not show the book.** `chaos-app` deliberately
+#   depends on no engine crate, so its only way to the pages was a route on a
+#   running `chaos-serve` -- which means a model has to be loaded before the
+#   art will open. Atur reported exactly that as "the book of QR code for Core
+#   mode is not available".
+# - **The APK build compiled a host ggml to write two HTML files.** A second
+#   cmake of llama.cpp, on every release, so that `chaos-serve --emit-pages`
+#   could link.
+#
+# `chaos_arch::grimoire` still resolves -- it is a `pub use` of this crate --
+# so the server and the emit path are unchanged.
+[package]
+name = "chaos-grimoire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "The Chaos brand pages, assembled into self-contained documents with their fonts embedded"
+keywords = ["qr", "html", "branding"]
+categories = ["web-programming"]
+
+# **None, and that is the point of the crate.** Anything added here is paid for
+# by every tier that shows the art, including the phone.
+[dependencies]

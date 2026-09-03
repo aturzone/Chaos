@@ -8,9 +8,35 @@
 
 use chaos_qr::{encode, Level, Render};
 
+/// Write `qr.html` and `scan.html` into `dir`, self-contained.
+///
+/// **Here because this binary needs no C toolchain.** The same two files can be
+/// emitted by `chaos-serve --emit-pages`, and that is what the Android release
+/// used to call -- which meant every release compiled a **host** llama.cpp, a
+/// second full cmake, purely so a binary that writes two HTML files could link
+/// ggml. `chaos_grimoire` is string assembly with no ggml reference in it, and
+/// `chaos-qr` is already the brand tier's terminal half, so the emitter belongs
+/// on a binary that builds anywhere.
+///
+/// No endpoint is baked in: a file on disk has no idea which node will show it,
+/// and the host that loads it passes one -- `?endpoint=` for the Android
+/// WebView, `window.CHAOS_ENDPOINT` for anything embedding it.
+fn emit_pages(dir: &std::path::Path) -> std::io::Result<()> {
+    use chaos_grimoire::{page, Host, Page};
+    std::fs::create_dir_all(dir)?;
+    for (name, which) in [("qr", Page::Mark), ("scan", Page::Scry)] {
+        let file = dir.join(format!("{name}.html"));
+        let html = page(which, Host::default());
+        std::fs::write(&file, &html)?;
+        println!("wrote {} ({} bytes)", file.display(), html.len());
+    }
+    Ok(())
+}
+
 fn usage() {
     println!("usage: chaos-qr <text>            print any text as a QR code");
     println!("       chaos-qr --route [port]    print this machine's Chaos route");
+    println!("       chaos-qr --emit-pages <dir>  write qr.html and scan.html");
     println!();
     println!("  --ecc L|M|Q|H   error correction (default Q: photographed off a screen)");
     println!("  --quiet N       margin in modules (default 4; the specification's minimum)");
@@ -41,6 +67,24 @@ fn main() {
     let mut route_port: Option<u16> = None;
     let mut want_route = false;
     let mut text: Option<String> = None;
+
+    // **Before anything treats an argument as the text to encode.** This
+    // writes two files and exits; it is how the Android APK carries the brand
+    // pages without a second copy of the wrapping logic.
+    if let Some(i) = argv.iter().position(|a| a == "--emit-pages") {
+        let dir = match argv.get(i + 1) {
+            Some(d) if !d.starts_with('-') => std::path::PathBuf::from(d),
+            _ => {
+                eprintln!("chaos-qr: --emit-pages wants a directory to write into");
+                std::process::exit(2);
+            }
+        };
+        if let Err(e) = emit_pages(&dir) {
+            eprintln!("chaos-qr: --emit-pages {}: {e}", dir.display());
+            std::process::exit(1);
+        }
+        return;
+    }
 
     let mut i = 0usize;
     while i < argv.len() {

@@ -5,6 +5,9 @@
 //! number is exactly where the bugs are. `main.rs` is windows-only; this is not.
 
 pub mod art;
+/// The book and the reader, served from this process on loopback so they
+/// need neither a loaded model nor an insecure LAN origin.
+pub mod brand;
 pub mod catalog;
 /// Settings offered as choices computed from the machine, for the many users
 /// who cannot be expected to know what a good thread count is.

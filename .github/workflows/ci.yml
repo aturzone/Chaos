@@ -60,11 +60,11 @@ jobs:
 
       - name: The ggml-free crates build, test and lint
         run: |
-          # Every crate except chaos-arch. The README claims twelve of the thirteen are
+          # Every crate except chaos-arch. The README claims thirteen of the fourteen are
           # usable on a machine that has never compiled a line of C, and this is
           # the only thing that makes that a fact rather than a hope --
           # chaos-jinja was missing from the list while the claim counted it.
-          CRATES="-p chaos-gguf -p chaos-probe -p chaos-plan -p chaos-io -p chaos-model -p chaos-tokenizer -p chaos-grammar -p chaos-jinja -p chaos-ggml -p chaos-qr -p chaos-config -p chaos-http -p chaos-cli"
+          CRATES="-p chaos-gguf -p chaos-probe -p chaos-plan -p chaos-io -p chaos-model -p chaos-tokenizer -p chaos-grammar -p chaos-jinja -p chaos-ggml -p chaos-qr -p chaos-grimoire -p chaos-config -p chaos-http -p chaos-cli"
           cargo build $CRATES
           cargo test $CRATES
           cargo clippy $CRATES --all-targets -- -D warnings
@@ -318,7 +318,7 @@ jobs:
       # A unit test could not: the defect was in argument handling at the
       # outermost layer, where nothing had ever looked. So this starts a real
       # node and asks it every route, runs every subcommand, and has one machine
-      # ask another for an answer. 29 checks.
+      # ask another for an answer. 30 checks.
       #
       # Linux only: it needs `curl` and a POSIX shell, and the thing being
       # checked is argument handling and HTTP, neither of which is per-platform.

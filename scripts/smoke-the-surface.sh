@@ -92,6 +92,32 @@ else
   bad "chaos-qr printed nothing for a route"
 fi
 
+# ---- 3b. the pages, emitted with no C toolchain ---------------------------
+# **The Android release depends on this and nothing else checked it here.** The
+# APK carries the two pages as assets, emitted at build time so the phone shows
+# the same bytes as the browser. That used to be `chaos-serve --emit-pages`,
+# which links ggml, so writing two HTML files meant a second full cmake of
+# llama.cpp on every release -- and it failed the first time it ever ran.
+#
+# A page that fetches a stylesheet is the failure that matters: the APK has no
+# network on first run, and a `<link>` to Google Fonts renders the art in a
+# fallback face.
+EMIT=$(mktemp -d 2>/dev/null || echo "./smoke-pages")
+if "$B/chaos-qr$EXT" --emit-pages "$EMIT" >/dev/null 2>&1; then
+  bad_page=0
+  for f in qr scan; do
+    p="$EMIT/$f.html"
+    [ -s "$p" ] || { bad "chaos-qr --emit-pages wrote no $f.html"; bad_page=1; continue; }
+    grep -q '<link' "$p" && { bad "$f.html fetches a stylesheet"; bad_page=1; }
+    grep -q 'SIL Open Font License' "$p" || { bad "$f.html lost the font licence"; bad_page=1; }
+    grep -q 'data:font/woff2;base64,' "$p" || { bad "$f.html has no embedded font"; bad_page=1; }
+  done
+  [ "$bad_page" -eq 0 ] && ok "chaos-qr --emit-pages wrote two self-contained pages"
+else
+  bad "chaos-qr --emit-pages failed"
+fi
+rm -rf "$EMIT"
+
 # ---- 4. a real node, and every route a person or a device asks for --------
 if [ ! -f "$MODEL" ]; then
   echo "SKIP  no model at $MODEL -- the node checks need one"

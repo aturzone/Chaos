@@ -8,6 +8,49 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.32] — 2026-09-03
+
+**The book was unreachable, in three different ways.** Atur, testing v0.0.31 on
+Windows and on a phone: *"the book of QR code for Core mode is not available!!!
+that book where is it!!"* None of the three causes was in the pages themselves,
+which is why every test of them passed.
+
+### Fixed
+
+- **The window showed the art only while a model was loaded.** The mark and the
+  reader were routes on the child `chaos-serve`, so pressing the button before
+  pressing LOAD opened a browser tab that could not reach the site. The window
+  now serves the same assembled bytes itself, on loopback, needing no model —
+  `gui/app/src/brand.rs`.
+- **The reader could not open a camera at all in CORE mode.** `getUserMedia` is
+  refused outside a secure context and a LAN address is not one, so the window
+  was handing the reader precisely the address that cannot work. It is served
+  from `127.0.0.1` now, which is a secure context; the **mark still encodes the
+  LAN address**, because the page prefers an injected endpoint over the origin it
+  was served from.
+- **On Android the book was findable only if you knew where to look**: the
+  bottom of the SETTINGS tab, inside a scroll view, behind a button labelled
+  MARK. The mode badge is now the door, matching the desktop, where the badge at
+  the foot of the rail is already the CHAOS page's only entrance.
+- Three items in `STATUS.md`'s open list had been done for two releases and were
+  still written as open, and its release ladder read 40/55/35/6% while the
+  README's machine-checked copy read 100/100/100/100/80/70/100.
+
+### Changed
+
+- **`grimoire` is its own crate.** It is string assembly over two `include_str!`d
+  HTML files with no ggml reference and no dependencies, and living inside
+  `chaos-arch` — the one crate that cannot build without a compiled ggml — meant
+  the two tiers that most want to show the art could not. `chaos_arch::grimoire`
+  is a `pub use` of `chaos-grimoire`, so the server and `--emit-pages` are
+  unchanged. CLAUDE.md had recommended this move; this release takes it.
+- **The Android release no longer compiles a host llama.cpp to write two HTML
+  files.** `chaos-qr --emit-pages` emits them with no C toolchain, deleting a
+  second full cmake from every release — a step that failed the first time it
+  ever ran, on v0.0.22, for exactly this reason.
+- Thirteen of the fourteen CI-checked crates now build with no ggml, up from
+  twelve of thirteen, and CI enforces the new crate too.
+
 ## [0.0.31] — 2026-09-03
 
 **v0.0.30's front door was broken and its test suite was green.** 999 tests,

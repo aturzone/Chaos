@@ -2,12 +2,22 @@
 //!
 //! **One source of truth, four places it appears.** The art is authored as two
 //! standalone HTML files under `assets/grimoire/`, and every tier of the
-//! product serves or opens *those bytes* -- the server compiles them in with
-//! `include_str!`, the desktop window opens the server's route, the phone
-//! points a WebView at it. Nothing is re-implemented per platform, because a
-//! second implementation is a second place for every fix to be missing from.
-//! That rule is already written down about the forward pass in
+//! product serves or opens *those bytes*: the node compiles them in with
+//! `include_str!` and serves `/qr` and `/scan`, the desktop window serves the
+//! same assembled bytes on loopback (`gui/app/src/brand.rs`), the phone reads
+//! them out of the APK's assets, and `chaos-qr` prints the same code into a
+//! bare terminal. Nothing is re-implemented per platform, because a second
+//! implementation is a second place for every fix to be missing from. That rule
+//! is already written down about the forward pass in
 //! `network/serve/src/lib.rs`; it is not weaker for a picture.
+//!
+//! **This is a crate rather than a module in `chaos-arch` because of what it
+//! does not need.** It is string assembly with no dependencies and no ggml, and
+//! while it lived inside the engine crate the two tiers that most want to show
+//! the art could not: the window would have had to link ggml, so its only route
+//! to the pages was a running server -- which made the book a feature of a
+//! loaded model -- and the APK build compiled a **host** llama.cpp in order to
+//! write two HTML files.
 //!
 //! **What this module adds to the raw files.** They are authored as document
 //! *fragments* -- a `<title>`, a `<link>` to Google Fonts, then `<style>` and

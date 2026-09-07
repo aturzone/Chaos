@@ -117,7 +117,7 @@ pass here is fluent nonsense, never a crash.
 | D5b | **Update from inside an old version** | **[x]** every release v0.0.12–v0.0.22 compiled from its own tag resolves today's; v0.0.5–v0.0.11 have no updater at all. `scripts/check-old-updaters.sh` |
 | D7 | Image: step-count default | **[ ]** Atur's aesthetic call |
 | D8 | The `.deb` and the AppImage installed **anywhere** | **[ ]** never, by anybody |
-| D9 | A **real camera** on the mark and the reader | **[ ]** everything else in the chain is proven: **210 of 210** at 3–12 px/module across 30 angles, **0 wrong strings**, `scripts/scan-sweep.js` |
+| D9 | A **real camera** on the mark | **[ ]** The reader was removed 2026-09-07 and its 210-of-210 detector sweep went with it -- that tested the reader, and there is no reader now. The mark's encoder is covered by `core/qr`'s reference grids; what has never happened is a camera pointed at the screen |
 | D10 | Every binary reaches every platform | **[x]** 21 of 21, test-enforced both directions, incl. `make-linux-packages.sh` |
 
 ## E. Guarding the binary rather than the documents

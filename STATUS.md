@@ -414,10 +414,11 @@ proves it.
 4. **Four of nine published assets have never been run by anyone**: the `.deb`, the
    AppImage and both macOS tarballs. No model has ever been run on macOS or Linux, and
    macOS has no direct-I/O path (`F_NOCACHE` unwired).
-5. **No real camera has seen the mark or the reader.** Everything else in that chain is
-   now proven — `scripts/scan-sweep.js` gets **210 of 210 at 3–12 px per module across
-   30 angles with zero wrong strings**, feeding the shipped detector real pixels. What
-   is left is photons.
+5. **No real camera has seen the mark.** The reader was removed on 2026-09-07,
+   so the 210-of-210 detector sweep went with it -- that measured the reader's
+   own detector against synthetic images, and there is no reader now. What is
+   left is the mark itself, whose encoder is covered by `core/qr`'s reference
+   grids. What has never happened is a phone camera pointed at the screen.
 7. ~~**`chaos-run` has 8 tests**~~ **Closed.** It has **16**, across four files:
    `a_bad_value_is_refused` 5, `forward_pass_is_not_broken` 4,
    `refused_flags_decline` 7, plus one ignored polyfill test that needs a

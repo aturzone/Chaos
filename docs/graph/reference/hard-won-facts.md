@@ -161,6 +161,12 @@ are the measurement that killed one.
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
   does now, 32 checks, in CI.
+- **Read a check's exit code, never the tail of its output.** `check-docs.sh`
+  prints its `ok` lines last, so `bash check-docs.sh | tail -2` showed two
+  passes while an `::error::` scrolled past above -- two documents still cited
+  `scripts/scan-sweep.js` after it was deleted. CI caught it on Linux and
+  macOS minutes later. This is the same shape as the C5e harness that printed
+  "ok" regardless: **a check is its exit status.**
 - **A DPI-unaware process cannot measure a DPI-aware window.** Three attempts
   at an external responsive check produced three sets of confident, wrong
   numbers: a control 60px tall in the wrong direction, then every rail button

@@ -1368,6 +1368,51 @@ fn q_and_kv<'c>(
 /// than re-reading the cache is what stops a batch summarising itself.
 type CompressorRows = (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>);
 
+/// Which absolute positions the compressor summarises for the blocks that a
+/// pass ending at `pos0 + nt` completes, in gather order.
+///
+/// `None` is a position before the sequence began, which the caller replaces
+/// with the appended zero row.
+///
+/// # Why this is a separate function
+///
+/// **It is the arithmetic that decides whether a generated token is correct,
+/// and it was only ever exercised one way.** A batched prefill calls the
+/// compressor once with `pos0 = 0`, where every row of every completed block
+/// comes out of the batch itself. Generation calls it once per token, so the
+/// pass that closes a block supplies **one** row from the batch and takes the
+/// other three from the ring — a completely different path through the same
+/// index expressions, reached only when `pos0 > 0`.
+///
+/// The compressor's correctness against llama.cpp was established by tests
+/// that rebuild its graph by hand at `pos0 = 0`. Those cannot see this at all.
+/// Pulling the index arithmetic out makes it checkable with no container and
+/// no weights, which is what the tests below do: the positions a batched pass
+/// gathers must be exactly the positions the equivalent stepwise sequence
+/// gathers.
+fn compressor_positions(pos0: i64, nt: i64, ratio: i64, overlap: bool) -> Vec<Option<i64>> {
+    let b0 = pos0 / ratio;
+    let b1 = (pos0 + nt) / ratio;
+    let mut out = Vec::with_capacity(((b1 - b0) * ratio * if overlap { 2 } else { 1 }) as usize);
+    // The overlap half first, and it reaches a whole block further back: the
+    // two halves summarise `[b*ratio - ratio, b*ratio)` and `[b*ratio,
+    // (b+1)*ratio)`, which is why the ring has to keep 8 rows for a ratio of 4.
+    if overlap {
+        for b in b0..b1 {
+            for j in 0..ratio {
+                let p = b * ratio - ratio + j;
+                out.push(if p < 0 { None } else { Some(p) });
+            }
+        }
+    }
+    for b in b0..b1 {
+        for j in 0..ratio {
+            out.push(Some(b * ratio + j));
+        }
+    }
+    out
+}
+
 /// The `kv` and `score` projections a compressed layer needs, and the ring slide.
 ///
 /// Split out of [`compressor`] because it must run on **every** pass through a
@@ -1526,20 +1571,15 @@ fn compressor<'c>(
     // + 1` that is at worst `pos0 - 2 * ratio + 1` — which is why 8 rows are kept
     // for a ratio of 4, and why a smaller ring would read past the front.
     let row_of = |q: i64| (state_rows + q - pos0) as i32;
-    let mut idxs: Vec<i32> = Vec::new();
-    if overlap {
-        for b in b0..b1 {
-            for j in 0..ratio {
-                let p = b * ratio - ratio + j;
-                idxs.push(if p < 0 { zero_row } else { row_of(p) });
-            }
-        }
-    }
-    for b in b0..b1 {
-        for j in 0..ratio {
-            idxs.push(row_of(b * ratio + j));
-        }
-    }
+    let idxs: Vec<i32> = compressor_positions(pos0, nt, ratio, overlap)
+        .iter()
+        .map(|p| match p {
+            Some(q) => row_of(*q),
+            // Before the sequence started: the appended zero row, which is 0 in
+            // the kv state and -inf in the score so the softmax ignores it.
+            None => zero_row,
+        })
+        .collect();
     debug_assert!(
         idxs.iter().all(|&i| i >= 0 && i <= zero_row),
         "compressor gathered outside the ring+batch buffer: pos0 {pos0}, blocks          {b0}..{b1}, state_rows {state_rows}"
@@ -3124,7 +3164,9 @@ pub fn forward_streams(
             };
             (out, ahead)
         });
-        streams = Some(out?);
+        let out = out?;
+        dump_layer_streams(il, &out, fw.config.hc_dim() as usize);
+        streams = Some(out);
         prefetched = ahead;
     }
 
@@ -3138,6 +3180,49 @@ pub fn forward_streams(
 /// Costs one forward pass over a **single** token instead of over the whole
 /// sequence. Both the arithmetic and the disk traffic collapse: a step selects
 /// 6 distinct experts per layer where a 166-token pass selects 122.8.
+/// One layer's output, printed for comparison against `llama-eval-callback`.
+///
+/// **This path had no dump at all**, which is the one instrument the other
+/// architectures have: `stream.rs` has carried `CHAOS_DUMP_LAYERS` since the
+/// Qwen port, and the 43 V4-Flash layers were instead verified through a test
+/// harness that rebuilds each layer's graph by hand. That works for a batched
+/// prefill from zero and cannot see the paths a *running* engine takes -- the
+/// production `compressor` with a non-empty ring is reached only when
+/// `pos0 > 0`, so nothing had ever diffed it against llama.cpp.
+///
+/// Two sums, because only one of them is comparable across a batch shape:
+///
+/// * `l_out-N` is the whole tensor, which is what `llama-eval-callback` prints
+///   and what a batched pass should be diffed on.
+/// * `l_last-N` is the **final position only**. A batched pass over 8 tokens
+///   holds 8 positions here and the eighth single-token step holds 1, so this
+///   is the only sum that means the same thing on both paths -- and it is what
+///   the head reads, so it is what a generated token is made of.
+fn dump_layer_streams(il: u32, streams: &[f32], hc_dim: usize) {
+    if std::env::var_os("CHAOS_DUMP_LAYERS").is_none() {
+        return;
+    }
+    let whole: f64 = streams.iter().map(|v| f64::from(*v)).sum();
+    if streams.len() < hc_dim || hc_dim < 3 {
+        eprintln!("l_out-{il}  sum = {whole:.6}");
+        return;
+    }
+    let last = &streams[streams.len() - hc_dim..];
+    let sum: f64 = last.iter().map(|v| f64::from(*v)).sum();
+    let f = |v: &f32| format!("{v:>12.6}");
+    let head: Vec<String> = last.iter().take(3).map(f).collect();
+    let tail: Vec<String> = last[hc_dim - 3..].iter().map(f).collect();
+    eprintln!(
+        "l_out-{il}  sum = {whole:.6}   positions = {}",
+        streams.len() / hc_dim
+    );
+    eprintln!(
+        "l_last-{il}  [{}, ..., {}]  sum = {sum:.6}",
+        head.join(", "),
+        tail.join(", ")
+    );
+}
+
 pub fn step(
     fw: &Deepseek4Forward<'_>,
     cache: &mut Deepseek4Cache,
@@ -3149,7 +3234,9 @@ pub fn step(
 
 #[cfg(test)]
 mod routing_tests {
-    use super::{is_repackable_dense, pool_passes, raw_span, record_into, RAW_RING};
+    use super::{
+        compressor_positions, is_repackable_dense, pool_passes, raw_span, record_into, RAW_RING,
+    };
 
     /// V4-Flash's declared window, from the container:
     /// `deepseek4.attention.sliding_window = 128`.
@@ -3409,6 +3496,142 @@ mod routing_tests {
         assert_eq!(pooled.len(), 3);
         assert_eq!(pooled[0], vec![0, 1, 0, 0]);
         assert_eq!(pooled[2], vec![1, 0, 0, 0]);
+    }
+
+    /// One closed block: its index, the positions its overlap half
+    /// summarises, and the positions its current half summarises.
+    type ClosedBlock = (i64, Vec<Option<i64>>, Vec<Option<i64>>);
+
+    /// How one call groups its gathered positions, per block.
+    ///
+    /// The layout is load-bearing and not obvious: the consumer reads
+    /// `rows[0..n_read]` as the overlap half and `rows[n_read..]` as the
+    /// current half, then reshapes each to `[head, ratio, n_blocks]`. So
+    /// **the grouping only has to hold within a single call** — which is the
+    /// thing the first version of this test got wrong. It concatenated the
+    /// positions from a batch and from the equivalent steps and demanded they
+    /// match, and they do not: a batch of 12 emits three overlap halves and
+    /// then three current halves, while three closing steps each emit their own
+    /// (overlap, current) pair. Both are correctly grouped *per call*, and the
+    /// concatenations differ for that reason alone.
+    fn blocks_of(pos0: i64, nt: i64, ratio: i64, overlap: bool) -> Vec<ClosedBlock> {
+        let all = compressor_positions(pos0, nt, ratio, overlap);
+        let b0 = pos0 / ratio;
+        let n_blocks = (pos0 + nt) / ratio - b0;
+        let per = ratio as usize;
+        let n_read = n_blocks as usize * per;
+        (0..n_blocks as usize)
+            .map(|i| {
+                let cur = all[if overlap { n_read } else { 0 } + i * per..][..per].to_vec();
+                let ovl = if overlap {
+                    all[i * per..][..per].to_vec()
+                } else {
+                    Vec::new()
+                };
+                (b0 + i as i64, ovl, cur)
+            })
+            .collect()
+    }
+
+    /// **The property a generated token depends on**, and it had never been
+    /// tested: whichever pass closes a block must summarise the same positions.
+    ///
+    /// The two shapes take different routes through the same expressions. A
+    /// batched prefill has `pos0 = 0` and every row of a completed block in its
+    /// own batch; generation closes the same block on the fourth single-token
+    /// pass, with three rows from the ring and one from the batch. The
+    /// compressor's parity with llama.cpp was established by tests that rebuild
+    /// its graph at `pos0 = 0`, so this path was invisible to all of them.
+    ///
+    /// **This passes, and that is the finding.** The measured divergence — three
+    /// tokens agreeing to cosine 0.99987 and four ten times worse — is not this
+    /// arithmetic.
+    #[test]
+    fn a_batch_and_a_sequence_of_steps_summarise_the_same_blocks() {
+        const RATIO: i64 = 4;
+        for overlap in [true, false] {
+            for blocks in 1..=5i64 {
+                let n = blocks * RATIO;
+                let batched = blocks_of(0, n, RATIO, overlap);
+                let stepwise: Vec<_> = (0..n)
+                    .flat_map(|pos0| blocks_of(pos0, 1, RATIO, overlap))
+                    .collect();
+                assert_eq!(
+                    batched, stepwise,
+                    "overlap {overlap}, {blocks} block(s) of {RATIO}: one pass over {n} tokens                      and {n} single steps close the same blocks from different positions"
+                );
+            }
+        }
+    }
+
+    /// A pass that ends mid-block closes nothing, which is why three tokens is
+    /// the control: at ratio 4 it is the only short length whose compressed
+    /// half stays empty on both paths.
+    #[test]
+    fn a_pass_that_completes_no_block_summarises_nothing() {
+        for nt in [1, 2, 3] {
+            assert!(
+                compressor_positions(0, nt, 4, true).is_empty(),
+                "{nt} tokens completed a block of 4"
+            );
+        }
+        let first = compressor_positions(0, 4, 4, true);
+        assert_eq!(first.len(), 8);
+        // Four of the eight are the overlap half, and for block 0 every one of
+        // them is before the start.
+        assert_eq!(first[..4], [None, None, None, None]);
+        assert_eq!(first[4..], [Some(0), Some(1), Some(2), Some(3)]);
+    }
+
+    /// Every gathered position must sit inside the ring the caller keeps.
+    ///
+    /// `state_rows` is 8 for the overlap form and the reason is this reach: the
+    /// overlap half of the first block a pass completes starts at
+    /// `b0 * ratio - ratio`, which is up to `2 * ratio - 1` rows behind `pos0`.
+    /// A ring of 4 would read past its own front, silently, with a zero.
+    #[test]
+    fn nothing_is_gathered_from_before_the_ring() {
+        const RATIO: i64 = 4;
+        const RING: i64 = 8;
+        for pos0 in 0..64i64 {
+            for nt in [1i64, 2, 3, 4, 8, 16] {
+                for p in compressor_positions(pos0, nt, RATIO, true)
+                    .into_iter()
+                    .flatten()
+                {
+                    assert!(
+                        p >= pos0 - RING,
+                        "pos0 {pos0}, nt {nt}: position {p} is {} rows back, ring keeps {RING}",
+                        pos0 - p
+                    );
+                    assert!(
+                        p < pos0 + nt,
+                        "pos0 {pos0}, nt {nt}: position {p} is in the future"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A chunked prefill must close the same blocks one long pass would.
+    ///
+    /// The shape `chaos-run` actually uses on a long prompt, where
+    /// `max_pass_tokens` forces a 4040-token prompt into blocks.
+    #[test]
+    fn chunking_a_prefill_closes_the_same_blocks() {
+        const RATIO: i64 = 4;
+        let total = 48i64;
+        for chunk in [4i64, 8, 12, 16, 24] {
+            let one = blocks_of(0, total, RATIO, true);
+            let mut chunked = Vec::new();
+            let mut pos0 = 0;
+            while pos0 < total {
+                let nt = chunk.min(total - pos0);
+                chunked.extend(blocks_of(pos0, nt, RATIO, true));
+                pos0 += nt;
+            }
+            assert_eq!(one, chunked, "chunk {chunk} of {total}");
+        }
     }
 }
 

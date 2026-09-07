@@ -1,6 +1,6 @@
 ---
 topic: Feeding V4-Flash one token at a time does not reproduce a batched prefill — the two paths predict different next tokens after 63 steps, which makes a stepwise perplexity incomparable to any batched engine and raises a question about generation itself
-status: ANSWERED — the divergence appears exactly when a compressed block completes, so it is structural rather than tie-breaking. The defect itself is not yet located.
+status: ANSWERED 2026-09-03 -- the two paths choose DIFFERENT EXPERTS, from the first routed layer (3 of 43 layers at 3 tokens, 33 of 43 at 4). The compressor gathers identical positions (proven by test) but its values differ by more than rounding. Which path is wrong is still open: every oracle capture is batched.
 links:
   - requantising-the-trunk-2026-09-02.md
   - ../backlog/score-a-chunk-from-one-batched-pass.md
@@ -126,66 +126,138 @@ The oracle capture at 300 tokens already exists
 diff our compressed-half tensors at a length ending on a boundary against
 llama.cpp's, which is how all 43 layers were built in the first place.
 
-### One candidate eliminated by hand, 2026-09-03
+### Two candidates eliminated, and one claim of mine withdrawn, 2026-09-03
 
-**The ring alignment is not the bug.** The obvious suspect was
-`compressor_project`'s ring: the stepwise path assembles a completed block from
-*ring rows plus one batch row*, where the batched path takes all four from the
-batch, and an off-by-one in that mapping would land exactly on a block boundary
-and nowhere else.
+**The ring index arithmetic is not the bug, and that is now mechanical rather
+than read.** The obvious suspect was `compressor_project`'s ring: the stepwise
+path assembles a completed block from *ring rows plus one batch row* where the
+batched path takes all four from the batch, and an off-by-one there would land
+on a block boundary and nowhere else.
 
-It was checked by hand at `pos0` = 3, 7, 8 and 11, following `row_of(q) =
-state_rows + q - pos0` against what the ring actually holds after `keep = 8`
-rows and the drain:
+The arithmetic is now a pure function, `compressor_positions(pos0, nt, ratio,
+overlap)`, with four tests that need no container:
 
-| `pos0` | ring holds | front pad | block's rows land at | correct? |
-|---|---|---|---|---|
-| 3 | positions 0-2 | 5 zero rows | 5, 6, 7, and 8 from the batch | yes |
-| 7 | positions 0-6 | 1 zero row | 5, 6, 7, 8 | yes |
-| 11 | positions 3-10 (drained) | none | 5, 6, 7, 8 | yes |
-
-The overlap half checks out too: for block 0 it reads `p = -4..-1`, every one
-resolving to `zero_row`, which is the appended pad row — 0 for the kv state and
-`-inf` for the score, so the softmax ignores it. Both paths do that identically.
-The APE index `(pos0 + p) % ratio` also agrees, 0/1/2/3 either way.
-
-So the divergence is **not** a misaligned ring, and the front-pad arithmetic is
-right. What that leaves is the projection itself (`mul_mat` over one column
-against four is a different ggml kernel, but that is a 1e-3 effect and would not
-give 0.98) or how the compressed half is **consumed** at `nt = 1` — four tokens
-is simply the first length at which a non-empty compressed half enters the
-attention output at all, which is why the error appears there.
-
-**This is a narrowing, not a diagnosis, and it went as far as reading gets.**
-The next step is unchanged and is a measurement: diff the compressed-half
-tensors against llama.cpp at a boundary length. Reading further would be
-guessing, and this repository has a rule about that.
-
-## What it means for the parity gate
-
-**V4-Flash's quality cell cannot be measured comparably yet**, and it now has a
-written reason rather than a wrong number — which is what the gate asks for after
-Atur redefined it as *every cell measured, not every cell won*.
-
-The fix is named and filed:
-`../backlog/score-a-chunk-from-one-batched-pass.md`. Project all positions
-through the head so a chunk is scored from a single batched pass, the way
-llama.cpp does. That was considered and deferred earlier the same day as "not
-needed, because the dense path feeds one token at a time too" — the dense path
-gets away with it and this one does not.
-
-## The shape of the mistake, for next time
-
-Three wrong numbers came out of this one measurement, each looking like a model
-result:
-
-| number | cause |
+| test | asserts |
 |---|---|
-| V4-Flash quality +50% | corpus was one sentence repeated 80 times |
-| the same, +78% after the corpus fix | stepwise path diverges from batched |
-| +9.7% on a control that should agree to 1% | BOS missing at each chunk start |
+| `a_batch_and_a_sequence_of_steps_summarise_the_same_blocks` | one pass over `4n` tokens and `4n` single steps close the same blocks from the same positions, for 1-5 blocks, both overlap forms |
+| `a_pass_that_completes_no_block_summarises_nothing` | 1, 2 and 3 tokens close nothing; block 0's overlap half lies entirely before the start |
+| `nothing_is_gathered_from_before_the_ring` | no position is more than 8 rows behind `pos0`, for every `pos0` under 64 and six batch sizes -- the reason `state_rows` is 8 and not 4 |
+| `chunking_a_prefill_closes_the_same_blocks` | a 48-token prefill in chunks of 4, 8, 12, 16 and 24 closes what one pass would |
 
-**Every one was found by a control and none by inspection.** The corpus was
-caught by asking a model that already agrees whether it still agreed; the BOS by
-reading llama.cpp's source rather than assuming; the stepwise divergence by
-testing the property the harness relied on instead of the property it had.
+All four pass. **My first version of the first test failed, and the test was
+wrong** -- it concatenated the positions from a batch and from the equivalent
+steps and demanded equality. They differ: a batch of 12 emits three overlap
+halves and *then* three current halves, while three closing steps each emit
+their own (overlap, current) pair. Both are correctly grouped **per call**,
+which is all the consumer requires -- it reads `rows[0..n_read]` as the overlap
+half and `rows[n_read..]` as the current half of *that call*. Comparing across
+calls was meaningless. That is the second time in this investigation the test
+design was the thing at fault, after the sweep that sampled only multiples of
+four.
+
+**C5e freezing is not the bug either.** It is the one deliberately
+batch-shape-dependent path in the block, so it was the next suspect:
+`freeze_the_tail(hash_layer_count, il, nt)` is `il >= hash_layer_count && nt <=
+FREEZE_MAX_TOKENS`, and `FREEZE_MAX_TOKENS` is **192**. Every length in the
+sweep -- 3, 4, 5, 6, 7, 8, 16, 32, 64 -- is under 192 on both paths, so freezing
+is on for the batch and on for every step alike. Read rather than measured, but
+the predicate is two terms and neither depends on anything else.
+
+### Withdrawn: "tie-breaking cannot do that"
+
+The previous entry asserted that a near-tie in routing *"has no reason to care
+whether the final position lands on a multiple of four."* **That was too strong,
+and it does have a reason.** The position that closes a block is the position
+whose hidden state most directly incorporates the block just closed -- and it is
+also the position whose logits the comparison reads. So a small difference in
+the compressed half is most exposed exactly at a boundary, and a routing flip
+would amplify it from rounding into a different answer.
+
+Re-reading the sweep with that in mind, there are **two** effects and the
+earlier note collapsed them into one:
+
+| | cosine |
+|---|---|
+| no block closes (3) | **0.99987** |
+| ends mid-block (5, 6, 7) | 0.9967, 0.9961, 0.9909 |
+| ends on a boundary (4, 8, 16, 32) | 0.9814, 0.9841, 0.9904, 0.9858 |
+
+Empty compressed half against non-empty is the large, unambiguous step. Boundary
+against mid-block is real but much smaller -- roughly 0.983 against 0.994 -- and
+7 (0.9909) overlaps 16 (0.9904), so it is a tendency, not a cliff. "Ten times
+the error, immediately" described the 3-to-4 transition, which is the
+empty-to-non-empty step and not the boundary.
+
+### ANSWERED 2026-09-03: the experts disagree, and from the first routed layer
+
+The instrument was already in the engine and nobody had pointed it at this.
+`routing_last_token()` returns the expert ids the **final** token of the most
+recent pass selected, per layer, and `routing_last_token_reset()` exists so that
+two passes can be compared cleanly. It needs `CHAOS_ROUTING_LAST=1` — the first
+run of the new test reported *"0 layers logged"*, which is what an unset gate
+looks like and would have read as "the experts agree" to anyone who did not
+check.
+
+`core/arch/tests/stepwise_layer_divergence.rs`, four tokens against three, with
+the logit numbers reproducing `stepwise_drift` exactly:
+
+| | 3 tokens (closes no block) | 4 tokens (closes one) |
+|---|---|---|
+| logits, cosine | 0.999866 | 0.981401 |
+| logits, max abs | 0.4808 | 4.9674 |
+| layers choosing **different experts** | **3 of 43** | **33 of 43** |
+| first such layer | **30** | **3** |
+
+Every differing layer differs in one or two of its six, e.g. at 4 tokens layer 3
+takes `[6, 62, 111, 136, 167, 250]` batched and `[62, 78, 136, 167, 249, 250]`
+stepwise.
+
+**Three things follow, and the third is the finding.**
+
+1. **Routing flips are real on this architecture and are not the whole story.**
+   Three layers flip even at 3 tokens, where no compressed block exists at all
+   and the logits still agree to 0.99987. A few flips deep in the stack cost
+   almost nothing.
+2. **At 4 tokens the flips start at layer 3**, which is the *first* layer with
+   routed experts — `hash_layer_count` is 3, so layers 0-2 have none. There is
+   no earlier layer that could have flipped. The 33 differing layers are then
+   mostly cascade: once one expert differs, everything downstream is perturbed
+   by a whole expert's contribution.
+3. **So the perturbation entering the first routed layer is far larger than
+   floating-point reordering.** That is the inference the pairing supports: at 3
+   tokens, rounding-level differences leave every layer before 30 agreeing; at 4
+   tokens the very first router that *can* flip does flip. Rounding does not
+   become 26 layers more potent because a block closed. **The compressor's
+   values differ between the two shapes by more than rounding — and its indices
+   are proven identical, so the difference is in what it computes, not in what
+   it reads.**
+
+### What this does NOT establish: which path is wrong
+
+**Both oracle captures are batched.** `llama-eval-callback` was run on a prompt,
+so every one of the 22 container tests — `the_library_forward_pass_matches_llama_cpp`
+included — verifies the *batched* path. The stepwise path has never been diffed
+against anything, and it is the path every generated token comes from.
+
+So "the batched path is right and generation is wrong" is the likely reading but
+is not yet measured. Settling it needs llama.cpp captured under `-b 1`, which no
+fixture here has.
+
+### Where to look next, concretely
+
+Layer 3's compressor, comparing the **values** it produces at `pos0 = 0, nt = 4`
+against `pos0 = 3, nt = 1`. The indices are equal by test; the candidates left
+are what `compressor_project` puts in the ring and what the two shapes do with
+it:
+
+* the ring holds **projected** rows, `mul_mat(W, attn_norm)` — computed over four
+  columns at once on one path and one column at a time on the other;
+* `state_rows` front-padding with zeros when the ring is shorter than 8;
+* the score half's `-inf` padding and the `soft_max` over it, where a padding
+  row that is 0 instead of `-inf` would average a spurious entry in — and would
+  do so *only* when the ring is involved.
+
+`CHAOS_DUMP_LAYERS` now works on this path (it had no dump at all, which is why
+the ring was invisible to all 43 layer tests) and prints `l_out-N` for the whole
+tensor plus `l_last-N` for the final position, the one sum comparable across
+batch shapes.

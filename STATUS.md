@@ -6,7 +6,7 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 — fix this file.
 
 **Last updated**: 2026-09-03 · **Version**: v0.0.32, tagged 2026-09-03 ·
-**Branch**: `main`, verified at v0.0.32 — 1003 tests, 0 failed, fmt and clippy
+**Branch**: `main`, verified at v0.0.32 — 1007 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
 
 **v0.0.32 fixes the last report Atur had open: the book.** *"the book of QR code
@@ -150,39 +150,76 @@ Parity on quality across the range.
 
 ## Open, and the largest one: V4-Flash generation disagrees with its own prefill
 
-**Found 2026-09-03, located to a boundary, not yet fixed.** Feeding V4-Flash one
-token at a time does not reproduce a batched prefill — and the disagreement
-appears exactly when a **compressed block completes**:
+**Found 2026-09-03, narrowed twice, not yet fixed.** Feeding V4-Flash one
+token at a time does not reproduce a batched prefill, and the disagreement
+begins as soon as a **compressed block has completed**:
 
 ```
-  tokens  cosine     max |diff|   completes a block?
-       3  0.999866      0.4808    no    <- the paths agree
-       4  0.981401      4.9674    yes   <- 10x the error, immediately
-       5  0.996695      2.5935    no
+  tokens  cosine     max |diff|   closes a block on the LAST position?
+       3  0.999866      0.4808    no  -- closes none at all
+       4  0.981401      4.9674    yes
+       5  0.996695      2.5935    no  -- closed at 3
+       6  0.996145      2.4938    no
+       7  0.990928      3.3050    no
        8  0.984060      5.5758    yes
+      16  0.990389      2.9377    yes
+      32  0.985793      4.2033    yes
+      64  0.970304      4.3346    yes
 ```
 
-`CSA_RATIO` is 4, so three tokens is the only length that never closes a block.
-There the paths agree to 0.99987 — floating-point reordering and nothing more.
-At four, the error jumps ten-fold; five, six and seven end mid-block and recover.
+`CSA_RATIO` is 4, so three tokens is the only length that closes no block at
+all, and there the paths agree to 0.99987 — floating-point reordering and
+nothing more. **Every length that closes one disagrees**, and the large step is
+empty-against-non-empty, not the boundary.
 
-**Tie-breaking cannot do that**: a near-tie in routing has no reason to care
-whether the final position lands on a multiple of four. And it is not academic —
-**generation always takes the stepwise path**, so every token a user reads comes
-from the side that disagrees.
+**Two candidates eliminated 2026-09-03, and one of my own claims withdrawn.**
 
-Two earlier readings were wrong and are retracted: that the divergence
-*accumulates* (it is present at four tokens and no worse at thirty-two), and the
-first sweep's design, which sampled only multiples of four and so could not have
-found the boundary it was looking for.
+The ring index arithmetic is **not** it, and that is now mechanical rather than
+read: `compressor_positions` is a pure function with four tests needing no
+container, and a batch of `4n` tokens closes the same blocks from the same
+positions as `4n` single steps, chunked prefills included. C5e freezing is not
+it either — `FREEZE_MAX_TOKENS` is 192, so every length in the sweep freezes on
+both paths.
 
-Next: diff our compressed-half tensors against `llama-eval-callback` at a length
-ending on a boundary. The 300-token oracle capture already exists.
+**Withdrawn**: *"tie-breaking cannot do that"*. It can. The position that closes
+a block is both the one whose state most directly incorporates that block and
+the one whose logits are compared, so a routing flip would show up exactly
+there. And the sweep holds two effects the earlier note merged: empty against
+non-empty compressed half is the large step (0.99987 → 0.98), while boundary
+against mid-block is a much smaller tendency (~0.983 against ~0.994) with 7 and
+16 overlapping.
+
+**ANSWERED 2026-09-03: the two paths choose different experts.**
+`routing_last_token()` was already in the engine and had never been pointed at
+this (it needs `CHAOS_ROUTING_LAST=1`; the first run said "0 layers logged",
+which is what an unset gate looks like):
+
+| | 3 tokens | 4 tokens |
+|---|---|---|
+| logits cosine | 0.999866 | 0.981401 |
+| layers picking different experts | **3 of 43** | **33 of 43** |
+| first such layer | 30 | **3** |
+
+Layer 3 is the *first* layer with routed experts — `hash_layer_count` is 3 — so
+at four tokens the earliest router that can flip does flip, and the 33 are
+mostly cascade. At three tokens, where no compressed block exists, nothing
+before layer 30 differs. **Rounding does not become 26 layers more potent
+because a block closed**, so the compressor's *values* differ by more than
+floating-point reordering, while its *positions* are identical by test.
+
+**Not established: which path is wrong.** Every oracle capture is batched —
+`llama-eval-callback` on a prompt — so all 22 container tests verify the batched
+path and the stepwise path has never been diffed against anything. Settling it
+needs llama.cpp under `-b 1`, which no fixture has.
+
+Next: layer 3's compressor, comparing values at `pos0 = 0, nt = 4` against
+`pos0 = 3, nt = 1`. Candidates are the ring's projected rows, the zero
+front-padding, and the score half's `-inf` padding under `soft_max`.
 `research/stepwise-and-batched-disagree-2026-09-02.md`.
 
 ## The honest scoreboard
 
-**Current**: **1003 tests** (0 failed, 49 ignored — the V4-Flash set needs the
+**Current**: **1007 tests** (0 failed, 50 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

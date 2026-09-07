@@ -32,8 +32,8 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 1003 tests
-cargo test --release --test deepseek4_forward -- --ignored   # 19 V4-Flash, needs the container
+cargo test --release          # 1007 tests
+cargo test --release --test deepseek4_forward -- --ignored   # 22 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
 cargo fmt --all --check                                 # CI gate
@@ -50,7 +50,7 @@ Windows needs the **GNU** Rust toolchain plus MSYS2 mingw64 on PATH, and
 both halves**: every
 crate but `chaos-arch` builds, tests and lints without `GGML_LIB_DIR`, and
 `chaos-arch` must fail with its `GGML_LIB_DIR is not set` message rather than a
-wall of unresolved imports. **A full run reports 49 ignored** — they need a
+wall of unresolved imports. **A full run reports 50 ignored** — they need a
 real container on disk and skip silently without one, so a green run is not a
 full run. **The test-count comment above is machine-checked**:
 `scripts/check-test-count.sh` compares it with STATUS.md, CONTRIBUTING.md and

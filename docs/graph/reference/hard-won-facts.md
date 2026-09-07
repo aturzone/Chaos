@@ -161,6 +161,22 @@ are the measurement that killed one.
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
   does now, 30 checks, in CI.
+- **A gated instrument that is off reads exactly like a negative result.**
+  `routing_last_token()` needs `CHAOS_ROUTING_LAST=1`. Without it the comparison
+  printed *"0 layers logged, 0 choose different experts"* — which is what "the
+  experts agree" looks like, and would have closed the V4-Flash investigation on
+  the wrong answer. With the gate set: 33 of 43 layers disagree. **Check that an
+  instrument recorded anything before believing what it did not record.**
+- **The instrument you need may already be in the tree.** Two of them were here:
+  `routing_last_token()` with its `routing_last_token_reset()`, written for
+  exactly this comparison, and never pointed at it. Grep the crate before
+  building a harness.
+- **Ignored tests can be cheap enough to run.** The 22 V4-Flash container tests
+  were assumed too expensive for a laptop with 3.16 GiB free against a 7.38 GiB
+  trunk. They take **312 s**, and the compressor oracle test alone takes 9.9 s,
+  because they bind a few layers' weights rather than the whole model. A run
+  that reports 50 ignored is not the same as a run that could not have done more.
+
 - **An absent CI secret arrives as an empty string, not as absent.** A workflow
   that sets `env: FOO: ${{ secrets.FOO }}` from an undefined secret exports
   `FOO=`, so `System.getenv("FOO")` is `""` and not `null`. The Android signing

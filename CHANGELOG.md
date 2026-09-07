@@ -99,6 +99,16 @@ While the major version is `0`, anything may change in a minor release.
   `hide_every_control`, the `launched` gate on `WM_PAINT`, `mode_chosen` in
   the settings file, the mode badge, CHANGE MODE, and Escape's one-keystroke
   drop of a loaded model. **The window opens on CHAT.**
+- **`chaos scan`**, which spent this release pointing at two features that
+  no longer existed. It refused to decode and named the two readers that did
+  work — the phone app's SCAN button and `/scan` in a browser — and both were
+  deleted below. **A test asserted that it named them**, checking the message
+  contained `/scan`, so the check kept the command wrong. A refusal that
+  points at a ghost is worse than an absent command: it is wrong rather than
+  merely missing. `chaos` now answers `"scan" is not a command`, which is
+  true, and `nothing_points_at_the_reader_that_was_deleted` is the old test
+  inverted. `chaos qr` still draws a code; the encoder was never the part
+  that went.
 - **The reader**: `scanner.html`, the `/scan` route, `Page::Scry`, `scry()`,
   the READ A CODE button, the emitted `scan.html` and `scan-sweep.js`. The
   mark stays. `decode_qr.py` stays too — it is the *encoder's* fixture

@@ -21,7 +21,7 @@ that means. This is the scoreboard, with what was measured.
 | 3 | pick model, device, threads, context, cache from one place | **done** — one settings file, read by both tiers |
 | 4 | report what `/status` serves, without curl | **done** — `chaos status`, over a client written for it |
 | 5 | connect to another node and use it | **done** — `chaos connect <route> "prompt"`, streamed |
-| 6 | read a code: `chaos scan <image.png>` | **NOT BUILT, declared** — see below |
+| 6 | read a code: `chaos scan <image.png>` | **REMOVED 2026-09-08** — see below |
 | 7 | one binary or many | **decided: `chaos <subcommand>`, every old name kept** |
 
 Plus §3's closing ask — installable anywhere there is a terminal, with
@@ -82,13 +82,24 @@ the one thing this client does not do.
   `Child::try_wait`, which owns the handle and cannot be fooled, and `alive()`
   itself now reads `GetExitCodeProcess` and requires `STILL_ACTIVE`.
 
-## Item 6: `chaos scan` is not built, and says so
+## Item 6: `chaos scan` is gone, with the reader it named
 
-**`core/qr` encodes and does not decode.** The plan's instruction was to *"say so
-rather than half-building it"*, and that is what `chaos scan` does: it is listed
-in the help as `NOT BUILT`, and running it prints why, plus the two readers that
-do work and are measured (210 of 210 across 7 scales and 30 angles) — the phone's
-SCAN button and `/scan` in a browser on the node itself.
+**Removed 2026-09-08, and the removal is the lesson.** `core/qr` encodes and
+does not decode, so the plan's instruction was to *"say so rather than
+half-building it"*. `chaos scan` did exactly that: listed as `NOT BUILT`, and
+running it printed why, plus **the two readers that did work** — the phone app's
+SCAN button and `/scan` in a browser, measured at 210 of 210 across 7 scales and
+30 angles.
+
+Then v0.0.34 deleted both of them. Atur: *"that book and barcode aren't needed
+any more, we only use the book"*. The command went on naming them for a whole
+release, **and a test asserted that it did** — `scan_refuses_and_points_somewhere_real`
+checked the message contained `/scan`. A refusal that points at a ghost is worse
+than an absent command: it is wrong rather than merely missing, and it had a
+check keeping it wrong.
+
+`nothing_points_at_the_reader_that_was_deleted` is that test, inverted. `chaos`
+now answers `"scan" is not a command`, which is true.
 
 **Why the asymmetry is real and not laziness.** Encoding is arithmetic with a
 known answer, checkable against a reference grid. Decoding a photograph is

@@ -34,6 +34,10 @@ use the book... the CHAOS page, its button isn't even in the menu any more"*.
   `research/the-window-now-scales-2026-09-08.md`.
 - **The node answers `/api/hello`** — Claude Code's reachability probe, 404 for
   the whole of v0.0.33.
+- **`chaos scan` is gone.** It refused to decode and named the two readers that
+  did work; this release deleted both, and **a test asserted the message still
+  named them**. A refusal pointing at a ghost is worse than an absent command.
+  `chaos` answers `"scan" is not a command` now, which is true.
 
 **Verified by running the app**: it opens on CHAT with 11 controls on screen
 where it used to open on the knob with zero, and the run-through presses 34

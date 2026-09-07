@@ -90,8 +90,8 @@ is ~6 minutes at 12k tokens on this CPU.
 **`chaos` is the front door**: `cli/chaos` dispatches `chaos run` to
 `chaos-run` with arguments untouched — every old binary name still works — and
 implements `start`/`stop`/`status` (a node as a background process, pid file,
-log), `connect`, `config`, `completions`, and `scan`, which is **NOT BUILT and
-says so**. `chaos start` uses `Settings::serve_args`, the window's own function.
+log), `connect`, `config`, `completions` and `verify`. **`scan` is gone**: it
+refused to decode and named two readers, both deleted in v0.0.34. `chaos start` uses `Settings::serve_args`, the window's own function.
 
 `cli/run` chaos-run · `network/serve` chaos-serve · `network/worker`
 chaos-worker, which holds experts and answers with activations · `gui/app` the
@@ -267,7 +267,7 @@ tok/s measured, 64 GB 0.55, 128 GB 0.93, 160 GB 1.19 — **the whole 144 GB mode
 RAM is worth 2.9x, not 48x.** Do not quote a GPU V4-Flash figure: resident-in-VRAM
 is untested and the only measured number is 4.3x *slower* on streaming MoE.
 
-**Open, none of it blocking**: `chaos scan` is declared NOT BUILT; zsh and
+**Open, none of it blocking**: zsh and
 fish completions are generated but never sourced; a long upgrade jump from
 0.0.2 is untested; there is no contrast audit or screen-reader story for the
 window; no real camera has seen the mark. **iOS and Android are not parked,

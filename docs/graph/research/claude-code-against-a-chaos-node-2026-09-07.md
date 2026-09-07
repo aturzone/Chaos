@@ -47,6 +47,34 @@ identical output, checked with temperature 0 and a deliberately clobbered cache
 in between. That check matters more than the speed one: a mismatched prefix is
 silently wrong output, not an error.
 
+### The model choice is about tool calls, and the ranking is not the obvious one
+
+Two whole tasks, five tools, same node, same prompts:
+
+| model | read a file | write a file |
+|---|---|---|
+| **Qwen3-4B** (2.3 GB) | **called `Read`**, acted on the result, answered correctly | **called `Write`**, file created with correct contents |
+| Qwen2.5-Coder-7B-Instruct (4.4 GB) | not tried | **refused twice.** Printed the code and said *"you can save this as hello.py"*; on a second attempt with firmer wording it suggested `echo ... > hello.py` instead. No file either time |
+
+**So the code model is the wrong choice and the small general one is right**,
+which inverts the recommendation this node made before the build. A model that
+will not emit a tool call is unusable for an agent however good its code is:
+it connects, converses, and changes nothing.
+
+**One hypothesis was tested and failed.** The tool instruction ended *"call a
+function only when you need its result. Otherwise answer normally"*, and the
+7B plainly took the second half as permission. Rewriting it as a true statement
+-- that prose does not touch the user's files and a call is the only thing that
+does -- changed the shape of the refusal and not the refusal. The wording is
+kept because it is more accurate, **not because it fixed anything**.
+
+The lever that might work is **grammar-constrained decoding**: `Params.grammar`
+and `chaos-grammar` are both here. It is not attempted, because forcing the
+syntax would force a call on every turn and sometimes prose is the right answer.
+Constraining only *after* the model has emitted `<tool_call>` is the shape that
+would work, and is unbuilt.
+
+
 ### Three things the build found that the measurement had not
 
 - **`chaos-serve` capped the dense path at 2,048 tokens** and `-c` could only

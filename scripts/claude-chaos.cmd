@@ -46,8 +46,9 @@ if errorlevel 1 (
   echo.
   echo   chaos-serve ^<model.gguf^> --port %CHAOS_PORT% --context %CHAOS_CONTEXT%
   echo.
-  echo On the machine this was written for, the model to use is
-  echo   %%USERPROFILE%%\.chaos\models\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
+  echo The model to use is the one that will call tools, which is not the
+  echo best one at code -- Qwen2.5-Coder-7B would not, Qwen3-4B does:
+  echo   C:\Projects\models\qwen3-4b\Qwen3-4B-Q4_K_M.gguf
   echo.
   echo Then run this again. `chaos start` also works if the node is configured.
   exit /b 1

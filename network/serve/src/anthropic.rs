@@ -318,12 +318,33 @@ impl Request {
         if !s.is_empty() {
             s.push_str("\n\n");
         }
+        // **The wording was tested and it did not move the model.** This ended
+        // "call a function only when you need its result. Otherwise answer
+        // normally", and Qwen2.5-Coder-7B took the second half as permission:
+        // asked to create a file it printed the code and said *"you can save
+        // this as hello.py"*, creating nothing. Rewriting it as the true
+        // statement below -- that prose does not touch the user's files --
+        // changed the shape of the refusal and not the refusal: it then
+        // suggested an `echo > hello.py` shell command instead. Still no file.
+        //
+        // Kept because it is the more accurate instruction, **not because it
+        // fixed anything.** Tool-call reliability at this size is the real
+        // limit: Qwen3-4B called `Read` and acted on the result, and this 7B
+        // would not call `Write`. The lever that might actually work is
+        // grammar-constrained decoding -- `Params.grammar` and `chaos-grammar`
+        // exist -- but forcing the syntax would force a call on every turn,
+        // and sometimes prose is the right answer. Not attempted here.
         s.push_str(
-            "# Tools\n\nYou may call one or more of the functions below. \
-             To call one, emit exactly this, and nothing else in the same turn:\n\n\
+            "# Tools\n\nYou may call the functions below. To call one, emit \
+             exactly this and nothing else in the same turn:\n\n\
              <tool_call>\n{\"name\": \"<function-name>\", \"arguments\": <args-json>}\n\
              </tool_call>\n\n\
-             Call a function only when you need its result. Otherwise answer normally.\n\n\
+             A tool call is the ONLY thing that affects the user's files or \
+             system. Describing what to do, or printing code in your reply, \
+             changes nothing: the user sees text and no work is done. So if \
+             the request needs a file read, written or edited, or a command \
+             run, call the tool. Answer in prose only when the request is \
+             genuinely a question.\n\n\
              <tools>\n",
         );
         for t in &self.tools {

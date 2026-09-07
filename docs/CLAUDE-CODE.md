@@ -17,14 +17,22 @@ turn takes minutes.
 Not any model. It needs a chat template, tool-call training, and a context
 window with room for Claude Code's system prompt.
 
-| model | size | why |
-|---|---|---|
-| **Qwen2.5-Coder-7B-Instruct** | 4.4 GB | trained for code and for tool calls — start here |
-| Qwen3-30B-A3B | 18 GB | stronger, and needs `--force`: its parity diff has 1 FAIL |
-| Qwen3-4B | 2.3 GB | fastest that works at all; weaker at holding a plan |
+**Pick it on whether it calls tools, not on how good it is at code.** That
+turned out to be the only thing that matters, and it is not the same ranking:
 
-Anything under ~3B will connect and then fail to call tools correctly, which
-looks like the agent refusing to work.
+| model | size | calls tools? |
+|---|---|---|
+| **Qwen3-4B** | 2.3 GB | **yes — measured twice.** Called `Read` and acted on the result; called `Write` and created the file. Start here |
+| Qwen2.5-Coder-7B-Instruct | 4.4 GB | **no.** Asked to create a file it printed the code and said *"you can save this as hello.py"*; asked again it suggested an `echo > hello.py` command. Never called the tool, twice, with two different instruction wordings |
+| Qwen3-30B-A3B | 18 GB | untested here. Stronger, and needs `--force`: its parity diff has 1 FAIL |
+
+**A model that will not emit a tool call is unusable for this** however good its
+code is — the agent connects, converses, and changes nothing. That is the
+failure mode to expect, and it looks like the model refusing to work.
+
+Chaos deliberately does not paper over it: a malformed or absent tool call stays
+text, because inventing a `tool_use` block would make the agent run something
+the model never asked for.
 
 ### 2. Start a node
 
@@ -92,11 +100,11 @@ you need them and watch the first-turn time grow.
 
 ## Speed, measured
 
-Qwen3-4B on an i7-13650HX with 15.7 GiB, six tools, reading one file:
+Qwen3-4B on an i7-13650HX with 15.7 GiB, five tools, two whole tasks:
 
 ```
-turn 1   386.0s   904 tokens, tool_use     the whole prompt is prefilled
-turn 2    52.9s   155 tokens, end_turn     3,793 of 3,917 tokens reused
+reading a file      turn 1  386.0s  tool_use    turn 2  52.9s   3,793/3,917 reused
+writing a file      turn 1  352.4s  tool_use    turn 2  67.4s
 ```
 
 **Turn 1 is the expensive one.** After it, the node keeps the KV cache and the
@@ -127,8 +135,11 @@ every request with its duration; watch that instead.
 
 **The model answers in prose instead of calling a tool.** It did not emit a
 tool call, and Chaos deliberately does not invent one — a fabricated `tool_use`
-block would make the agent run something the model never asked for. Try a model
-trained for tool use, or fewer tools.
+block would make the agent run something the model never asked for. **Change
+the model, and do not assume a code model is better at this**: Qwen2.5-Coder-7B
+is trained for code and would not call `Write` on two tries with two different
+instruction wordings, while Qwen3-4B does. Fewer tools also helps, by leaving
+more of the context for the conversation.
 
 **The answer is the model's reasoning.** Qwen3 writes `<think>` blocks; Chaos
 strips them. If you see thinking in the answer, the model used a syntax we do

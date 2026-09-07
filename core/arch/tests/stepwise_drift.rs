@@ -24,6 +24,15 @@
 //! characterised. What it does assert is that the batched reference is stable and
 //! that the comparison is meaningful at all.
 //!
+//! **Answered 2026-09-03, and not by this test.** The curve narrowed the
+//! question to a block boundary and could go no further, because logits are 43
+//! layers downstream of the cause. `stepwise_layer_divergence` compares *per
+//! layer* and puts the origin in layer 2's compressed attention -- neither of
+//! the two explanations above as stated, since layer 2 has no routed experts to
+//! flip and its index arithmetic is proven identical between the shapes. This
+//! test is kept as the measurement of the *symptom*, which is what a fix has to
+//! move.
+//!
 //! ```text
 //! cargo test --release -p chaos-arch --test stepwise_drift -- --ignored --nocapture
 //! ```
@@ -147,8 +156,11 @@ fn how_the_stepwise_path_drifts_from_the_batched_one() {
         );
     }
     println!();
-    println!("  A smooth decline is tie accumulation: routing flips on near ties when");
-    println!("  the batch shape changes, which this repository already records. A step");
-    println!("  change -- especially at a length divisible by 4 -- would be structural,");
-    println!("  because the compressed half is built per block of CSA_RATIO tokens.");
+    println!("  ANSWERED 2026-09-03, and not by this test: the origin is layer 2's");
+    println!("  compressed attention, the first CompressedSparse layer, at exactly the");
+    println!("  length its first block closes. Layer 0 is bit-identical and layer 2 sits");
+    println!("  at 1.2e-04 with nothing closed, then 2.7e-01 one token later. Layer 2 is");
+    println!("  a hash layer with no routed experts, so it is not a routing flip -- the");
+    println!("  33 flipped routers from layer 3 on are downstream. See");
+    println!("  stepwise_layer_divergence, and the research node for what is still open.");
 }

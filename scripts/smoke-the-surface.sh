@@ -105,14 +105,14 @@ fi
 EMIT=$(mktemp -d 2>/dev/null || echo "./smoke-pages")
 if "$B/chaos-qr$EXT" --emit-pages "$EMIT" >/dev/null 2>&1; then
   bad_page=0
-  for f in qr scan; do
+  for f in qr; do
     p="$EMIT/$f.html"
     [ -s "$p" ] || { bad "chaos-qr --emit-pages wrote no $f.html"; bad_page=1; continue; }
     grep -q '<link' "$p" && { bad "$f.html fetches a stylesheet"; bad_page=1; }
     grep -q 'SIL Open Font License' "$p" || { bad "$f.html lost the font licence"; bad_page=1; }
     grep -q 'data:font/woff2;base64,' "$p" || { bad "$f.html has no embedded font"; bad_page=1; }
   done
-  [ "$bad_page" -eq 0 ] && ok "chaos-qr --emit-pages wrote two self-contained pages"
+  [ "$bad_page" -eq 0 ] && ok "chaos-qr --emit-pages wrote a self-contained page"
 else
   bad "chaos-qr --emit-pages failed"
 fi
@@ -138,7 +138,7 @@ get() { # path -> prints "code bytes"
   curl -s -o /tmp/smoke-body -w "%{http_code}" "http://127.0.0.1:$PORT$1" 2>/dev/null
 }
 
-for route in / /qr /mark /scan /health /status /v1/models; do
+for route in / /qr /mark /health /status /v1/models; do
   code=$(get "$route")
   size=$(wc -c < /tmp/smoke-body 2>/dev/null | tr -d ' ')
   case "$code" in
@@ -167,7 +167,7 @@ fi
 # or image source, or an `@import`: the source HTML *does* carry Google Fonts
 # `<link>` tags and the assembly replaces them with embedded fonts, so this is
 # the check that the assembly really happened.
-for route in /qr /scan; do
+for route in /qr; do
   get "$route" > /dev/null
   if grep -qE '<link[^>]*href="http|src="http|@import url\(http' /tmp/smoke-body 2>/dev/null; then
     bad "$route fetches something external"

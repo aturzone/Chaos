@@ -12,7 +12,10 @@ use std::process::ExitCode;
 fn emit_pages(dir: &std::path::Path) -> std::io::Result<()> {
     use chaos_arch::grimoire::{page, Host, Page};
     std::fs::create_dir_all(dir)?;
-    for (name, which) in [("qr", Page::Mark), ("scan", Page::Scry)] {
+    // One page now: the reader is gone, so this is a write rather than
+    // a loop over two.
+    {
+        let (name, which) = ("qr", Page::Mark);
         let file = dir.join(format!("{name}.html"));
         let html = page(which, Host::default());
         std::fs::write(&file, &html)?;

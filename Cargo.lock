@@ -3,15 +3,6 @@
 version = 3
 
 [[package]]
-name = "chaos-android"
-version = "0.0.33"
-dependencies = [
- "chaos-model",
- "chaos-probe",
- "chaos-serve",
-]
-
-[[package]]
 name = "chaos-app"
 version = "0.0.33"
 dependencies = [

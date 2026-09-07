@@ -23,16 +23,16 @@ a task links to.
 ```
 # ggml must be built first; point GGML_LIB_DIR at ggml-base.a, ggml-cpu.a, ggml.a
 export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: $env:GGML_LIB_DIR=...
-# On Unix add -DCMAKE_POSITION_INDEPENDENT_CODE=ON: `android/jni` is a cdylib
-# and links ggml, and a non-PIC archive fails with a page of R_X86_64_PC32
-# relocation errors against `stderr` that name neither ggml nor the cdylib.
+# On Unix add -DCMAKE_POSITION_INDEPENDENT_CODE=ON if anything here becomes a
+# cdylib again: a non-PIC archive fails with a page of R_X86_64_PC32 relocation
+# errors against `stderr` that name neither ggml nor the caller.
 # GPU work needs build-vulkan/ggml/src instead: THE LINE ABOVE has no Vulkan
 # archive, build-vulkan has ggml-vulkan/ggml-vulkan.a and build.rs finds it.
 # The GPU tests SKIP rather than fail without a card -- so a green "6 passed"
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 1032 tests
+cargo test --release          # 1018 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 22 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -72,7 +72,7 @@ BPE · `grammar` constrained decoding + the workspace's JSON parser · `jinja` c
 templates · `arch` architectures + streaming forward pass · `image` PNG,
 safetensors, FLUX.2 VAE, the sampler · `qr` encoding, so a headless node can
 print its own route · `grimoire` the brand pages, assembled — no ggml, so the
-window and the APK build can both show them · `config` the settings file **both
+window and the emitter can both show it · `config` the settings file **both
 tiers read** · `http`
 just enough HTTP/1.1 to ask a node for status and stream a completion, no curl,
 no TLS.
@@ -95,14 +95,18 @@ says so**. `chaos start` uses `Settings::serve_args`, the window's own function.
 
 `cli/run` chaos-run · `network/serve` chaos-serve · `network/worker`
 chaos-worker, which holds experts and answers with activations · `gui/app` the
-window · `gui/setup` the installer · `android/jni` the JNI bridge, a cdylib.
-Benchmarks stay beside the crate they measure.
+window · `gui/setup` the installer. Benchmarks stay beside the crate they
+measure.
 
-**`nav::RAIL_PAGES` is not `nav::PAGES`.** Six pages exist; five have a rail
-entry. CHAOS has none — the mode is answered by the launch knob and reported by
-the badge at the bottom of the rail, which is also the page's only door. Leaving
-a mode (the CHANGE MODE button *or* Escape) asks first, because it unloads the
-model and clears the conversation.
+**Three platforms: Windows, Linux, macOS.** The phone tier is gone — Atur,
+2026-09-07: *"delete Android and so on, keep only Windows, Linux and macOS"*.
+The `android/` tree, its release job, the APK asset and its tests went with it.
+
+**Every page is in the rail, CHAOS included, and there is no launch screen.**
+The mode knob owned the window until it was answered and CHAOS was reached from
+a badge below the rail — which is how the address and the key became
+unfindable. One mode now: the role is a dropdown on the CHAOS page,
+`RAIL_PAGES == PAGES`, and the window opens on CHAT.
 
 **`core/` holds a crate's own tools; `cli/` holds the front door and the
 runner.** 11 of the 19 binaries live under `core/` and that is deliberate — a
@@ -122,16 +126,16 @@ packages also lacked `chaos-draw` and `chaos-worker`.
 `every_binary_reaches_every_platform` is now the mechanism, in both directions
 and including `make-linux-packages.sh`, which no test had ever read.
 
-**The mark and the reader have one source, and it reaches every tier without a
-model.** `assets/grimoire/*.html` plus embedded fonts are `include_str!`d by
+**The mark has one source and it reaches every tier without a model.**
+`assets/grimoire/grimoire.html` plus embedded fonts are `include_str!`d by
 **`chaos-grimoire`** — its own crate, zero dependencies, no ggml — and
-`chaos_arch::grimoire` is a `pub use` of it. The node serves `/qr` and `/scan`;
-the **window serves the same bytes itself on loopback** (`gui/app/src/brand.rs`),
-which it must, because the art used to need a loaded model and **a camera only
-opens on a secure origin, so the reader cannot be handed a LAN address**; the APK
-carries them as assets emitted by `chaos-qr --emit-pages`; `core/qr` prints the
-same code in a bare terminal. **Edit the HTML, never a copy**, and keep it
-fetch-free — a test asserts 0 external references in the assembled page.
+`chaos_arch::grimoire` is a `pub use` of it. The node serves `/qr`; the
+**window serves the same bytes itself on loopback** (`gui/app/src/brand.rs`),
+which it must, because the art used to need a loaded model; `core/qr` prints
+the same code in a bare terminal. **The reader is gone** — Atur, 2026-09-07:
+*"we only use the book"* — so `scanner.html`, `/scan` and `scan-sweep.js` went
+with it. **Edit the HTML, never a copy**, and keep it fetch-free — a test
+asserts 0 external references in the assembled page.
 
 ## Traps — **read `docs/graph/reference/hard-won-facts.md` before proposing any
 optimisation.** About half its entries are the measurement that killed an
@@ -170,13 +174,14 @@ appealing idea. The five that bite most often:
   `Closes #1, #2, #3`, so give every one its own `closes`.
 - **A competitive claim is not citable until the competitor's exact command line
   and its output are in a doc**, from repeats, alternating in one session.
-- **`README.md` carries three things and nothing else** (Atur's rule,
-  2026-08-31): the progress bars -- the release ladder *and* the coverage block --
-  the document map, and tok/s for the **five fixed models** in
+- **`README.md` carries a fixed section list and nothing else.** Atur's rule,
+  2026-08-31, extended 2026-09-07: **Install** with download buttons and the
+  setup for all three platforms, **Claude Code on your own model**, the
+  progress bars, the document map, and tok/s for the **five fixed models** in
   `scripts/speed-five.tsv`, measured in one session on a machine with nothing
   else running, and dated. Refill the table with `scripts/speed-five.sh`, never
-  by hand. `scripts/check-readme.sh` enforces the section list, a line cap, the
-  five rows and the date; CI runs it. It was 393 lines once.
+  by hand. `scripts/check-readme.sh` enforces the section list, a 200-line cap,
+  the five rows and the date; CI runs it. It was 393 lines once.
 - Sync audit at phase boundaries only, not per commit.
 - Keep this file under ~2000 tokens; tell Atur to prune rather than letting it
   bloat. It reached 3,308 words once — the overflow is now
@@ -212,17 +217,11 @@ item; if one is not done, say which and why.**
   `Qwen3Config` and the deepseek4 dispatch returns before that config exists, so
   `--auto` makes **zero** decisions on V4-Flash. The expert cache now has a
   default there regardless (1.20x); threads, batch, I/O and device do not.
-- [x] **5. An Android app, `.apk` with every release.** A *client*; Phase B
-  (models on the phone) is blocked — `dl.google.com` 404s this whole network,
-  so CI is the only build. **But the SDK claim is out of date**: a complete
-  SDK sits at `C:\Android\sdk` from another project (adb, emulator,
-  android-34 x86_64, build-tools; no NDK). **The published APK installs and
-  launches on that emulator** — its arm64 lib runs because API 34's x86_64
-  image lists `x86_64,arm64-v8a`. It then **SIGSEGVs on entering a mode, in a
-  single anonymous translated frame with `libchaos_android.so` never mapped**,
-  which cannot be pinned on Chaos. **Still never run on a phone**, and that is
-  the one-minute experiment that would settle it:
-  `research/the-apk-installs-and-launches-2026-09-01.md`.
+- [x] **5. ~~An Android app~~ — removed 2026-09-07.** It shipped as a client
+  for eight releases, installed and launched on an emulator, and was never run
+  on a phone. Atur ended it: *"delete Android and so on, keep only Windows,
+  Linux and macOS"*. The tree, the release job, the APK asset, its tests and
+  the signing-key backlog all went. **Three platforms is the product now.**
 - [ ] **6. Devices as resources — one model, many machines.** An activation is
   **16 KB**, a token's experts are **3.3 GB**, so expert-parallel costs ~66 ms
   of network to replace ~1560 ms of disk. **Send the work to the weights, never
@@ -268,15 +267,11 @@ tok/s measured, 64 GB 0.55, 128 GB 0.93, 160 GB 1.19 — **the whole 144 GB mode
 RAM is worth 2.9x, not 48x.** Do not quote a GPU V4-Flash figure: resident-in-VRAM
 is untested and the only measured number is 4.3x *slower* on streaming MoE.
 
-**Open, none of it blocking**: iOS is parked until everything else is good
-(Atur's call); no real camera has seen the mark or the reader; the Android tier
-cannot be built here (`dl.google.com` 404s); `chaos scan` is declared NOT BUILT;
-zsh and fish completions are generated but never sourced; a long upgrade jump from
+**Open, none of it blocking**: `chaos scan` is declared NOT BUILT; zsh and
+fish completions are generated but never sourced; a long upgrade jump from
 0.0.2 is untested; there is no contrast audit or screen-reader story for the
-window. ~~**One cheap idea worth taking**: `chaos_arch::grimoire` has zero ggml
-references, so moving it to its own crate…~~ **Done in v0.0.32**: `chaos-grimoire`
-is its own crate, the APK step builds `chaos-qr` instead of a host llama.cpp, and
-the window shows the book with no model loaded.
+window; no real camera has seen the mark. **iOS and Android are not parked,
+they are out** — three platforms is the product.
 
 1. **The frontier on a machine with real memory** — this laptop is the curve's
    left-hand edge, so the two numbers worth bringing back are `F` on a bigger

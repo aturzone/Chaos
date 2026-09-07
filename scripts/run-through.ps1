@@ -139,7 +139,6 @@ if (-not $Slow) {
 }
 if (-not $Brand) {
     $skip[770] = 'opens a browser: pass -Brand to include it'
-    $skip[771] = 'opens a browser: pass -Brand to include it'
     # Opens a modal folder dialog to ask which project to work in, and a modal
     # dialog stops the message loop -- the same reason BROWSE... (312) is
     # skipped. Pressing it here would hang the transcript, not measure it.
@@ -161,7 +160,7 @@ $pages = @(
     # **CHAOS has no rail entry any more** -- 407 is still its id and still
     # opens it, which is what the mode badge does. Reached that way here so the
     # transcript covers the page a person can still get to.
-    @{ Id = 407; Name = 'CHAOS';    Controls = @(764, 765, 766, 767, 768, 770, 771, 774, 769) }
+    @{ Id = 407; Name = 'CHAOS';    Controls = @(760, 764, 765, 766, 767, 768, 770, 774, 769) }
 )
 
 # **This list is hardcoded, and that is a hole in the instrument itself.**
@@ -187,20 +186,16 @@ function Press($id, $label) {
     return $t.TotalMilliseconds
 }
 
-# **Leave the launch screen first.** RETURN is the knob's own "enter this
-# mode", and it is a no-op once a mode is entered, so this is safe to send
-# either way. Without it every control below reads HIDDEN and the transcript
-# says nothing.
-$WM_KEYDOWN = 0x0100
-$VK_RETURN = 0x0D
-[Run]::SendMessageW($hwnd, $WM_KEYDOWN, [IntPtr]$VK_RETURN, [IntPtr]0) | Out-Null
-Start-Sleep -Milliseconds 700
-
-# Did it take? A rail button on-screen means the shell is up. `layout` parks the
-# pages this mode cannot reach at -3200, so a coordinate test is the honest one:
-# `IsWindowVisible` is true for a parked button as well as a shown one.
+# **There is no launch screen any more**, and RETURN is no longer needed to get
+# past one. The mode knob owned the window until it was answered; without a
+# RETURN here every control below read HIDDEN and the transcript said nothing.
+# One mode now, so the rail is up the moment the window is.
+#
+# The check below stays, because it is the honest one: `layout` parks controls
+# it does not want at -3200, and `IsWindowVisible` is true for a parked button
+# as well as a shown one, so a coordinate test is what "on screen" means here.
 $onScreen = 0
-foreach ($id in 401, 402, 403, 404, 406, 772) {
+foreach ($id in 401, 402, 403, 404, 406, 407) {
     $c = [Run]::GetDlgItem($hwnd, $id)
     if ($c -eq [IntPtr]::Zero) { continue }
     if (-not [Run]::IsWindowVisible($c)) { continue }
@@ -211,14 +206,13 @@ foreach ($id in 401, 402, 403, 404, 406, 772) {
     [Run]::ScreenToClient($hwnd, [ref]$pt) | Out-Null
     if ($pt.x -gt -1000 -and $pt.y -gt -1000) { $onScreen++ }
 }
-if ($onScreen -eq 0) {
-    Write-Error 'The window is still on its launch screen: no rail button is on screen after RETURN. Everything below would read HIDDEN, so nothing is reported.'
+if ($onScreen -lt 6) {
+    Write-Error "Only $onScreen of the 6 rail buttons are on screen. Every page below would read HIDDEN, so nothing is reported."
     exit 1
 }
 
 "Chaos run-through  --  window $hwnd"
-"entered a mode: $onScreen rail buttons on screen"
-"mode badge (772) says: '$([Run]::TextOf([Run]::GetDlgItem($hwnd, 772)))'"
+"rail: $onScreen buttons on screen, no launch screen to get past"
 "".PadRight(78, '=')
 
 foreach ($page in $pages) {
@@ -307,7 +301,7 @@ foreach ($page in $pages) {
     # STOP. **The sweep found all three on its first run**, along with the
     # image prompt and its log, which are now in the IMAGE list above -- the
     # prompt field had never been exercised by this script at all.
-    foreach ($shell in 772, 773, 405) { $known[$shell] = $true }
+    foreach ($shell in 405) { $known[$shell] = $true }
     $wr = New-Object Run+RECT
     [void][Run]::GetWindowRect($hwnd, [ref]$wr)
     $unlisted = @()

@@ -45,11 +45,6 @@
 /// which opens to a QR code cut from this node's route.
 pub const MARK: &str = include_str!("../../../assets/grimoire/grimoire.html");
 
-/// The scrying circle: the same ring as a viewfinder, with a QR reader behind
-/// it. It carries its own detector because `BarcodeDetector` is absent on
-/// desktop Windows and on iOS.
-pub const SCRY: &str = include_str!("../../../assets/grimoire/scanner.html");
-
 /// Cinzel, IBM Plex Mono and UnifrakturMaguntia, latin subsets, base64 WOFF2.
 pub const FONTS: &str = include_str!("../../../assets/grimoire/fonts.css");
 
@@ -74,8 +69,6 @@ pub const FONT_NOTICE: &str = concat!(
 pub enum Page {
     /// The burning book, carrying this node's route.
     Mark,
-    /// The reader.
-    Scry,
 }
 
 /// What the host application knows and the page cannot work out for itself.
@@ -94,7 +87,6 @@ pub struct Host<'a> {
 pub fn page(which: Page, host: Host<'_>) -> String {
     let body = match which {
         Page::Mark => MARK,
-        Page::Scry => SCRY,
     };
     let (title, rest) = split_fragment(body);
 
@@ -146,11 +138,6 @@ pub fn page(which: Page, host: Host<'_>) -> String {
 /// Convenience for [`Page::Mark`].
 pub fn mark(host: Host<'_>) -> String {
     page(Page::Mark, host)
-}
-
-/// Convenience for [`Page::Scry`].
-pub fn scry(host: Host<'_>) -> String {
-    page(Page::Scry, host)
 }
 
 /// Pull the `<title>` out of a fragment and drop its `<link>`s to Google Fonts.
@@ -224,7 +211,8 @@ mod tests {
     /// exactly one, covered by the test below.
     #[test]
     fn no_page_loads_anything_from_the_network() {
-        for which in [Page::Mark, Page::Scry] {
+        {
+            let which = Page::Mark;
             let html = page(which, Host::default());
             for needle in [
                 "<link ",
@@ -260,12 +248,6 @@ mod tests {
         let mark = page(Page::Mark, Host::default());
         assert_eq!(mark.matches("href=\"http").count(), 1);
         assert!(mark.contains("href=\"https://github.com/aturzone/Chaos\""));
-        assert_eq!(
-            page(Page::Scry, Host::default())
-                .matches("href=\"http")
-                .count(),
-            0
-        );
     }
 
     /// **The fonts are embedded, so their licence must be embedded with them.**
@@ -277,7 +259,8 @@ mod tests {
     /// is fixed; this is the half a minifier or a refactor could silently drop.
     #[test]
     fn every_page_carries_the_fonts_licence() {
-        for page in [Page::Mark, Page::Scry] {
+        {
+            let page = Page::Mark;
             let html = super::page(
                 page,
                 Host {
@@ -319,7 +302,8 @@ mod tests {
 
     #[test]
     fn a_document_not_a_fragment() {
-        for which in [Page::Mark, Page::Scry] {
+        {
+            let which = Page::Mark;
             let html = page(which, Host::default());
             assert!(html.starts_with("<!doctype html>"));
             assert!(html.contains("<head>") && html.contains("<body>"));
@@ -368,25 +352,32 @@ mod tests {
     #[test]
     fn only_the_two_themes_are_stamped() {
         let html = page(
-            Page::Scry,
+            Page::Mark,
             Host {
                 endpoint: None,
                 theme: Some("\" onload=\"alert(1)"),
             },
         );
-        assert!(html.contains("<html lang=\"en\">"));
-        assert!(!html.contains("onload"));
+        // **The `<html>` tag only.** It used to assert the whole document
+        // contains no "onload", which passed because the *scanner* page has
+        // none -- the mark does, legitimately, in its own script. The claim
+        // was always about the opening tag: an unrecognised theme must not be
+        // stamped there, so a typo cannot smuggle in an attribute.
+        let open = &html[..html.find('>').map(|i| i + 1).unwrap_or(0)];
+        assert!(html.contains("<html lang=\"en\">"), "the theme was stamped");
+        assert!(
+            !open.contains("onload"),
+            "an attribute got into <html>: {open}"
+        );
     }
 
-    /// The mark is the page that must keep working when the network changes;
-    /// the scry page is the one that must say something useful without a
-    /// camera. Both properties live in the HTML, so they are asserted here
-    /// rather than trusted.
+    /// The mark is the page that must keep working when the network changes,
+    /// and these are the two hooks that make it do so: the endpoint resolver
+    /// and the object the host reaches it through. Asserted rather than
+    /// trusted, because a rename in the HTML would be silent.
     #[test]
     fn the_pages_are_the_ones_we_think_they_are() {
         assert!(MARK.contains("resolveEndpoint"));
         assert!(MARK.contains("window.__grimoire"));
-        assert!(SCRY.contains("getUserMedia"));
-        assert!(SCRY.contains("window.__scry"));
     }
 }

@@ -8,7 +8,7 @@
 
 use chaos_qr::{encode, Level, Render};
 
-/// Write `qr.html` and `scan.html` into `dir`, self-contained.
+/// Write `qr.html` into `dir`, self-contained.
 ///
 /// **Here because this binary needs no C toolchain.** The same two files can be
 /// emitted by `chaos-serve --emit-pages`, and that is what the Android release
@@ -24,7 +24,10 @@ use chaos_qr::{encode, Level, Render};
 fn emit_pages(dir: &std::path::Path) -> std::io::Result<()> {
     use chaos_grimoire::{page, Host, Page};
     std::fs::create_dir_all(dir)?;
-    for (name, which) in [("qr", Page::Mark), ("scan", Page::Scry)] {
+    // One page now: the reader is gone, so this is a write rather than
+    // a loop over two.
+    {
+        let (name, which) = ("qr", Page::Mark);
         let file = dir.join(format!("{name}.html"));
         let html = page(which, Host::default());
         std::fs::write(&file, &html)?;
@@ -36,7 +39,7 @@ fn emit_pages(dir: &std::path::Path) -> std::io::Result<()> {
 fn usage() {
     println!("usage: chaos-qr <text>            print any text as a QR code");
     println!("       chaos-qr --route [port]    print this machine's Chaos route");
-    println!("       chaos-qr --emit-pages <dir>  write qr.html and scan.html");
+    println!("       chaos-qr --emit-pages <dir>  write qr.html");
     println!();
     println!("  --ecc L|M|Q|H   error correction (default Q: photographed off a screen)");
     println!("  --quiet N       margin in modules (default 4; the specification's minimum)");

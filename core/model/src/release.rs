@@ -428,24 +428,24 @@ mod tests {
         );
     }
 
-    /// **The APK must never be offered as a desktop update.**
+    /// **An asset for another platform is never offered as an update**, even
+    /// when it is the only one there.
     ///
-    /// A release now carries `Chaos-vX-android-arm64.apk` alongside the five
-    /// desktop archives, and `linux-arm64` and `android-arm64` differ by one
-    /// word. Selection is exact string equality rather than a substring or an
-    /// arch match, which is what makes that safe -- this pins it, because the
-    /// failure would be an ARM Linux machine downloading an Android package
-    /// and reporting a corrupt archive.
+    /// Selection is exact string equality rather than a substring or an arch
+    /// match, and that is what makes it safe: `linux-arm64` and `android-arm64`
+    /// differed by one word, and while Chaos shipped an APK the failure would
+    /// have been an ARM Linux machine downloading an Android package and
+    /// reporting a corrupt archive. **The APK is gone -- the phone tier was
+    /// removed in v0.0.34** -- but the property was never about Android, and
+    /// any asset a future release adds inherits this guard.
     #[test]
-    fn the_android_package_is_not_a_desktop_installer() {
+    fn an_asset_for_another_platform_is_never_selected() {
         let v = Version(0, 0, 16);
+        let foreign = "Chaos-v0.0.16-freebsd-riscv64.tar.gz".to_string();
         let feed = Release {
             version: v,
             assets: vec![
-                (
-                    "Chaos-v0.0.16-android-arm64.apk".into(),
-                    "https://example.invalid/apk".into(),
-                ),
+                (foreign.clone(), "https://example.invalid/foreign".into()),
                 (
                     asset_for_platform(&v),
                     "https://example.invalid/right".into(),
@@ -454,17 +454,13 @@ mod tests {
         };
         assert_eq!(feed.asset_url(), Some("https://example.invalid/right"));
 
-        // And with *only* the APK there, the answer is "nothing for you"
-        // rather than the nearest-looking file.
-        let apk_only = Release {
+        // And with *only* the foreign asset there, the answer is "nothing for
+        // you" rather than the nearest-looking file.
+        let only_foreign = Release {
             version: v,
-            assets: vec![(
-                "Chaos-v0.0.16-android-arm64.apk".into(),
-                "https://example.invalid/apk".into(),
-            )],
+            assets: vec![(foreign, "https://example.invalid/foreign".into())],
         };
-        assert_eq!(apk_only.asset_url(), None);
-        assert!(!asset_for_platform(&v).contains("android"));
+        assert_eq!(only_foreign.asset_url(), None);
     }
 
     #[test]

@@ -32,7 +32,7 @@ set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
-MAX_LINES=175
+MAX_LINES=200
 fail=0
 say() { echo "::error::$1"; fail=1; }
 ok() { echo "ok  $1"; }
@@ -65,6 +65,7 @@ fi
 
 # ---- 2. exactly these sections, in this order ------------------------------
 EXPECTED='Install
+Claude Code on your own model
 Run
 Speed
 Progress
@@ -72,7 +73,7 @@ Document map
 Licence'
 actual=$(grep -E '^## ' README.md | sed 's/^## //')
 if [ "$actual" = "$EXPECTED" ]; then
-  ok "sections: the six allowed, in order"
+  ok "sections: the seven allowed, in order"
 else
   say "README.md's sections are not the allowed set.
 expected:

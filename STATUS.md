@@ -6,7 +6,7 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 — fix this file.
 
 **Last updated**: 2026-09-07 · **Version**: v0.0.33, tagged 2026-09-07 ·
-**Branch**: `main`, verified at v0.0.33 — 1032 tests, 0 failed, fmt and clippy
+**Branch**: `main`, verified at v0.0.33 — 1018 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
 
 **Claude Code now runs on a model this node serves, and the app has a button for it.**
@@ -288,7 +288,7 @@ wrong, since every oracle capture is batched.
 
 ## The honest scoreboard
 
-**Current**: **1032 tests** (0 failed, 50 ignored — the V4-Flash set needs the
+**Current**: **1018 tests** (0 failed, 50 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

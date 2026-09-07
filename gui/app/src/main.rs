@@ -236,17 +236,6 @@ mod windows_app {
         /// already seen is a wait, and this one is in front of the thing they
         /// opened the app to do.
         splash: Option<std::time::Instant>,
-        /// **False until a mode is chosen.** The window opens on the knob, not
-        /// on six pages of controls it has no reason to think anyone wants.
-        /// Atur: *"the first mode is selected and the additional options are
-        /// not all messy."*
-        launched: bool,
-        /// Where the knob is pointing, in degrees from twelve o'clock. Kept
-        /// separately from `cfg.role` so a drag can be between detents and
-        /// still animate; the role is what it snaps to.
-        knob_angle: f64,
-        /// True while the pointer is held down on the knob.
-        knob_held: bool,
         page: Page,
         tab: Tab,
         fonts: Fonts,
@@ -525,16 +514,15 @@ mod windows_app {
             tray_add(hwnd, hinst);
 
             // Taken before `cfg` is moved into `build_controls`.
-            let startup_page = nav::pages_for(cfg.role)
-                .first()
-                .copied()
-                .unwrap_or(Page::Chat);
+            // **The first rail page, always.** There is one mode now, so
+            // there is nothing to ask and nothing to gate: the window opens
+            // on CHAT, which is what anyone opens it for.
+            let startup_page = nav::RAIL_PAGES[0];
             build_controls(hwnd, hinst, cfg);
             build_menu(hwnd);
             sync_titlebar();
             fill_settings_page();
             fill_image_page();
-            sync_mode_badge();
             // **Chat is home, but not every mode has one.** `pages_for(Helper)`
             // is CHAOS/MONITOR/SETTINGS, so opening a remembered HELPER on
             // `Page::Chat` would put a page's controls up that the rail cannot
@@ -935,8 +923,6 @@ mod windows_app {
         // on the CHAOS page are gone with it: the knob answers the mode, the
         // badge says what the answer was, and CHANGE MODE is the way to ask
         // again.
-        button(hwnd, "", nav::ID_MODE_BADGE, hinst);
-        button(hwnd, "CHANGE MODE", nav::ID_CHANGE_MODE, hinst);
 
         // ---- the CHAOS page ------------------------------------------------
         //
@@ -957,8 +943,17 @@ mod windows_app {
         button(hwnd, "COPY", nav::ID_COPY_KEY, hinst);
         button(hwnd, "NEW KEY", nav::ID_NEW_KEY, hinst);
         button(hwnd, "SHOW THE MARK", nav::ID_SHOW_MARK, hinst);
-        button(hwnd, "READ A CODE", nav::ID_READ_CODE, hinst);
         button(hwnd, "USE WITH CLAUDE CODE", nav::ID_CLAUDE_CODE, hinst);
+        // The role, as a dropdown on the page it affects. It replaced the
+        // launch knob, which owned the whole window until it was answered.
+        child(
+            hwnd,
+            "COMBOBOX",
+            "",
+            CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL,
+            nav::ID_ROLE,
+            hinst,
+        );
         child(
             hwnd,
             "EDIT",
@@ -1094,16 +1089,6 @@ mod windows_app {
                 free_bytes: free_memory_bytes(),
                 total_bytes: total_memory_bytes(),
                 splash: Some(std::time::Instant::now()),
-                // A fresh install starts on ALONE, which is the left stop.
-                // **Asked once, then remembered.** Atur, 2026-08-28, choosing
-                // between asking every launch and asking once: *"mode selection
-                // happens once and you enter that mode"*. `role` alone cannot
-                // decide this -- its default is a real role -- so
-                // `mode_chosen` carries the answer. ESC is still the way back
-                // to the knob, so remembering is not a trap.
-                launched: cfg.mode_chosen,
-                knob_angle: chaos_app::knob::angle_of(cfg.role),
-                knob_held: false,
                 server: None,
                 port,
                 loaded: None,
@@ -1209,31 +1194,6 @@ mod windows_app {
                 ui.page = p;
             }
         });
-
-        // **The knob owns the child windows, not just the paint.** `WM_PAINT`
-        // stops at `paint_launch` while a mode is unchosen -- but these are real
-        // HWNDs, and painting the knob does not cover them. `WM_CREATE` called
-        // this before a mode was picked, so the installed v0.0.21 opened with
-        // the chat transcript, its composer, SEND, CLEAR, the whole rail and
-        // STOP floating over the launch screen. That is what Atur reported on
-        // 2026-08-27 -- *"mode selection got mixed up inside the application"* --
-        // and it was measured on 2026-08-28: 9 controls on-screen while ESC
-        // still did nothing, which only happens when `launched` is false.
-        //
-        // The guard is here rather than at the call site because every route in
-        // has to be covered: startup, the rail, the menu, Ctrl+1..6, and a
-        // `WM_COMMAND` from a script. `back_to_knob` hid them correctly on the
-        // way out, which is why only the way *in* was wrong.
-        if !launched() {
-            hide_every_control();
-            let h = main_hwnd();
-            if !h.is_null() {
-                unsafe {
-                    InvalidateRect(h, std::ptr::null(), 1);
-                }
-            }
-            return;
-        }
 
         // Borrow is closed. `ShowWindow` repaints, which asks the parent for
         // colours, which borrows -- doing this inside would abort the process.
@@ -1638,13 +1598,7 @@ mod windows_app {
     /// address it binds.** Switching to CORE while a loopback server was still
     /// running would leave this page saying "reachable" about something that is
     /// not, which is the bug the whole page exists to fix.
-    fn pick_role(id: i32) {
-        let role = match id {
-            nav::ID_ROLE_CORE => settings::Role::Core,
-            nav::ID_ROLE_HELPER => settings::Role::Helper,
-            nav::ID_ROLE_CLIENT => settings::Role::Client,
-            _ => settings::Role::Alone,
-        };
+    fn pick_role(role: settings::Role) {
         let changed = UI.with(|u| {
             let mut b = u.borrow_mut();
             let Some(ui) = b.as_mut() else {
@@ -1679,7 +1633,6 @@ mod windows_app {
             set_status(&format!("this machine is {}", role.as_str()));
         }
         fill_chaos_fields();
-        sync_mode_badge();
         repaint();
     }
 
@@ -1696,7 +1649,7 @@ mod windows_app {
         repaint();
     }
 
-    /// Put a field's text on the clipboard, so it is typed into a phone once.
+    /// Put a field's text on the clipboard, so it is typed elsewhere once.
     fn copy_field(hwnd: HWND, id: i32) {
         let s = control_text(ctl(id));
         if s.is_empty() {
@@ -1853,32 +1806,25 @@ mod windows_app {
         });
     }
 
-    /// Open the book, or the reader, in the browser.
+    /// Open the book in the browser.
     ///
-    /// **Served by this process, not by the engine.** The pages used to be a
-    /// route on the child `chaos-serve`, which made the art a feature of a
-    /// loaded model: turn the dial to CORE, press SHOW MARK before pressing
-    /// LOAD, and the browser reported that the site could not be reached.
-    /// Atur found exactly that -- *"that book where is it!!"*. `brand` binds
-    /// loopback and answers the two paths itself, so the art needs no weights.
+    /// **Served by this process, not by the engine.** It used to be a route on
+    /// the child `chaos-serve`, which made the art a feature of a loaded model:
+    /// turn the dial to CORE, press the button before pressing LOAD, and the
+    /// browser reported that the site could not be reached. Atur found exactly
+    /// that -- *"that book where is it!!"*. `brand` binds loopback and answers
+    /// the path itself, so the art needs no weights.
     ///
-    /// **The reader has to be loopback for a second reason.** A camera only
-    /// opens in a secure context, and `http://192.168.1.20:8080` is not one, so
-    /// handing the reader this node's LAN address -- which is right for the
-    /// mark -- got `getUserMedia` refused every time.
-    ///
-    /// **The address in the box is still what the mark encodes.** That box says
-    /// the right thing for every role already (a CORE shows its LAN address,
-    /// ALONE shows loopback, a CLIENT shows the CORE it was pointed at), and
-    /// the page prefers an injected endpoint over the origin it was served
-    /// from, so serving from loopback does not change what another device
-    /// scans. An empty box is no longer refused: the book is worth showing
-    /// before a role is chosen, and the page falls back to the project's URL.
+    /// **The address in the box is what the mark encodes.** That box says the
+    /// right thing for every role already, and the page prefers an injected
+    /// endpoint over the origin it was served from, so serving from loopback
+    /// does not change what another device scans. An empty box is not refused:
+    /// the book is worth showing before a role is chosen, and the page falls
+    /// back to the project's URL.
     ///
     /// The theme goes with it, so the page arrives in the same light or dark as
-    /// the window that opened it rather than following the operating system and
-    /// disagreeing with the app around it.
-    fn open_brand_page(which: &str) {
+    /// the window that opened it rather than following the operating system.
+    fn open_brand_page() {
         let addr = control_text(ctl(nav::ID_CORE_ADDR));
         // A CLIENT may have been given a bare `host:port`, and a URL needs a
         // scheme. Anything already carrying one is left alone.
@@ -1896,20 +1842,10 @@ mod windows_app {
                 .unwrap_or(false)
         });
         let theme = if dark { "dark" } else { "light" };
-        let page = if which == "scan" {
-            brand::Page::Scry
-        } else {
-            brand::Page::Mark
-        };
-        match brand::open(page, endpoint.as_deref(), Some(theme)) {
+        match brand::open(endpoint.as_deref(), Some(theme)) {
             Ok(url) => {
                 shell_open(&url);
-                set_status(match which {
-                    "scan" => {
-                        "opened the reader in your browser -- point it at another node's mark"
-                    }
-                    _ => "opened the mark in your browser -- scan it from another device",
-                });
+                set_status("opened the mark in your browser -- scan it from another device");
             }
             // Loopback could not be bound. Rare, and worth naming rather than
             // failing silently on a button press.
@@ -1919,6 +1855,9 @@ mod windows_app {
 
     /// Put the right things in the address, key and status boxes for the role.
     fn fill_chaos_fields() {
+        // The dropdown is part of this page like the address and the key,
+        // and it is refreshed here so one call puts the whole page right.
+        sync_role_combo();
         let (role, port, key, core_addr, core_key, loaded) = UI.with(|u| {
             let b = u.borrow();
             match b.as_ref() {
@@ -1943,7 +1882,7 @@ mod windows_app {
 
         let (addr, key_text) = match role {
             // A CORE shows what to type elsewhere. `0.0.0.0` is what it binds
-            // and is not something anybody can type into a phone.
+            // and is not something anybody can type on another machine.
             settings::Role::Core => (format!("{}:{port}", lan_address()), key),
             settings::Role::Alone => (format!("127.0.0.1:{port}"), key),
             _ => (core_addr, core_key),
@@ -1955,16 +1894,16 @@ mod windows_app {
 
         let status = match role {
             settings::Role::Alone => "Nothing outside this machine can reach it. Choose CORE \
-to let a phone or another computer use this model."
+to let another computer, or Claude Code, use this model."
                 .to_string(),
             settings::Role::Core => match &loaded {
                 Some(m) => format!(
-                    "Serving {m}.\r\n\r\nOn the phone: open Chaos, type the address and the \
-key above, press CONNECT. Both devices must be on the same network, and Windows may ask to \
-allow chaos-serve through the firewall the first time -- say yes for private networks."
+                    "Serving {m}.\r\n\r\nOn the other machine: run chaos connect with the \
+address above, or point any OpenAI or Anthropic client at it. Both must be on the \
+same network, and Windows may ask to allow chaos-serve through the firewall -- say yes."
                 ),
                 None => "No model is loaded yet. Open MODELS, choose one and press LOAD; this \
-page then shows exactly what to type into the phone."
+page then shows exactly what another machine needs."
                     .to_string(),
             },
             settings::Role::Client => "CHAT talks to the CORE above instead of to this machine. \
@@ -1988,7 +1927,7 @@ backlog/devices-as-resources.md."
     /// This machine's address on the network, as somebody else would type it.
     ///
     /// **`0.0.0.0` is what a CORE binds and it is not an address.** It means
-    /// every route; a phone needs one of them. Asked of the routing table
+    /// every route; another machine needs one of them. Asked of the routing table
     /// rather than guessed -- connecting a UDP socket sends nothing, it only
     /// picks the interface that reaches the outside world.
     fn lan_address() -> String {
@@ -3437,13 +3376,6 @@ Any value a client sends is accepted.                      The server still list
                 return;
             }
 
-            // **The knob owns the whole window until a mode is chosen.** No
-            // rail, no strip: there is exactly one question on screen.
-            if !ui.launched {
-                paint_launch(mem, ui, r);
-                return;
-            }
-
             paint_rail(mem, ui, r);
             paint_strip(mem, ui, r);
 
@@ -3590,393 +3522,43 @@ Any value a client sends is accepted.                      The server still list
         UI.with(|u| u.borrow().as_ref().is_some_and(|ui| ui.splash.is_some()))
     }
 
-    fn launched() -> bool {
-        UI.with(|u| u.borrow().as_ref().is_some_and(|ui| ui.launched))
-    }
-
-    fn held() -> bool {
-        UI.with(|u| u.borrow().as_ref().is_some_and(|ui| ui.knob_held))
-    }
-
-    /// Where the knob is on screen, so a click can be tested against it.
+    /// The order the role dropdown offers, and the only place it is written.
     ///
-    /// **Derived from the same numbers `paint_launch` uses.** Two copies of a
-    /// layout drift, and the symptom is a control that looks right and cannot
-    /// be clicked.
-    unsafe fn knob_rect(hwnd: HWND) -> (i32, i32, i32) {
-        let mut r = RECT::default();
-        GetClientRect(hwnd, &mut r);
-        let w = r.right.max(1);
-        let h = r.bottom.max(1);
-        let d = (((w.min(h) as f64) * 0.50) as i32).clamp(160, 440);
-        (w / 2, h / 2 + d / 12, d)
-    }
+    /// `pick_role` maps an index back through this, so the list and the mapping
+    /// cannot drift: adding a role means adding it here and nowhere else.
+    const ROLES: [settings::Role; 4] = [
+        settings::Role::Alone,
+        settings::Role::Core,
+        settings::Role::Client,
+        settings::Role::Helper,
+    ];
 
-    /// Turn the dial with the pointer.
+    /// Put the stored role in the dropdown.
     ///
-    /// A click anywhere in the top half aims the pointer there; a drag keeps
-    /// aiming it. **Released, it snaps to the nearest detent** -- a control
-    /// that can rest between positions is one that can be left meaning nothing.
-    unsafe fn knob_input(hwnd: HWND, msg: u32, x: i32, y: i32) {
-        let (cx, cy, d) = knob_rect(hwnd);
-        match msg {
-            WM_LBUTTONDOWN => {
-                // Generous: the labels are part of the control, so anything
-                // inside the label ring counts rather than only the body.
-                let dx = f64::from(x - cx);
-                let dy = f64::from(y - cy);
-                if (dx * dx + dy * dy).sqrt() > f64::from(d) * 0.85 {
-                    return;
-                }
-                SetCapture(hwnd);
-                UI.with(|u| {
-                    if let Some(ui) = u.borrow_mut().as_mut() {
-                        ui.knob_held = true;
-                    }
-                });
-                aim(hwnd, x, y);
-            }
-            WM_MOUSEMOVE => aim(hwnd, x, y),
-            _ => {
-                ReleaseCapture();
-                let role = UI.with(|u| {
-                    let mut b = u.borrow_mut();
-                    let ui = b.as_mut()?;
-                    ui.knob_held = false;
-                    let role = chaos_app::knob::role_at(ui.knob_angle);
-                    ui.knob_angle = chaos_app::knob::angle_of(role);
-                    Some(role)
-                });
-                if role.is_some() {
-                    InvalidateRect(hwnd, std::ptr::null(), 0);
-                }
-            }
-        }
-    }
-
-    /// Point the dial at a screen position, clamped to its two stops.
-    unsafe fn aim(hwnd: HWND, x: i32, y: i32) {
-        let (cx, cy, _) = knob_rect(hwnd);
-        let dx = f64::from(x - cx);
-        let dy = f64::from(y - cy);
-        // Screen y grows downward; twelve o'clock is zero.
-        let ang = dx.atan2(-dy).to_degrees();
-        // **The stops are real.** A stove knob does not go round the back, and
-        // letting it would put ALONE next to CORE.
-        let ang = ang.clamp(-90.0, 90.0);
-        UI.with(|u| {
-            if let Some(ui) = u.borrow_mut().as_mut() {
-                ui.knob_angle = ang;
-            }
-        });
-        InvalidateRect(hwnd, std::ptr::null(), 0);
-    }
-
-    /// Move one detent, for the arrow keys.
-    unsafe fn nudge_knob(hwnd: HWND, step: i32) {
-        UI.with(|u| {
-            if let Some(ui) = u.borrow_mut().as_mut() {
-                let here = chaos_app::knob::role_at(ui.knob_angle);
-                let at = chaos_app::knob::DETENTS
-                    .iter()
-                    .position(|(a, _)| chaos_app::knob::role_at(*a) == here)
-                    .unwrap_or(0) as i32;
-                let n = chaos_app::knob::DETENTS.len() as i32;
-                let to = (at + step).clamp(0, n - 1) as usize;
-                ui.knob_angle = chaos_app::knob::DETENTS[to].0;
-            }
-        });
-        InvalidateRect(hwnd, std::ptr::null(), 0);
-    }
-
-    /// Enter the shell in the chosen mode.
-    unsafe fn launch(hwnd: HWND) {
-        let role = UI.with(|u| {
-            let mut b = u.borrow_mut();
-            let ui = b.as_mut()?;
-            let role = chaos_app::knob::role_at(ui.knob_angle);
-            ui.knob_angle = chaos_app::knob::angle_of(role);
-            Some(role)
-        });
-        let Some(role) = role else { return };
-        // Reuse the CHAOS page's own setter, so choosing CORE here generates a
-        // key and restarts the server exactly as choosing it there does. Two
-        // routes into one decision is how one of them ends up half-right.
-        pick_role(match role {
-            settings::Role::Core => nav::ID_ROLE_CORE,
-            settings::Role::Helper => nav::ID_ROLE_HELPER,
-            settings::Role::Client => nav::ID_ROLE_CLIENT,
-            settings::Role::Alone => nav::ID_ROLE_ALONE,
-        });
-        UI.with(|u| {
-            if let Some(ui) = u.borrow_mut().as_mut() {
-                ui.launched = true;
-                // Answered, so the next launch goes straight in. Saved here
-                // rather than in `pick_role`, which returns early when the mode
-                // picked is the one already stored -- and that early return is
-                // exactly the common case of accepting the remembered mode.
-                if !ui.cfg.mode_chosen {
-                    ui.cfg.mode_chosen = true;
-                    let _ = ui.cfg.save();
-                }
-                // Land on a page this mode actually has. A HELPER has no chat,
-                // and starting it on one would be a blank screen.
-                let pages = nav::pages_for(role);
-                if !pages.contains(&ui.page) {
-                    ui.page = pages[0];
-                }
-            }
-        });
-        let page = UI.with(|u| u.borrow().as_ref().map(|ui| ui.page));
-        if let Some(page) = page {
-            show_page(page);
-        }
-        // **The rail's contents just changed.** `show_page` only toggles
-        // visibility; the entries have to be positioned again or a mode with
-        // four pages leaves two rail buttons where the other two used to be.
-        layout(hwnd);
-        InvalidateRect(hwnd, std::ptr::null(), 1);
-    }
-
-    /// What this machine is, in the rail, so it is never a question.
-    ///
-    /// Set as window text rather than painted, so the badge is an ordinary
-    /// owner-draw button like the rail entries it sits under.
-    fn sync_mode_badge() {
+    /// **Upper case here, not in `as_str`.** That spelling is what goes into
+    /// `settings.txt` and what `Role::parse` reads back, so the house style is
+    /// applied at the point of display.
+    fn sync_role_combo() {
         let role = UI.with(|u| {
             u.borrow()
                 .as_ref()
                 .map(|ui| ui.cfg.role)
                 .unwrap_or(settings::Role::Alone)
         });
-        let c = ctl(nav::ID_MODE_BADGE);
-        if !c.is_null() {
-            // **Upper case here, not in `as_str`.** That spelling is what goes
-            // into settings.txt and what `Role::parse` reads back, so the rail's
-            // house style is applied at the point of display.
-            let label = role.as_str().to_uppercase();
-            unsafe {
-                SetWindowTextW(c, wide(&label).as_ptr());
-                InvalidateRect(c, std::ptr::null(), 1);
+        let c = ctl(nav::ID_ROLE);
+        if c.is_null() {
+            return;
+        }
+        unsafe {
+            SendMessageW(c, CB_RESETCONTENT, 0, 0);
+            for r in ROLES {
+                let t = wide(&r.as_str().to_uppercase());
+                SendMessageW(c, CB_ADDSTRING, 0, t.as_ptr() as LPARAM);
             }
+            let at = ROLES.iter().position(|r| *r == role).unwrap_or(0);
+            SendMessageW(c, CB_SETCURSEL, at, 0);
+            InvalidateRect(c, std::ptr::null(), 1);
         }
-    }
-
-    /// Ask before leaving the mode, because leaving it stops the work.
-    ///
-    /// **Atur asked for this and gave the reason**: *"maybe the user already ran
-    /// a model or gave it a prompt, and changing mode stops all current work"*.
-    /// So the question names what will be lost when there is something to lose,
-    /// and the default is to stay.
-    ///
-    /// Used by CHANGE MODE *and* by Escape. Escape has gone straight to the knob
-    /// since the knob existed, which meant one keystroke could drop a loaded
-    /// model with no question asked -- the same door, and it needed the same
-    /// lock.
-    fn confirm_leaving_mode() -> bool {
-        let (role, loaded, turns) = UI.with(|u| {
-            let b = u.borrow();
-            match b.as_ref() {
-                Some(ui) => (ui.cfg.role, ui.loaded.clone(), ui.history.len()),
-                None => (settings::Role::Alone, None, 0),
-            }
-        });
-        // "or gave it a prompt" -- an unsent composer is work too, and it is the
-        // cheapest kind to lose by accident.
-        let typed = !control_text(ctl(nav::ID_IN)).trim().is_empty();
-
-        let mut losses: Vec<String> = Vec::new();
-        if let Some(m) = &loaded {
-            losses.push(format!("{m} is loaded, and will be unloaded"));
-        }
-        if turns > 0 {
-            losses.push(format!(
-                "{turns} exchange(s) of this conversation will be cleared"
-            ));
-        }
-        if typed {
-            losses.push("the prompt you have typed will be lost".to_string());
-        }
-        // No trailing full stop: the message adds one. Two was what shipped for
-        // about ten minutes.
-        let what = if losses.is_empty() {
-            "Nothing is loaded and nothing is typed, so nothing is lost".to_string()
-        } else {
-            losses.join(",\r\n")
-        };
-        let msg = format!(
-            "Leave {} mode?\r\n\r\n{what}.\r\n\r\nYou will be taken back to the mode dial.",
-            role.as_str().to_uppercase()
-        );
-        let answer = unsafe {
-            MessageBoxW(
-                main_hwnd(),
-                wide(&msg).as_ptr(),
-                wide("Chaos").as_ptr(),
-                MB_YESNO | MB_ICONWARNING,
-            )
-        };
-        answer == IDYES
-    }
-
-    /// Put the knob back up, without restarting.
-    ///
-    /// Atur: *"There should also be an option to change the mode to exit this
-    /// mode and enter other modes."*
-    unsafe fn back_to_knob(hwnd: HWND) {
-        UI.with(|u| {
-            if let Some(ui) = u.borrow_mut().as_mut() {
-                ui.launched = false;
-                ui.knob_angle = chaos_app::knob::angle_of(ui.cfg.role);
-            }
-        });
-        hide_every_control();
-        InvalidateRect(hwnd, std::ptr::null(), 1);
-    }
-
-    /// Every child window down, so the knob has the screen to itself.
-    ///
-    /// **These are real HWNDs, not painted controls**, so hiding the page is not
-    /// enough and painting over them does nothing. Shared by the way back to the
-    /// knob and by `show_page`'s guard: the two used to disagree, and the one
-    /// that was missing it was the one that ran at startup.
-    fn hide_every_control() {
-        for id in nav::SHELL_CONTROLS {
-            unsafe {
-                ShowWindow(ctl(id), SW_HIDE);
-            }
-        }
-        for p in nav::PAGES {
-            for &id in nav::controls(p) {
-                unsafe {
-                    ShowWindow(ctl(id), SW_HIDE);
-                }
-            }
-        }
-    }
-
-    /// The launch screen: the knob, its four detents, and nothing else.
-    ///
-    /// **One question, asked once.** Which mode this machine is in decides what
-    /// every other page means, and until it is answered the rest of the window
-    /// is noise. `nav::pages_for` is what makes that true rather than decorative.
-    unsafe fn paint_launch(hdc: HDC, ui: &Ui, client: RECT) {
-        let t = &ui.theme;
-        let w = client.right.max(1);
-        let h = client.bottom.max(1);
-
-        // Sized from the smaller side so it never crops, with room above for
-        // the labels and below for what the mode means.
-        let d = (((w.min(h) as f64) * 0.50) as i32).clamp(160, 440);
-        let cx = w / 2;
-        let cy = h / 2 + d / 12;
-
-        let centred = |y: i32, s: &str, font: HFONT, colour: Rgb| {
-            text(
-                hdc,
-                RECT {
-                    left: 0,
-                    top: y,
-                    right: w,
-                    bottom: y + 44,
-                },
-                s,
-                font,
-                colour,
-                DT_CENTER | DT_SINGLELINE,
-            );
-        };
-
-        let top = (cy - d / 2 - 104).max(20);
-        centred(top, "WHAT IS THIS MACHINE?", ui.fonts.heading, t.fg);
-        centred(
-            top + 38,
-            "Turn the dial. Everything else follows from this.",
-            ui.fonts.body,
-            t.fg_secondary,
-        );
-
-        // The detent labels around the top arc, so the pointer aims at one.
-        let r_lab = d as f64 * 0.66;
-        for (ang, name) in chaos_app::knob::DETENTS {
-            let a = (ang - 90.0).to_radians();
-            let lx = cx as f64 + r_lab * a.cos();
-            let ly = cy as f64 + r_lab * a.sin();
-            let on = chaos_app::knob::role_at(ui.knob_angle) == chaos_app::knob::role_at(ang);
-            text(
-                hdc,
-                RECT {
-                    left: lx as i32 - 90,
-                    top: ly as i32 - 12,
-                    right: lx as i32 + 90,
-                    bottom: ly as i32 + 20,
-                },
-                name,
-                if on {
-                    ui.fonts.body_bold
-                } else {
-                    ui.fonts.body
-                },
-                if on { t.fg } else { t.fg_tertiary },
-                DT_CENTER | DT_SINGLELINE,
-            );
-        }
-
-        // The knob, scan-converted and blitted once.
-        let px = d.max(8) as usize;
-        let logo_px = ((px as f64) * 0.42).max(8.0) as usize;
-        let logo = art::logo_scaled(logo_px);
-        let bits = chaos_app::knob::render(px, ui.knob_angle, t.bg, &logo, logo_px);
-        let bmi = BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: px as i32,
-            biHeight: px as i32,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB,
-            biSizeImage: 0,
-            biXPelsPerMeter: 0,
-            biYPelsPerMeter: 0,
-            biClrUsed: 0,
-            biClrImportant: 0,
-        };
-        StretchDIBits(
-            hdc,
-            cx - d / 2,
-            cy - d / 2,
-            d,
-            d,
-            0,
-            0,
-            px as i32,
-            px as i32,
-            bits.as_ptr() as *const std::ffi::c_void,
-            &bmi,
-            DIB_RGB_COLORS,
-            SRCCOPY,
-        );
-
-        // What the chosen mode means, so the choice is made with its
-        // consequence visible rather than from one word.
-        let role = chaos_app::knob::role_at(ui.knob_angle);
-        centred(
-            cy + d / 2 + 18,
-            chaos_app::knob::title(role),
-            ui.fonts.heading,
-            t.fg,
-        );
-        centred(
-            cy + d / 2 + 54,
-            role.describe(),
-            ui.fonts.body,
-            t.fg_secondary,
-        );
-        centred(
-            (h - 44).max(cy + d / 2 + 92),
-            "click a name, or drag the dial, then press ENTER",
-            ui.fonts.small,
-            t.fg_tertiary,
-        );
     }
 
     /// The navigation rail: the mark, the destinations, and nothing else.
@@ -5042,13 +4624,12 @@ Any value a client sends is accepted.                      The server still list
             };
             let mut m = Vec::new();
 
-            // **Only the pages this mode can reach, and contiguously.**
-            // Laying every page out and hiding some leaves holes in the rail;
-            // laying out only the reachable ones keeps them together. The
-            // unreachable ones are moved off-screen rather than left where a
-            // stale click could still find them.
-            let reachable = nav::pages_for(ui.cfg.role);
-            for (i, p) in reachable.iter().enumerate() {
+            // **Every page, in rail order.** There is one mode now, so there
+            // is no subset to compute and no button to park: the rail shows
+            // all six and CHAOS is one of them. It used to be five entries
+            // with CHAOS reachable only from a badge below them, which is how
+            // the address and the key became unfindable.
+            for (i, p) in nav::RAIL_PAGES.iter().enumerate() {
                 let q = nav_rect(i);
                 m.push((
                     nav::nav_id(*p),
@@ -5058,24 +4639,6 @@ Any value a client sends is accepted.                      The server still list
                     q.bottom - q.top,
                 ));
             }
-            // Every rail button this mode does not offer goes off-screen.
-            // CHAOS is not a rail page at all, so its button is always parked --
-            // it is kept only so `nav_id` stays total.
-            for p in nav::PAGES {
-                if !reachable.contains(&p) {
-                    m.push((nav::nav_id(p), -4000, -4000, 1, 1));
-                }
-            }
-            // **The mode block sits at the bottom of the rail**, which is
-            // where Atur asked for it and also the one place in the rail that
-            // does not move when a mode offers fewer pages. Two rows: what this
-            // machine is, and the way to change it.
-            let mode_w = metric::RAIL - 20;
-            let change_y = r.bottom - metric::STRIP - metric::BUTTON - 12;
-            let badge_y = change_y - metric::BUTTON - 6;
-            m.push((nav::ID_MODE_BADGE, 10, badge_y, mode_w, metric::BUTTON));
-            m.push((nav::ID_CHANGE_MODE, 10, change_y, mode_w, metric::BUTTON));
-
             m.push((
                 nav::ID_STRIP_STOP,
                 r.right - metric::INSET - 84,
@@ -5206,10 +4769,13 @@ Any value a client sends is accepted.                      The server still list
                 // a CORE reads them out, a CLIENT types them in -- so they sit
                 // in one place and the labels change rather than the layout.
                 Page::Chaos => {
-                    // The four role rows used to be here. The mode is answered
-                    // by the knob and shown in the rail, so the page starts at
-                    // what a person actually came here to copy.
                     let mut y = top + 30;
+                    // **The role first**: it decides what the address below
+                    // it even means, so the page reads top to bottom. It was
+                    // four buttons here, then a launch knob that owned the
+                    // window until answered; one dropdown now.
+                    m.push((nav::ID_ROLE, x, y, 200, metric::BUTTON));
+                    y += metric::BUTTON + 16;
                     let field = w.min(360);
                     let bw = 92;
                     m.push((nav::ID_CORE_ADDR, x, y, field, metric::BUTTON));
@@ -5230,7 +4796,6 @@ Any value a client sends is accepted.                      The server still list
                     // the same act from the two ends.
                     let half = w.min(360) / 2 - 5;
                     m.push((nav::ID_SHOW_MARK, x, y, half, metric::BUTTON));
-                    m.push((nav::ID_READ_CODE, x + half + 10, y, half, metric::BUTTON));
                     y += metric::BUTTON + 10;
                     // Full width and on its own row: it is the only control
                     // here that starts something outside the app, and pairing
@@ -5327,8 +4892,6 @@ Any value a client sends is accepted.                      The server still list
             // The badge reads as a rail entry because that is what it is: the
             // door to the CHAOS page. CHANGE MODE is quiet, because it throws
             // away whatever is running and should not invite a stray click.
-            nav::ID_MODE_BADGE => Weight::Nav,
-            nav::ID_CHANGE_MODE => Weight::Quiet,
             nav::ID_TAB_INSTALLED | nav::ID_TAB_AVAILABLE => Weight::Tab,
             nav::ID_AUTO | nav::ID_FORCE => Weight::Toggle,
             nav::ID_DELETE => Weight::Destructive,
@@ -6751,46 +6314,6 @@ Any value a client sends is accepted.                      The server still list
             // Answered here so Windows never paints a ground we are about to
             // paint over: that flash of the wrong colour is the whole of it.
             WM_ERASEBKGND => 1,
-            // **Only while the knob is up.** Once a mode is chosen these are
-            // the shell's messages and it handles them as it always did.
-            WM_LBUTTONDOWN | WM_MOUSEMOVE | WM_LBUTTONUP
-                if !launched() && msg != WM_MOUSEMOVE || (!launched() && held()) =>
-            {
-                let x = (lp & 0xFFFF) as i16 as i32;
-                let y = ((lp >> 16) & 0xFFFF) as i16 as i32;
-                knob_input(hwnd, msg, x, y);
-                0
-            }
-
-            // **The way back.** Atur: "There should also be an option to
-            // change the mode to exit this mode and enter other modes."
-            WM_KEYDOWN if launched() && wp as u16 == VK_ESCAPE => {
-                // **Escape asks now.** It has gone straight to the knob since
-                // the knob existed, so one keystroke could unload a model and
-                // clear a conversation with nothing asked. Same door as CHANGE
-                // MODE, so the same question.
-                if confirm_leaving_mode() {
-                    back_to_knob(hwnd);
-                } else {
-                    set_status("still in this mode -- nothing stopped");
-                }
-                0
-            }
-
-            WM_KEYDOWN if !launched() => {
-                let vk = wp as u16;
-                let step = match vk {
-                    VK_LEFT => -1,
-                    VK_RIGHT => 1,
-                    VK_RETURN => {
-                        launch(hwnd);
-                        return 0;
-                    }
-                    _ => return 0,
-                };
-                nudge_knob(hwnd, step);
-                0
-            }
 
             WM_PAINT => {
                 paint(hwnd);
@@ -7047,6 +6570,15 @@ Any value a client sends is accepted.                      The server still list
                         });
                         refill_list();
                     }
+                    // The role dropdown. `ROLES` is the only place the order
+                    // is written, so the index maps back through it.
+                    (nav::ID_ROLE, CBN_SELCHANGE) => {
+                        let c = ctl(nav::ID_ROLE);
+                        let at = unsafe { SendMessageW(c, CB_GETCURSEL, 0, 0) };
+                        if let Some(r) = usize::try_from(at).ok().and_then(|a| ROLES.get(a)) {
+                            pick_role(*r);
+                        }
+                    }
                     (nav::ID_MODEL_SORT, CBN_SELCHANGE) => {
                         let i: usize =
                             unsafe { SendMessageW(ctl(nav::ID_MODEL_SORT), CB_GETCURSEL, 0, 0) }
@@ -7081,21 +6613,10 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_IMG_OPEN, BN_CLICKED) => open_drawn(),
                     (nav::ID_RESET, BN_CLICKED) => reset_settings(),
                     (nav::ID_AUTO, BN_CLICKED) | (nav::ID_FORCE, BN_CLICKED) => toggle(id),
-                    // The badge is the CHAOS page's only door now.
-                    (nav::ID_MODE_BADGE, BN_CLICKED) => show_page(Page::Chaos),
-                    // And this is the only way back to the knob by mouse.
-                    (nav::ID_CHANGE_MODE, BN_CLICKED) => {
-                        if confirm_leaving_mode() {
-                            back_to_knob(hwnd);
-                        } else {
-                            set_status("still in this mode -- nothing stopped");
-                        }
-                    }
                     (nav::ID_NEW_KEY, BN_CLICKED) => new_core_key(),
                     (nav::ID_COPY_ADDR, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_ADDR),
                     (nav::ID_COPY_KEY, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_KEY),
-                    (nav::ID_SHOW_MARK, BN_CLICKED) => open_brand_page("qr"),
-                    (nav::ID_READ_CODE, BN_CLICKED) => open_brand_page("scan"),
+                    (nav::ID_SHOW_MARK, BN_CLICKED) => open_brand_page(),
                     (nav::ID_CLAUDE_CODE, BN_CLICKED) => start_claude_code(hwnd),
                     // Selecting a different model redraws its page beside the
                     // list, which is the whole point of a page per model --

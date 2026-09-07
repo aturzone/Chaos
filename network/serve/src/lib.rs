@@ -55,8 +55,6 @@ pub fn usage() {
     println!("  GET  /                      the browser interface -- open this");
     println!("  GET  /qr                    the mark: this node's route, as a code");
     println!("                              to point another device's camera at");
-    println!("  GET  /scan                  the reader, for pointing this device at");
-    println!("                              another node's mark");
     println!("  POST /v1/chat/completions   the one an agent calls");
     println!("  POST /v1/messages           the Anthropic API, with tools --");
     println!("                              what Claude Code speaks. Point it here");
@@ -708,18 +706,6 @@ fn handle(
             // preference decides.
             ("GET", "/qr") | ("GET", "/mark") => {
                 let html = chaos_arch::grimoire::mark(chaos_arch::grimoire::Host {
-                    endpoint: Some(&node.route),
-                    theme: theme_of(query),
-                });
-                return send_html(stream, &html, &req, started);
-            }
-            // **The reader**, which is the same circle pointed the other way.
-            // It carries its own QR detector rather than calling
-            // `BarcodeDetector`, which is absent on desktop Windows and on
-            // iOS. A camera needs a secure context, so over a LAN this page
-            // says why it cannot open one instead of failing silently.
-            ("GET", "/scan") => {
-                let html = chaos_arch::grimoire::scry(chaos_arch::grimoire::Host {
                     endpoint: Some(&node.route),
                     theme: theme_of(query),
                 });

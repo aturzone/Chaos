@@ -13,7 +13,7 @@
   <a href="https://github.com/aturzone/Chaos/releases"><img alt="version" src="https://img.shields.io/github/v/release/aturzone/Chaos?color=orange&label=version"></a>
   <a href="LICENSE"><img alt="licence" src="https://img.shields.io/badge/licence-Apache--2.0-blue"></a>
   <a href="https://github.com/aturzone/Chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aturzone/Chaos/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-1032%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-1018%20passing-brightgreen">
 </p>
 
 > **This file carries three things and nothing else**: the progress bars, the
@@ -25,29 +25,47 @@
 
 ## Install
 
-One file per platform from [Releases](https://github.com/aturzone/Chaos/releases).
+<p align="center">
+  <a href="https://github.com/aturzone/Chaos/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows-0b57d0?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/aturzone/Chaos/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux-0b57d0?style=for-the-badge&logo=linux&logoColor=white"></a>
+  <a href="https://github.com/aturzone/Chaos/releases/latest"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS-0b57d0?style=for-the-badge&logo=apple&logoColor=white"></a>
+</p>
 
-| you have | download |
-|---|---|
-| **Windows** | `Chaos-vX.Y.Z-windows-x86_64-Setup.exe` — double-click, per-user, no admin rights |
-| **Debian / Ubuntu** | `chaos_X.Y.Z_amd64.deb` — `sudo apt install ./chaos_*.deb` |
-| **any Linux** | `Chaos-vX.Y.Z-linux-x86_64.AppImage`, or `-linux-arm64.tar.gz` on a Pi |
-| **macOS** | `Chaos-vX.Y.Z-macos-arm64.tar.gz` or `-macos-x86_64.tar.gz` |
-| **Android** | `Chaos-vX.Y.Z.apk` — a client for a node on your network |
+**Three platforms, one file each**, from
+[Releases](https://github.com/aturzone/Chaos/releases/latest).
 
-From an archive, copy the binaries yourself:
+| | download | then |
+|---|---|---|
+| **Windows** | `Chaos-vX.Y.Z-windows-x86_64-Setup.exe` | double-click. Per-user, no admin rights. Opens the window |
+| **Linux** | `chaos_X.Y.Z_amd64.deb` | `sudo apt install ./chaos_*.deb` |
+| | `Chaos-vX.Y.Z-linux-x86_64.AppImage` | `chmod +x` and run — any distribution |
+| **macOS** | `Chaos-vX.Y.Z-macos-arm64.tar.gz` | `sudo install -m 755 Chaos-*/chaos-* /usr/local/bin/` |
 
-```bash
-sudo install -m 755 Chaos-*/chaos-* /usr/local/bin/ && mkdir -p ~/.chaos/models
-```
+**The window is Windows-only.** Linux and macOS get every command-line tool, and
+`chaos-serve` speaks both the OpenAI and the Anthropic APIs, so any client — an
+editor, or Claude Code — works on all three.
 
 **No telemetry and no dependencies.** `Cargo.lock` holds 22 packages and all 22 are
 crates in this repository, so there is nothing third-party to audit. The one request
 Chaos makes on its own is the window's update check against a static JSON file, which
 `CHAOS_NO_UPDATE_CHECK` turns off; `chaos update` asks on demand instead.
 
-**The window is Windows-only.** Every platform gets the command-line tools, and
-`chaos-serve` speaks the OpenAI API, so any client works everywhere.
+## Claude Code on your own model
+
+```bash
+chaos-serve <model.gguf> --port 8231 --context 16384
+claude-chaos "read notes.txt and tell me what it says"
+```
+
+Both ship with Chaos. On Windows there is a button for it — **USE WITH CLAUDE
+CODE** on the CHAOS page — which checks Claude Code is installed, offers to
+install it, asks which folder, and opens a terminal already wired up.
+
+Pick the model on **whether it calls tools**, which is not the same as how good
+it is at code: Qwen3-4B does, Qwen2.5-Coder-7B does not. A turn takes minutes on
+a CPU machine. [`docs/CLAUDE-CODE.md`](docs/CLAUDE-CODE.md) is the whole path,
+with the numbers.
+
 
 ## Run
 
@@ -167,7 +185,7 @@ llama.cpp at 8 prompts.** The Vulkan device path is bound but **not** verified: 
 
 The code, by what a crate is *for*: `core/` the engine — containers, ggml, I/O, residency,
 architectures · `cli/` the front door and the runner · `network/` the server and the worker ·
-`gui/` the window and the installer · `android/` the JNI bridge · `scripts/` CI's checks.
+`gui/` the window and the installer · `scripts/` CI's checks.
 
 ## Licence
 

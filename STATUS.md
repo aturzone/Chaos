@@ -6,7 +6,7 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 — fix this file.
 
 **Last updated**: 2026-09-08 · **Version**: v0.0.34, tagged 2026-09-08 ·
-**Branch**: `main`, verified at v0.0.34 — 1018 tests, 0 failed, fmt and clippy
+**Branch**: `main`, verified at v0.0.34 — 1040 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
 
 **v0.0.34 is three platforms, one mode, one book.** Atur, 2026-09-07: *"delete
@@ -25,19 +25,37 @@ use the book... the CHAOS page, its button isn't even in the menu any more"*.
 - The README carries download buttons and setup for the three platforms plus a
   Claude Code section; `check-readme.sh` and the rule in CLAUDE.md moved with it.
 
+- **The window scales.** It asked Windows for per-monitor DPI awareness for
+  eight releases and then scaled nothing, so on this 120-DPI display every
+  control and every glyph was ~20% smaller than designed — 33% at 150%, half
+  size at 200%. A `metric::BUTTON` control now measures **40 physical pixels at
+  120 DPI**, the fonts move with it, the mark is rasterised at the size it will
+  occupy, and `WM_DPICHANGED` rebuilds both.
+  `research/the-window-now-scales-2026-09-08.md`.
+- **The node answers `/api/hello`** — Claude Code's reachability probe, 404 for
+  the whole of v0.0.33.
+
 **Verified by running the app**: it opens on CHAT with 11 controls on screen
 where it used to open on the knob with zero, and the run-through presses 34
-controls across six pages with nothing blocking longer than 21.8 ms.
+controls across six pages with nothing blocking longer than 35.8 ms.
 
-**The one UI defect found and NOT fixed** is the biggest one:
-`backlog/the-window-ignores-display-scaling.md`. The window asks Windows for
-per-monitor DPI awareness and then scales nothing, so on this 120-DPI display
-every control and every font is ~20% smaller than designed. It has to be done
-in one piece — scaling fonts alone puts 19px text in a 32px button — and the
-design is written down. **Three external attempts to measure it produced three
-sets of confident wrong numbers**, because `powershell.exe` is DPI-unaware and
-Windows virtualises what it reads; the instrument to build first is a
-pure-function layout, testable with no window at all.
+**The interface is checked from inside the process now**, because the outside
+lies: `powershell.exe` is DPI-unaware, so Windows virtualises every coordinate
+it reads back from an aware window, and three external attempts produced three
+sets of confident wrong numbers. `gui/app/src/placement.rs` is a pure function
+over rectangles — off an edge, overlapping, too small to hit — with ten tests
+of its own, and `CHAOS_LAYOUT_DUMP` makes the app write its own geometry in
+both design units and pixels. **Nine layout passes across all six pages, all
+clean.** Its first run found the only full-width button in the app: USE WITH
+CLAUDE CODE at 902 design units, an 1128-pixel bar beside buttons of 92 and
+200. It is 260 now.
+
+**Claude Code drives a local model, end to end, measured for this release.**
+Against Qwen3-4B-Q4_K_M on this laptop's CPU, `claude -p "Read notes.txt and
+tell me the launch code it contains."`: turn 1 329s → `tool_use`, Claude Code
+ran the Read, turn 2 212s → `end_turn` with the right answer, a string that
+existed nowhere but in that file. **10m12s for the round trip.** Slow, and
+real.
 
 **Claude Code now runs on a model this node serves, and the app has a button for it.**
 tool calling, a prefix cache across requests, and `scripts/claude-chaos.cmd` as
@@ -318,7 +336,7 @@ wrong, since every oracle capture is batched.
 
 ## The honest scoreboard
 
-**Current**: **1018 tests** (0 failed, 50 ignored — the V4-Flash set needs the
+**Current**: **1040 tests** (0 failed, 50 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

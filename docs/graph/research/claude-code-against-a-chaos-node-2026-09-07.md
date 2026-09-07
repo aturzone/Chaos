@@ -205,3 +205,57 @@ Code. The prefix cache helps every client that re-sends a conversation, and
 tool calling was missing from the OpenAI surface too -- an editor pointed at
 `/v1/chat/completions` could not use tools either. The 2,048-token dense
 ceiling made both of those moot and nobody had noticed.
+## Re-run for v0.0.34, 2026-09-08
+
+Atur asked for this verified again before the release: *"ready that auto setup
+claude code for agentic code works with last version with API of chaos without
+any problem, test it for sure"*. So it was run again, on the release binaries,
+with a fact the model could not have guessed.
+
+`notes.txt` in an empty scratch directory contained one invented string,
+`BLUEBERRY-7742`. Then, against `Qwen3-4B-Q4_K_M` on this laptop's CPU:
+
+```
+chaos-serve Qwen3-4B-Q4_K_M.gguf --port 8231 -c 16384
+claude --tools Read,Write,Edit,Bash,Glob,Grep \
+  -p "Read the file notes.txt in this directory and tell me the launch code it contains."
+```
+
+What the node logged, in order:
+
+```
+GET  /health              -> 200
+HEAD /api/hello           -> 404          <- fixed in this release
+POST /v1/messages?beta=true -> 200 in 329.0s (605 tokens, tool_use)
+POST /v1/messages?beta=true -> 200 in 212.5s (227 tokens, end_turn)
+```
+
+and what Claude Code printed:
+
+> The launch code in the `notes.txt` file is **BLUEBERRY-7742**.
+
+**10m12s wall clock for the round trip**, and it is a real round trip: turn 1
+returned `tool_use`, Claude Code executed the `Read`, and turn 2 returned
+`end_turn` carrying a string that existed nowhere except inside that file. The
+model could not have produced it without the tool actually running.
+
+Two things this run corrected:
+
+- **`HEAD /api/hello` was a 404.** It is the first request Claude Code sends,
+  to decide whether the endpoint behind `ANTHROPIC_BASE_URL` is reachable, so
+  a perfectly working node logged an error on every start. It answers `200
+  {"message":"Hello"}` now, outside the API key -- it carries nothing about the
+  node, no model name and no context size, the same reasoning that leaves the
+  mark open.
+- **The node serialises requests**, one at a time, and that is easy to
+  misread. A `curl` sent while Claude Code was mid-turn sat for four minutes
+  and looked like a hang; it was a queue. The same request answered in 7.8s
+  once the turn was over.
+
+**One measurement that looked like a regression and was not.** A 45 KB request
+body appeared to take 67.5s while a 5 KB body took 2.5s, which pointed straight
+at the two-phase read timeout added the day before. It was the *test data*: 45,000
+identical bytes is a pathological input for a byte-level BPE. With realistic
+prose, a 45 KB body answers in 0.0s and a 160 KB body in 0.1s -- and reverting
+the timeout reproduced the 68s exactly, which is what proved the change
+innocent. **A synthetic input can be adversarial by accident.**

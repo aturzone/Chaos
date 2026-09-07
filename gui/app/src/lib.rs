@@ -22,6 +22,13 @@ pub mod loading;
 pub mod models;
 /// Where every control lives: four pages, and the id of each thing on them.
 pub mod nav;
+/// Whether a laid-out page is usable: nothing off the edge, nothing on top of
+/// anything else. A pure function, because measuring it from outside the
+/// process produced three sets of wrong numbers.
+pub mod placement;
+/// Display scaling: the one conversion between the design units every
+/// constant is written in and the pixels Windows draws.
+pub mod scale;
 pub mod settings;
 /// The design tokens. Nothing outside this module names a colour.
 pub mod theme;

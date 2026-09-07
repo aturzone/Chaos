@@ -1220,3 +1220,132 @@ fn a_draw_is_costed_before_it_is_started() {
         "the guidance options do not say what turning it off buys"
     );
 }
+
+// -- display scaling ----------------------------------------------------------
+
+/// **The rule the whole DPI fix rests on: geometry leaves through these exits
+/// and nowhere else.**
+///
+/// The window computes in design units -- the numbers written in
+/// `theme::metric`, meaningful at 96 DPI -- and converts to pixels at a handful
+/// of places. That is what let 114 `metric::` call sites stay untouched. A new
+/// `FillRect` or `CreateFontW` added anywhere else silently bypasses the
+/// conversion, and the result is a control 20% out of place on every scaled
+/// display, which is exactly the bug this replaced.
+///
+/// Counting call sites is crude. The alternative is finding out from a
+/// screenshot, and a screen grab is uniform black on the machine this is
+/// developed on.
+#[test]
+fn geometry_reaches_windows_through_the_scaling_exits_only() {
+    let src = code_only(&main_rs());
+    for (call, want, home) in [
+        ("DrawTextW(", 1, "fn text("),
+        ("FillRect(", 1, "fn fill("),
+        ("CreateFontW(", 1, "fn make_font("),
+        ("MoveWindow(", 1, "fn layout("),
+    ] {
+        let n = src.matches(call).count();
+        assert_eq!(
+            n, want,
+            "{call} is called {n} times; it must be called {want} time(s), \
+             inside `{home}`, which is where the design-unit conversion is. \
+             A second call site bypasses it."
+        );
+        assert!(
+            function_body(&src, home).contains(call),
+            "{call} is no longer inside `{home}`"
+        );
+    }
+
+    // Two blits, both of the mark. Each converts its destination with `to_px`
+    // and rasterises at the physical size -- scaling a 96-DPI raster up is
+    // sharp arithmetic and a blurry mark.
+    let blits = src.matches("StretchDIBits(").count();
+    assert_eq!(blits, 2, "expected the two mark blits, found {blits}");
+    for f in ["fn paint_splash(", "fn paint_rail("] {
+        let body = function_body(&src, f);
+        assert!(
+            body.contains("StretchDIBits(") && body.contains("to_px("),
+            "{f} blits without converting its destination"
+        );
+    }
+}
+
+/// The two conversions in `layout`, in the right order.
+///
+/// Into design units before anything is computed, back to pixels in the loop
+/// that applies the moves. Getting this backwards, or doing only one half, puts
+/// every control at 96-DPI coordinates on a 120-DPI window.
+#[test]
+fn layout_computes_in_design_units_and_applies_in_pixels() {
+    let src = code_only(&main_rs());
+    let body = function_body(&src, "unsafe fn layout(hwnd: HWND)");
+    let du = body
+        .find("to_du(")
+        .expect("layout does not enter design units");
+    let px = body
+        .find("s.rect((x, y, x + w, y + h))")
+        .expect("layout does not convert its move list back to pixels");
+    assert!(
+        du < px,
+        "layout converts back to pixels before it converts in"
+    );
+
+    // And `paint` has to agree with it, or the painted rail lands away from
+    // the rail's buttons -- worse than not scaling at all.
+    let paint = function_body(&src, "unsafe fn paint(hwnd: HWND)");
+    assert!(
+        paint.contains("to_du(r)"),
+        "paint does not work in the same units as layout"
+    );
+}
+
+/// Every scale-dependent thing Windows is *told* rather than handed, in one
+/// function, because there are two callers -- building the controls and
+/// `WM_DPICHANGED` -- and a value applied at creation but not on the rescale is
+/// a control keeping 96-DPI text in a 120-DPI box.
+#[test]
+fn the_scale_dependent_setup_has_exactly_one_home() {
+    let src = code_only(&main_rs());
+    let home = function_body(&src, "unsafe fn apply_fonts_and_heights(");
+    for msg in [
+        "WM_SETFONT",
+        "LB_SETITEMHEIGHT",
+        "CB_SETITEMHEIGHT",
+        "EM_SETMARGINS",
+    ] {
+        assert!(home.contains(msg), "{msg} is applied outside the one place");
+        let n = src.matches(msg).count();
+        assert!(
+            n <= 3,
+            "{msg} appears {n} times; it belongs in `apply_fonts_and_heights`"
+        );
+    }
+    assert!(
+        src.contains("WM_DPICHANGED"),
+        "the window does not react to being moved to another monitor"
+    );
+    assert!(
+        function_body(&src, "unsafe fn rescale(").contains("apply_fonts_and_heights("),
+        "WM_DPICHANGED does not re-apply the fonts and heights"
+    );
+}
+
+/// The minimum size and the opening size are design numbers like every other,
+/// so a 940x620 minimum is not a *smaller* share of a scaled screen than it is
+/// of an unscaled one.
+#[test]
+fn the_window_s_own_size_scales_too() {
+    let src = code_only(&main_rs());
+    let mm = function_body(&src, "WM_GETMINMAXINFO =>");
+    assert!(
+        mm.contains("s.px(MIN_W)") && mm.contains("s.px(MIN_H)"),
+        "the minimum window size is in raw pixels"
+    );
+    let open = function_body(&src, "fn opening_geometry()");
+    assert!(
+        open.contains("system_dpi()"),
+        "the window opens at an unscaled size"
+    );
+}

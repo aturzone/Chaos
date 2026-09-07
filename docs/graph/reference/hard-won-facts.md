@@ -180,14 +180,45 @@ are the measurement that killed one.
   script was deleted rather than kept: a tool that yields plausible wrong
   findings is worse than no tool. **The right form is a pure function in Rust**
   — give `layout` a client rect and a page and let it return the rectangles —
-  which needs no window, no marshalling and no DPI, and runs in CI.
+  which needs no window, no marshalling and no DPI, and runs in CI. **Built
+  2026-09-08**: `gui/app/src/placement.rs`, ten tests, plus
+  `CHAOS_LAYOUT_DUMP` so the app writes its own geometry — both design units
+  and pixels — from inside the aware process. `run-through.ps1` is still
+  trusted for *what happened* and never for an absolute size.
 - **Declaring DPI awareness is not the same as honouring it.** `become_dpi_aware`
   asks for per-monitor-v2 before any window exists, correctly. But `theme::metric`
-  is a set of raw `i32` constants with no scale applied anywhere, so on this
-  120-DPI (1.25x) display a 32px button is 32 *physical* pixels where the design
-  means 32 at 96 DPI — the whole interface renders about 20% smaller than
-  intended, and worse at 150% or 200%. **Awareness moves the responsibility to
-  the app; it does not discharge it.**
+  was a set of raw `i32` constants with no scale applied anywhere, so on this
+  120-DPI (1.25x) display a 32px button was 32 *physical* pixels where the design
+  means 32 at 96 DPI — the whole interface rendered about 20% smaller than
+  intended, and worse at 150% or 200%, for eight releases. **Awareness moves the
+  responsibility to the app; it does not discharge it.** **Fixed 2026-09-08** —
+  `chaos_app::scale`, and the shape of the fix is the reusable part: all
+  geometry derives from *one* input, the client rect, and leaves through a
+  handful of exits, so the window computes in design units end to end and
+  converts only at those exits. Two conversions in `layout`, one each in `text`,
+  `fill` and `make_font`, and the 114 `metric::` call sites between them did not
+  change.
+- **Three DPI boundaries are easy to miss and each is visible.** `text_width`
+  measures with a *physical* font and its answer was compared against
+  design-unit widths; `DRAWITEMSTRUCT::rcItem` arrives physical, so every
+  owner-draw handler needs it converted once at the top; and a raster blitted
+  with `StretchDIBits` must be *scan-converted at the physical size*, not
+  scaled up from 96 DPI, or the arithmetic is right and the mark is blurry.
+  The same applies to everything told to Windows in pixels rather than computed:
+  `LB_SETITEMHEIGHT`, `CB_SETITEMHEIGHT`, `EM_SETMARGINS`, `WM_MEASUREITEM`,
+  `WM_GETMINMAXINFO`.
+- **Scaling the metrics without the fonts is worse than scaling neither.** 15px
+  text in a 32px button is comfortable; the same text in a button grown to 40px
+  looks lost in it. This is why the change could not be staged, and why the
+  backlog node said so before any of it was written.
+- **A geometry check that cannot tell chrome from page content cries wolf.** The
+  placement check's first real run reported the STOP button off the bottom edge
+  on all six pages — the strip is reserved from *pages*, and the strip's own
+  control is entitled to it. Same shape as a dropdown, whose rectangle is its
+  *dropped* extent and overlaps whatever is below it by design: judged naively,
+  every dropdown in the app is a defect. Both distinctions are now fields on
+  `Placed` with tests in both directions. **A check nobody reads is worth
+  nothing, and six false positives per run is how it gets there.**
 
 - **An instrument with a hand-written list of what to check is blind to
   anything new, including the thing it exists to catch.**

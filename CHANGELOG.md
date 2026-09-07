@@ -10,7 +10,65 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [0.0.34] — 2026-09-08
 
-**Three platforms, one mode, one book.**
+**Three platforms, one mode, one book — and a window that scales.**
+
+### Fixed
+
+- **The window ignored display scaling, and had since the first release.** It
+  asks Windows for `PER_MONITOR_AWARE_V2` before any window exists, correctly
+  and early — but **declaring awareness moves the responsibility to the
+  application; it does not discharge it.** `theme::metric` was eleven raw
+  `i32` constants and `theme::size` six raw font heights, used as physical
+  pixels at 114 call sites, so on a 125% display every control and every glyph
+  was drawn about 20% smaller than designed; 33% at 150%, half size at 200%.
+  Every other window on the desktop scaled and this one did not, which is most
+  of what Atur meant by *"it's not like Windows 98 — make the appearance much
+  more professional"*.
+
+  A `metric::BUTTON` control now measures **40 physical pixels at 120 DPI**.
+  The fix is `chaos_app::scale` and two conversions rather than 114 edits: all
+  geometry derives from one input, the client rect, and leaves through a
+  handful of exits, so the window computes in design units end to end and
+  converts only at `MoveWindow`, at `text` and `fill`, at `make_font`, at the
+  two `StretchDIBits` blits, and at the item heights and margins Windows is
+  told directly. `WM_DPICHANGED` rebuilds every font and re-runs the layout
+  when the window moves to a differently scaled monitor.
+
+  **It could not be staged**: 15px text in a 32px button is comfortable, and
+  the same text in a button grown to 40px looks lost in it. Three boundaries
+  were nearly missed and each would have been visible — `text_width` measures
+  with a physical font, `DRAWITEMSTRUCT::rcItem` arrives physical, and a
+  raster must be scan-converted at the physical size rather than blown up from
+  96 DPI.
+- **`USE WITH CLAUDE CODE` was laid out at the full content width** — 902
+  design units, drawn as an 1128-pixel bar beside buttons of 92 and 200, the
+  only full-width button in the app. Found by the placement check, not by eye.
+  260 now.
+- **`/api/hello` was a 404.** It is the first thing Claude Code sends, to
+  decide whether the endpoint behind `ANTHROPIC_BASE_URL` is reachable, so a
+  working node looked broken for the whole of v0.0.33. It carries nothing
+  about the node, so it stays outside the API key like the mark does.
+
+### Added
+
+- **`gui/app/src/placement.rs`** — whether a laid-out page is usable: nothing
+  off an edge, nothing on top of anything else, nothing too small to hit. A
+  pure function over rectangles with ten tests, because measuring the window
+  from outside the process produced three sets of confident wrong numbers.
+  `CHAOS_LAYOUT_DUMP` names a file and the app appends every layout pass to it:
+  page, DPI, client rect, and every control in both design units and pixels.
+  **Nine passes across all six pages, all clean.**
+
+  It reported a false positive on its first real run — the strip's own STOP
+  button "off the bottom edge", six times — and the fix was to teach it the
+  distinction it was missing: chrome may use the space pages are kept out of.
+  Both halves are tests. A check that cries wolf six times a run is a check
+  nobody reads.
+- **`chaos_app::scale`** — the one conversion between design units and pixels,
+  integer arithmetic, eight tests covering every scale Windows offers. Fonts
+  round by magnitude, so `-15` becomes `-19` rather than `-18`; rectangles
+  convert by edge rather than by origin-plus-size, so a row of controls that
+  was flush stays flush; and a one-unit hairline never rounds away to nothing.
 
 ### Removed
 
@@ -45,13 +103,14 @@ While the major version is `0`, anything may change in a minor release.
 - The window's own text no longer talks about a phone — eight strings and
   comments that told the user to type the address into one.
 
-### Found and not fixed
+### Verified
 
-- **The window ignores display scaling.** It asks for per-monitor DPI
-  awareness and then scales nothing, so on a 120-DPI display every control
-  and every font is about 20% smaller than designed, and worse at 150%.
-  It must be done in one piece and the design is written down:
-  `docs/graph/backlog/the-window-ignores-display-scaling.md`.
+- **Claude Code driving a local model, end to end.** Against
+  Qwen3-4B-Q4_K_M on this laptop's CPU: `claude -p "Read notes.txt and tell
+  me the launch code it contains."` Turn 1 took 329s and came back
+  `tool_use`; Claude Code ran the Read; turn 2 took 212s and came back
+  `end_turn` with the right answer — a string that existed nowhere but inside
+  that file, so the model demonstrably read it. **10m12s for the round trip.**
 
 ## [0.0.33] — 2026-09-07
 

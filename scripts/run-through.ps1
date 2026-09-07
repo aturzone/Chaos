@@ -26,15 +26,13 @@
 #
 #   768      NEW KEY   throws the current key away, so every device that had it
 #            has to be told the new one
-#   773      CHANGE MODE  opens a MODAL Yes/No, so the next SendMessageW never
-#            returns and the script hangs rather than failing. The four role
-#            buttons it replaced (760-763) no longer exist: the mode is answered
-#            by the launch knob and shown by the badge, 772.
+#   774      USE WITH CLAUDE CODE  opens a MODAL folder dialog, so the next
+#            SendMessageW never returns and the script hangs rather than
+#            failing
 #
-# Two more open a browser and are opt-in with -Brand:
+# One opens a browser and is opt-in with -Brand:
 #
 #   770  SHOW THE MARK   shell_open of the node's /qr
-#   771  READ A CODE     shell_open of the node's /scan
 #
 # Two more are *slow* rather than dangerous and are opt-in with -Slow:
 #
@@ -45,15 +43,26 @@
 # takes is the time the UI thread was blocked -- anything over 200 ms is a
 # window that looks frozen to the person using it.
 #
-# # It enters a mode first, and that is not optional
+# # What this cannot see, and what can
 #
-# **The knob owns the window until a mode is chosen, and it owns the child
-# windows too.** This script drives pages with `WM_COMMAND`, which does not go
-# through the rail -- so before the guard in `show_page` existed it walked an app
-# that had never left its launch screen and reported a clean pass over controls
-# that were stacked on top of the knob. Now the same run would report every
-# control HIDDEN, which is just as misleading. So it presses RETURN first, the
-# knob's own "enter this mode", and stops if that did not take.
+# **Every coordinate this script reads back from the window is virtualised.**
+# `powershell.exe` is DPI-unaware, so on a scaled display Windows silently
+# divides what an aware window reports: a 40-pixel button comes back as 32.
+# Three attempts to measure the interface this way produced three sets of
+# confident, wrong numbers. So this script is trusted for *what happened* --
+# which control answered, how long the UI thread blocked, what text a control
+# holds -- and never for absolute pixel sizes.
+#
+# For those, the app measures itself. Start it with CHAOS_LAYOUT_DUMP naming a
+# file and every layout pass appends the page's client rect, its DPI, every
+# control in both design units and pixels, and anything wrong with the result
+# -- off an edge, overlapping, or too small to hit. The check itself is
+# `gui/app/src/placement.rs`, a pure function with its own tests.
+#
+#   $env:CHAOS_LAYOUT_DUMP = "$env:TEMP\layout.txt"
+#   Start-Process target\release\chaos-app.exe
+#   .\scripts\run-through.ps1          # drives every page, filling the dump
+#   Select-String PROBLEM $env:CHAOS_LAYOUT_DUMP
 
 param(
     [switch] $Slow,
@@ -131,7 +140,6 @@ $skip = @{
     311 = 'DESTRUCTIVE: discards the saved settings'
     312 = 'BLOCKS: opens a modal folder dialog, which stops the message loop'
     768 = 'DESTRUCTIVE: throws the key away, so every device must be told again'
-    773 = 'BLOCKS: CHANGE MODE opens a MODAL confirmation, which stops the message loop'
 }
 if (-not $Slow) {
     $skip[204] = 'slow: starts a model, minutes. Pass -Slow to include it'
@@ -296,11 +304,12 @@ foreach ($page in $pages) {
     $known = @{}
     foreach ($p2 in $pages) { $known[$p2.Id] = $true; foreach ($cid in $p2.Controls) { $known[$cid] = $true } }
     # The page ids in `$pages` are the rail buttons themselves, so they are
-    # already known. These are the rest of the shell, which lives on every page
-    # and belongs to no page: the mode badge, its CHANGE MODE, and the strip's
-    # STOP. **The sweep found all three on its first run**, along with the
-    # image prompt and its log, which are now in the IMAGE list above -- the
-    # prompt field had never been exercised by this script at all.
+    # already known. This is the rest of the shell, which lives on every page
+    # and belongs to no page: the strip's STOP. **The sweep found it on its
+    # first run**, along with the image prompt and its log, which are now in
+    # the IMAGE list above -- the prompt field had never been exercised by
+    # this script at all. Two more it found, the mode badge and its CHANGE
+    # MODE, no longer exist.
     foreach ($shell in 405) { $known[$shell] = $true }
     $wr = New-Object Run+RECT
     [void][Run]::GetWindowRect($hwnd, [ref]$wr)

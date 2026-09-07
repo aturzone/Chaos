@@ -87,7 +87,9 @@ page Chaos  dpi 120  client 1166x718 du  (1458x898 px)  controls 16
 **A `metric::BUTTON` control measures 40 physical pixels at 120 DPI**, which is
 exactly the number the design said to check for. Nine layout passes across six
 pages, all clean; the run-through pressed 34 controls with nothing blocking the
-UI thread longer than 35.8 ms.
+UI thread longer than **35.8 ms** -- the worst of six runs, the others 18.5,
+19.1, 20.6, 24.0 and 25.1 ms. Quoting the worst rather than the last, because
+the last one is whichever number the machine happened to produce.
 
 ## Resizing, which is where it really earned its keep
 

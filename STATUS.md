@@ -49,7 +49,8 @@ use the book... the CHAOS page, its button isn't even in the menu any more"*.
 
 **Verified by running the app**: it opens on CHAT with 11 controls on screen
 where it used to open on the knob with zero, and the run-through presses 34
-controls across six pages with nothing blocking longer than 35.8 ms.
+controls across six pages with nothing blocking longer than **35.8 ms**,
+which is the worst of six runs (the others: 18.5, 19.1, 20.6, 24.0, 25.1).
 
 **The interface is checked from inside the process now**, because the outside
 lies: `powershell.exe` is DPI-unaware, so Windows virtualises every coordinate

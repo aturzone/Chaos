@@ -6,14 +6,31 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 — fix this file.
 
 **Last updated**: 2026-09-03 · **Version**: v0.0.32, tagged 2026-09-03 ·
-**Branch**: `main`, verified at v0.0.32 — 1031 tests, 0 failed, fmt and clippy
+**Branch**: `main`, verified at v0.0.32 — 1032 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
 
-**Claude Code now runs on a model this node serves.** `POST /v1/messages` with
+**Claude Code now runs on a model this node serves, and the app has a button for it.**
 tool calling, a prefix cache across requests, and `scripts/claude-chaos.cmd` as
 the whole setup. Verified end to end: `claude -p "Read notes.txt and tell me
 what city it names"` against Qwen3-4B produced a `Read` tool call, Claude Code
 executed it, and the model answered from the result.
+
+**`USE WITH CLAUDE CODE` on the CHAOS page** checks `claude` is installed
+(offering the npm command if not), checks a model is loaded, asks which project
+folder, and opens a terminal with the four environment variables set and the
+tool set restricted. The wrappers and `docs/CLAUDE-CODE.md` now **ship** — in
+the installer, every archive, and the Linux packages as `claude-chaos` on PATH.
+They existed only in `scripts/` before, so a downloaded Chaos had none of it.
+
+**Two instrument defects the button exposed**, both of which had been hiding
+other things: `every_declared_control_is_created` never checked a control was
+*laid out*, and `run-through.ps1`'s page lists were hand-written arrays — so a
+control could be declared, created, positioned, wired and on screen while the
+instrument built to find unreachable controls said nothing about it. There is
+now a layout test (checked in both directions) and a sweep that reports every
+visible control the list does not know. **The sweep found six controls that had
+never been exercised on its first run**; the transcript went from 27 to 33.
+
 
 Three things it cost, each a defect it uncovered:
 
@@ -271,7 +288,7 @@ wrong, since every oracle capture is batched.
 
 ## The honest scoreboard
 
-**Current**: **1031 tests** (0 failed, 50 ignored — the V4-Flash set needs the
+**Current**: **1032 tests** (0 failed, 50 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

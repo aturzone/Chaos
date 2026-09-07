@@ -9,6 +9,26 @@ While the major version is `0`, anything may change in a minor release.
 ## [Unreleased]
 
 ### Added
+- **`USE WITH CLAUDE CODE`, on the app's CHAOS page.** Checks `claude` is
+  installed and offers the npm command if not, checks a model is loaded, asks
+  which project folder, then opens a terminal with the four environment
+  variables set and the tool set restricted to six. Atur: *"i want users have
+  best and simplest user experince in using models for coding"* — before this
+  the whole path was a shell script in the repository, so a person who
+  downloaded Chaos had no way to find it.
+- **The wrappers and the guide now ship.** `claude-chaos.cmd`,
+  `claude-chaos.sh` and `docs/CLAUDE-CODE.md` go into the Windows installer,
+  every platform archive, and the Linux packages — where the shell wrapper lands
+  on PATH as `claude-chaos`. They existed only in `scripts/` before.
+- **`every_declared_control_is_laid_out`.** The existing test proved a control
+  was *created* and said nothing about whether `layout` gave it a rectangle,
+  which is how nine live controls once ended up underneath the dial. Verified in
+  both directions: deleting one `m.push` makes it fail by name.
+- **`run-through.ps1` now sweeps for controls its own list does not know.** Its
+  page tables were hand-written arrays, so the new button was declared, created,
+  laid out, wired and on screen at 718x26 px while the transcript said nothing
+  about it. **The sweep found six never-exercised controls on its first run**,
+  across four pages, including the image prompt field; 27 controls became 33.
 
 - **Claude Code can be pointed at a Chaos node.** `POST /v1/messages` — the
   Anthropic Messages API — with tool calling, `system` and content blocks, an

@@ -47,6 +47,10 @@ build_deb() {
     ln -sf "/usr/lib/chaos/$b" "$root/usr/bin/$b"
   done
   install -m 644 README.md LICENSE NOTICE "$root/usr/share/doc/chaos/" 2>/dev/null || true
+  # The Claude Code bridge, which is part of the product: the wrapper goes on
+  # PATH so `claude-chaos` just works, and the guide beside the other docs.
+  install -m 755 scripts/claude-chaos.sh "$root/usr/bin/claude-chaos" 2>/dev/null || true
+  install -m 644 docs/CLAUDE-CODE.md "$root/usr/share/doc/chaos/" 2>/dev/null || true
 
   local size
   size=$(du -ks "$root/usr" | cut -f1)

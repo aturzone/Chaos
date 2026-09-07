@@ -238,6 +238,56 @@ fn every_declared_control_is_created() {
     );
 }
 
+/// **Created is not laid out, and this project has paid for the difference.**
+///
+/// `every_declared_control_is_created` proves a control exists. It says nothing
+/// about whether `layout` ever gives it a rectangle — and a control with no
+/// rectangle sits wherever `child` first put it, which is how nine live
+/// controls once ended up underneath the dial: on screen by every check that
+/// asked, reachable by nobody.
+///
+/// So every id a page declares must appear in `layout`. That includes the ones
+/// deliberately parked off-screen at `(-3200, -3200)`; parking is a decision
+/// `layout` makes, and what this forbids is `layout` not knowing the control
+/// exists at all.
+#[test]
+fn every_declared_control_is_laid_out() {
+    let src = main_rs();
+    let body = function_body(&src, "unsafe fn layout(");
+    let nav_src = source("nav.rs");
+    let mut by_value: HashMap<i32, String> = HashMap::new();
+    for line in nav_src.lines() {
+        let Some(rest) = line.trim().strip_prefix("pub const ID_") else {
+            continue;
+        };
+        let Some((name, tail)) = rest.split_once(": i32 = ") else {
+            continue;
+        };
+        if let Ok(v) = tail.trim_end_matches(';').trim().parse::<i32>() {
+            by_value.insert(v, format!("ID_{name}"));
+        }
+    }
+
+    let mut missing = Vec::new();
+    for p in nav::PAGES {
+        for &id in nav::controls(p) {
+            let name = &by_value[&id];
+            // The settings fields and toggles are positioned by iterating
+            // `FIELDS` and `TOGGLES`, so their ids never appear by name —
+            // the same exemption the creation test makes, for the same reason.
+            let by_loop = nav::FIELDS.iter().chain(nav::TOGGLES).any(|f| f.id == id);
+            if !by_loop && !body.contains(name.as_str()) {
+                missing.push(format!("{name} on {p:?}"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "declared on a page and never given a rectangle by `layout`, so it \
+         stays wherever it was created: {missing:?}"
+    );
+}
+
 /// **Controls are created hidden.** `show_page` is the only thing that reveals
 /// one; if `child()` passed `WS_VISIBLE`, every page's controls would be on
 /// screen at once and stacked on top of each other.

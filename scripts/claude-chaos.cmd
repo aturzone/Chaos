@@ -38,6 +38,16 @@ rem Its own config directory, so pointing Claude Code at a local model does not
 rem disturb the history, settings or authentication of a normal `claude`.
 set "CLAUDE_CONFIG_DIR=%USERPROFILE%\.claude-chaos"
 
+where claude >nul 2>&1
+if errorlevel 1 (
+  echo Claude Code is not installed, or not on PATH.
+  echo.
+  echo   npm install -g @anthropic-ai/claude-code
+  echo.
+  echo That needs Node.js from https://nodejs.org. Then run this again.
+  exit /b 127
+)
+
 curl -s -m 3 -o nul "http://127.0.0.1:%CHAOS_PORT%/health"
 if errorlevel 1 (
   echo No Chaos node is answering on port %CHAOS_PORT%.

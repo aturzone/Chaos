@@ -213,6 +213,12 @@ jobs:
             cp "target/release/$b.exe" stage/
           done
           cp README.md LICENSE NOTICE CHANGELOG.md STATUS.md stage/
+          # **The Claude Code bridge is part of the product, not a repo script.**
+          # A user who downloads Chaos to drive Claude Code with a local model
+          # has to have this, and leaving it in `scripts/` meant the one place
+          # it existed was a git checkout. The guide goes with it because the
+          # wrapper points at it.
+          cp scripts/claude-chaos.cmd scripts/claude-chaos.sh docs/CLAUDE-CODE.md stage/
           CHAOS_STAGE_DIR="$(pwd)/stage" cargo build --release -p chaos-setup
           test -f target/release/chaos-setup.exe || { echo "::error::chaos-setup.exe was not built"; exit 1; }
           # An installer much smaller than its payload embedded nothing, which
@@ -260,6 +266,11 @@ jobs:
             cp "target/release/$b${{ matrix.ext }}" "$DIR/"
           done
           cp README.md LICENSE NOTICE CHANGELOG.md STATUS.md "$DIR/"
+          # Both wrappers on every platform, and the guide with them: a Windows
+          # user working in Git Bash wants the `.sh`, and someone reading the
+          # archive on Linux should still see what the `.cmd` does.
+          cp scripts/claude-chaos.cmd scripts/claude-chaos.sh docs/CLAUDE-CODE.md "$DIR/"
+          chmod +x "$DIR/claude-chaos.sh" || true
           # The Windows archive carries its own installer. Unix gets three
           # lines of `install -m 755` in the README instead, which is what
           # anyone on those platforms would rather have than a script.

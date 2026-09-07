@@ -958,6 +958,7 @@ mod windows_app {
         button(hwnd, "NEW KEY", nav::ID_NEW_KEY, hinst);
         button(hwnd, "SHOW THE MARK", nav::ID_SHOW_MARK, hinst);
         button(hwnd, "READ A CODE", nav::ID_READ_CODE, hinst);
+        button(hwnd, "USE WITH CLAUDE CODE", nav::ID_CLAUDE_CODE, hinst);
         child(
             hwnd,
             "EDIT",
@@ -1722,6 +1723,134 @@ mod windows_app {
             CloseClipboard();
         }
         set_status("copied");
+    }
+
+    /// Open a terminal running Claude Code against this node's model.
+    ///
+    /// # What this button exists to prevent
+    ///
+    /// Doing it by hand is four environment variables, a tool restriction and a
+    /// running node, and **each of them fails differently and silently**:
+    ///
+    /// * an `ANTHROPIC_MODEL` Claude Code does not recognise makes it exit 0
+    ///   with `[claude-code:unrecognized_model]`, and the node never sees a
+    ///   request;
+    /// * without `CLAUDE_CODE_MAX_CONTEXT_TOKENS` it assumes 200k and compacts
+    ///   against a window this model cannot hold;
+    /// * with the default tool set the first request is **40,255 tokens**
+    ///   against a 32k context, which is refused before anything happens;
+    /// * with no model loaded the browser-shaped error is a connection refused.
+    ///
+    /// So the button checks what it can and says which one is wrong, rather
+    /// than opening a terminal that fails for a reason nobody can see.
+    ///
+    /// **It does not install anything without being asked.** A missing `claude`
+    /// offers the npm command in a dialog; saying yes runs it in a visible
+    /// window so the user watches it happen.
+    fn start_claude_code(hwnd: HWND) {
+        // `where` rather than trying to run it: a `claude` that exists but is
+        // broken should fail in the terminal where its output is visible, not
+        // here where it would become "not installed".
+        let installed = {
+            use std::os::windows::process::CommandExt;
+            Command::new("cmd")
+                .args(["/c", "where", "claude"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        if !installed {
+            let ask = concat!(
+                "Claude Code is not installed.\n\n",
+                "Install it now with npm?\n\n",
+                "    npm install -g @anthropic-ai/claude-code\n\n",
+                "This needs Node.js from nodejs.org. A terminal will open so ",
+                "you can see it happen."
+            );
+            let answer = unsafe {
+                MessageBoxW(
+                    hwnd,
+                    wide(ask).as_ptr(),
+                    wide("Install Claude Code?").as_ptr(),
+                    MB_YESNO | MB_ICONWARNING,
+                )
+            };
+            if answer != IDYES {
+                set_status("Claude Code is not installed");
+                return;
+            }
+            // `/k` so the window stays open on failure: an npm error the user
+            // never sees is the same as no error at all.
+            let started = Command::new("cmd")
+                .args([
+                    "/c",
+                    "start",
+                    "",
+                    "cmd",
+                    "/k",
+                    "npm install -g @anthropic-ai/claude-code",
+                ])
+                .spawn()
+                .is_ok();
+            set_status(if started {
+                "installing Claude Code -- press this again when it finishes"
+            } else {
+                "could not start a terminal to install Claude Code"
+            });
+            return;
+        }
+
+        // The node has to be up: this button hands Claude Code an address, and
+        // an address with nothing behind it is the confusing failure.
+        let (port, loaded) = UI.with(|u| {
+            let b = u.borrow();
+            match b.as_ref() {
+                Some(ui) => (ui.cfg.port, ui.loaded.clone()),
+                None => (0u16, None),
+            }
+        });
+        if loaded.is_none() {
+            set_status("load a model first -- Claude Code needs a running node");
+            return;
+        }
+
+        let Some(dir) =
+            chaos_app::win32::pick_folder(hwnd, "Which project should Claude Code work in?", None)
+        else {
+            set_status("cancelled");
+            return;
+        };
+
+        // **Six tools, not the default twenty-eight.** Measured: the default
+        // set is 40,255 tokens of definitions before the user types anything,
+        // against a 32,768-token context on every model that runs here. Six is
+        // 11,706. See `docs/CLAUDE-CODE.md`.
+        //
+        // `/k` keeps the window after the turn so the answer stays readable,
+        // and the echoed lines are there because the first minutes look like a
+        // hang: one turn is minutes of prefill on a CPU machine.
+        let script = format!(
+            "set CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-chaos && \
+             set ANTHROPIC_BASE_URL=http://127.0.0.1:{port} && \
+             set ANTHROPIC_API_KEY=chaos && \
+             set ANTHROPIC_MODEL=claude-opus-5 && \
+             set CLAUDE_CODE_MAX_CONTEXT_TOKENS=16384 && \
+             echo Claude Code is talking to Chaos on port {port}. && \
+             echo A turn takes minutes on a CPU machine. That is the model, not a hang. && \
+             echo. && \
+             claude --tools Read,Write,Edit,Bash,Glob,Grep"
+        );
+        let started = Command::new("cmd")
+            .args(["/c", "start", "", "cmd", "/k", &script])
+            .current_dir(&dir)
+            .spawn()
+            .is_ok();
+        set_status(if started {
+            "Claude Code opened in a terminal, pointed at this node"
+        } else {
+            "could not open a terminal"
+        });
     }
 
     /// Open the book, or the reader, in the browser.
@@ -5102,6 +5231,12 @@ Any value a client sends is accepted.                      The server still list
                     let half = w.min(360) / 2 - 5;
                     m.push((nav::ID_SHOW_MARK, x, y, half, metric::BUTTON));
                     m.push((nav::ID_READ_CODE, x + half + 10, y, half, metric::BUTTON));
+                    y += metric::BUTTON + 10;
+                    // Full width and on its own row: it is the only control
+                    // here that starts something outside the app, and pairing
+                    // it with a brand button would read as a third of the
+                    // same idea.
+                    m.push((nav::ID_CLAUDE_CODE, x, y, w, metric::BUTTON));
                     y += metric::BUTTON + 20;
                     let h = (page.bottom - metric::INSET - y).max(60);
                     m.push((nav::ID_CHAOS_STATUS, x, y, w, h));
@@ -6961,6 +7096,7 @@ Any value a client sends is accepted.                      The server still list
                     (nav::ID_COPY_KEY, BN_CLICKED) => copy_field(hwnd, nav::ID_CORE_KEY),
                     (nav::ID_SHOW_MARK, BN_CLICKED) => open_brand_page("qr"),
                     (nav::ID_READ_CODE, BN_CLICKED) => open_brand_page("scan"),
+                    (nav::ID_CLAUDE_CODE, BN_CLICKED) => start_claude_code(hwnd),
                     // Selecting a different model redraws its page beside the
                     // list, which is the whole point of a page per model --
                     // **and re-decides which buttons are live**, because what

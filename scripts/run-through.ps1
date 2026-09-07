@@ -84,6 +84,13 @@ public static class Run {
     public static extern bool IsWindowEnabled(IntPtr hwnd);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hwnd);
+    // For the unlisted-control sweep. Sibling walking rather than
+    // `EnumChildWindows`, which would need a delegate marshalled out of an
+    // inline `Add-Type` -- more moving parts than the walk is worth.
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
+    [DllImport("user32.dll")]
+    public static extern int GetDlgCtrlID(IntPtr hwnd);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
     public static extern int GetWindowTextW(IntPtr hwnd, StringBuilder buf, int max);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)]
@@ -133,21 +140,39 @@ if (-not $Slow) {
 if (-not $Brand) {
     $skip[770] = 'opens a browser: pass -Brand to include it'
     $skip[771] = 'opens a browser: pass -Brand to include it'
+    # Opens a modal folder dialog to ask which project to work in, and a modal
+    # dialog stops the message loop -- the same reason BROWSE... (312) is
+    # skipped. Pressing it here would hang the transcript, not measure it.
+    $skip[774] = 'BLOCKS: opens a modal folder dialog, which stops the message loop'
+    # The strip's STOP, on every page. Pressing it with nothing running is
+    # harmless and proves nothing; pressing it with something running would
+    # stop the thing this transcript is measuring.
+    $skip[405] = 'stops whatever is running -- nothing is, so it would prove nothing'
 }
 
 $pages = @(
-    @{ Id = 401; Name = 'CHAT';     Controls = @(104, 103) }
+    @{ Id = 401; Name = 'CHAT';     Controls = @(101, 102, 104, 103) }
     @{ Id = 402; Name = 'MODELS';   Controls = @(201, 202, 208, 210, 211, 212, 203, 204, 205, 206, 207, 209) }
     @{ Id = 403; Name = 'MONITOR';  Controls = @() }
-    @{ Id = 404; Name = 'SETTINGS'; Controls = @(301, 302, 303, 305, 306, 308, 309, 310, 311, 312) }
-    @{ Id = 406; Name = 'IMAGE';    Controls = @(708, 702, 703, 709, 706, 705, 704) }
+    @{ Id = 404; Name = 'SETTINGS'; Controls = @(301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312) }
+    @{ Id = 406; Name = 'IMAGE';    Controls = @(708, 701, 702, 703, 709, 706, 705, 707, 704) }
     # **The page the run-through never covered**, which is where the mode lives
     # and where the two brand buttons were added and never clicked.
     # **CHAOS has no rail entry any more** -- 407 is still its id and still
     # opens it, which is what the mode badge does. Reached that way here so the
     # transcript covers the page a person can still get to.
-    @{ Id = 407; Name = 'CHAOS';    Controls = @(764, 765, 766, 767, 768, 770, 771, 769) }
+    @{ Id = 407; Name = 'CHAOS';    Controls = @(764, 765, 766, 767, 768, 770, 771, 774, 769) }
 )
+
+# **This list is hardcoded, and that is a hole in the instrument itself.**
+# `USE WITH CLAUDE CODE` (774) was added to the CHAOS page, laid out, wired and
+# on screen -- and this transcript did not mention it, because 774 was not in
+# the array above. An instrument whose whole purpose is finding controls a
+# person cannot reach was blind to a new one.
+#
+# The check below closes it: after each page, every control that is VISIBLE and
+# has a rectangle inside the window is compared against the list, and anything
+# unlisted is reported. A new control can then be un-pressed but not unseen.
 
 $worst = 0.0
 $pressed = 0
@@ -263,6 +288,46 @@ foreach ($page in $pages) {
         }
         "  {0,4}  {1,-22} pressed {2,8:N1} ms{3}{4}" -f $id, $label, $ms, $flag, $note
         $pressed++
+    }
+
+    # **The sweep that makes a new control impossible to miss.** The list above
+    # is written by hand, and `USE WITH CLAUDE CODE` proved what that costs: it
+    # was declared, created, laid out, wired and on screen, and this transcript
+    # said nothing about it because its id was not in the array.
+    #
+    # So: walk every child of the window, keep the ones that are visible with a
+    # rectangle inside the window -- which on this page is this page's own
+    # controls plus the shell -- and report any whose id the list does not know.
+    # Unlisted is not the same as broken; it means nobody decided about it.
+    $known = @{}
+    foreach ($p2 in $pages) { $known[$p2.Id] = $true; foreach ($cid in $p2.Controls) { $known[$cid] = $true } }
+    # The page ids in `$pages` are the rail buttons themselves, so they are
+    # already known. These are the rest of the shell, which lives on every page
+    # and belongs to no page: the mode badge, its CHANGE MODE, and the strip's
+    # STOP. **The sweep found all three on its first run**, along with the
+    # image prompt and its log, which are now in the IMAGE list above -- the
+    # prompt field had never been exercised by this script at all.
+    foreach ($shell in 772, 773, 405) { $known[$shell] = $true }
+    $wr = New-Object Run+RECT
+    [void][Run]::GetWindowRect($hwnd, [ref]$wr)
+    $unlisted = @()
+    $child = [Run]::GetWindow($hwnd, 5)          # GW_CHILD
+    while ($child -ne [IntPtr]::Zero) {
+        if ([Run]::IsWindowVisible($child)) {
+            $cr = New-Object Run+RECT
+            [void][Run]::GetWindowRect($child, [ref]$cr)
+            $inside = ($cr.left -ge $wr.left) -and ($cr.right -le $wr.right) -and
+                      ($cr.top -ge $wr.top) -and ($cr.bottom -le $wr.bottom)
+            $cid = [Run]::GetDlgCtrlID($child)
+            if ($inside -and $cid -gt 0 -and -not $known.ContainsKey($cid)) {
+                $unlisted += "$cid '$([Run]::TextOf($child))'"
+            }
+        }
+        $child = [Run]::GetWindow($child, 2)     # GW_HWNDNEXT
+    }
+    if ($unlisted.Count -gt 0) {
+        "  ON SCREEN AND NOT IN THIS SCRIPT'S LIST: {0}" -f ($unlisted -join ', ')
+        "  Add them to the page above, with a skip reason if pressing them blocks."
     }
 }
 

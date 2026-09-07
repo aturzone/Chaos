@@ -161,6 +161,26 @@ are the measurement that killed one.
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
   does now, 34 checks, in CI.
+- **An instrument with a hand-written list of what to check is blind to
+  anything new, including the thing it exists to catch.**
+  `scripts/run-through.ps1` finds controls a person cannot reach, and its page
+  tables were arrays of ids typed in by hand. `USE WITH CLAUDE CODE` was
+  declared, created, laid out, wired and **on screen at 718x26 px** — and the
+  transcript did not mention it, because its id was not in the array. Fixed by
+  sweeping every visible child with a rectangle inside the window and reporting
+  the ids the list does not know: **on its first run that found six controls
+  that had never been exercised**, across four pages, including the image prompt
+  field. 27 controls became 33.
+- **`IsWindowVisible` plus a rectangle is the honest on-screen test, and both
+  halves are needed.** `layout` parks unreachable controls at `(-3200, -3200)`,
+  where they are still "visible". Compare the control's rectangle against the
+  window's.
+- **Created is not laid out.** `every_declared_control_is_created` proved a
+  control exists and said nothing about whether `layout` ever gave it a
+  rectangle — which is how nine live controls once ended up underneath the
+  dial. `every_declared_control_is_laid_out` closes it, and was checked in both
+  directions: deleting the one `m.push` makes it fail by name.
+
 - **A gated instrument that is off reads exactly like a negative result.**
   `routing_last_token()` needs `CHAOS_ROUTING_LAST=1`. Without it the comparison
   printed *"0 layers logged, 0 choose different experts"* — which is what "the

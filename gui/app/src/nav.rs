@@ -408,6 +408,19 @@ pub const ID_SHOW_MARK: i32 = 770;
 /// Open the reader: the same circle as a viewfinder, for pointing this device
 /// at another node's mark. Same reasoning as [`ID_SHOW_MARK`].
 pub const ID_READ_CODE: i32 = 771;
+/// Drive Claude Code with the model this node is serving.
+///
+/// **Atur, 2026-09-07**: *"i want users have best and simplest user
+/// experince in using models for coding"*. Before this the whole path was a
+/// shell script in the repository, so a person who downloaded Chaos had no
+/// way to find it: the engine could serve Claude Code and nothing on screen
+/// said so.
+///
+/// The button does the three things that are easy to get wrong -- checks
+/// that `claude` exists, checks a model is loaded, and sets the four
+/// environment variables -- then opens a terminal in a folder the user
+/// picks.
+pub const ID_CLAUDE_CODE: i32 = 774;
 pub const IDM_THEME_LIGHT: i32 = 524;
 pub const IDM_THEME_DARK: i32 = 525;
 pub const IDM_MANUAL: i32 = 530;
@@ -474,6 +487,7 @@ pub fn controls(p: Page) -> &'static [i32] {
             ID_NEW_KEY,
             ID_SHOW_MARK,
             ID_READ_CODE,
+            ID_CLAUDE_CODE,
             ID_CHAOS_STATUS,
         ],
         Page::Chat => &[ID_OUT, ID_IN, ID_SEND, ID_CLEAR],

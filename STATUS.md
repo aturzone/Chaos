@@ -45,10 +45,22 @@ it reads back from an aware window, and three external attempts produced three
 sets of confident wrong numbers. `gui/app/src/placement.rs` is a pure function
 over rectangles — off an edge, overlapping, too small to hit — with ten tests
 of its own, and `CHAOS_LAYOUT_DUMP` makes the app write its own geometry in
-both design units and pixels. **Nine layout passes across all six pages, all
-clean.** Its first run found the only full-width button in the app: USE WITH
-CLAUDE CODE at 902 design units, an 1128-pixel bar beside buttons of 92 and
-200. It is 260 now.
+both design units and pixels. **43 layouts across five window sizes and all six
+pages, no problems.**
+
+It found four things by eye-free measurement. The only full-width button in
+the app, USE WITH CLAUDE CODE at 902 design units — an 1128-pixel bar beside
+buttons of 92 and 200, now 260. Two overlaps that appear only when the window
+is resized: DRAW and STOP sliding onto the guidance dropdown on IMAGE, and
+SAVE and RESET drawn through the last field on SETTINGS. And, once those were
+fixed, the thing they had been hiding: **`MIN_H` was 60 units too small, so
+the window enforced a minimum size at which its own tallest page did not
+fit.**
+
+Separately, the CHAOS page used five different gaps for one vertical stack —
+48, 44, 52, 42, 52 — because each row's `y +=` was chosen on its own. Nothing
+was wrong by any check; it read as unconsidered. Two named gaps now
+(`rhythm::TIGHT`, `rhythm::LOOSE`), so it measures 60, 44, 60, 44, 60.
 
 **Claude Code drives a local model, end to end, measured for this release.**
 Against Qwen3-4B-Q4_K_M on this laptop's CPU, `claude -p "Read notes.txt and

@@ -44,6 +44,23 @@ While the major version is `0`, anything may change in a minor release.
   design units, drawn as an 1128-pixel bar beside buttons of 92 and 200, the
   only full-width button in the app. Found by the placement check, not by eye.
   260 now.
+- **Three defects that only appear when the window is resized**, found by
+  dumping every page at five sizes instead of one. On IMAGE, DRAW and STOP
+  were pinned to the right edge at `x + w - 250`, which walks *left* as the
+  window narrows, and slid on top of the guidance dropdown; they wrap to
+  their own row now. On SETTINGS, SAVE and RESET sat at a fixed offset from
+  the page bottom while the form grew from the top, so on a short window they
+  were drawn through the last field; they follow the form now. And **`MIN_H`
+  was 60 units too small — the window enforced a minimum size at which its
+  own tallest page did not fit.** 680 now. **43 layouts across five sizes and
+  six pages, no problems.**
+- **The CHAOS page used five different gaps for one vertical stack** — 48, 44,
+  52, 42, 52, because each row's `y +=` had been chosen on its own. Nothing
+  was wrong by any check; it read as unconsidered, which is a large part of
+  what "looks unprofessional" means. Two named gaps now, `rhythm::TIGHT` for
+  rows that belong together and `rhythm::LOOSE` for rows that start a new
+  thought, so CHAOS measures 60, 44, 60, 44, 60. IMAGE had 26 and 30 for the
+  same kind of gap and is on the same two values.
 - **`/api/hello` was a 404.** It is the first thing Claude Code sends, to
   decide whether the endpoint behind `ANTHROPIC_BASE_URL` is reachable, so a
   working node looked broken for the whole of v0.0.33. It carries nothing

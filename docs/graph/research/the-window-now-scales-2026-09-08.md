@@ -89,6 +89,38 @@ exactly the number the design said to check for. Nine layout passes across six
 pages, all clean; the run-through pressed 34 controls with nothing blocking the
 UI thread longer than 35.8 ms.
 
+## Resizing, which is where it really earned its keep
+
+Atur also asked for the window to be responsive — *"something like Telegram"*.
+The dump above is one window size. Driving the window through **five sizes and
+all six pages** — 43 layouts — found three defects that a single size hides
+completely, and every one of them is reachable by dragging a corner:
+
+- **IMAGE: DRAW and STOP slid on top of the guidance dropdown.** They were
+  pinned to the right edge at `x + w - 250`, which walks *left* as the window
+  narrows, and below about 800 units of content width it walks into the
+  controls beside it. They wrap to their own row now.
+- **SETTINGS: SAVE and RESET were drawn through the last field.** The buttons
+  sat at a fixed offset from the page bottom while the form grew from the top,
+  so on a short window the two met. They follow the form now, and the form is
+  measured by **visible** row heights — a combo is laid out at its dropped
+  height and appears at `metric::CONTROL`, so the naive measurement would have
+  put the buttons a hundred units below anything visible.
+- **`MIN_H` was 60 units too small**, which is the one worth stating plainly:
+  **the window enforced a minimum size at which its own tallest page did not
+  fit.** Fixing the two overlaps above did not make the content fit, it made
+  the layout stop lying about it — SAVE and RESET moved from *on top of* a
+  field to two units *below the strip*, where the check could see them. 680.
+
+**43 layouts, five window sizes, six pages, no problems.** That is the claim,
+and it is reproducible: `CHAOS_LAYOUT_DUMP`, then drive `MoveWindow` and the
+rail through whatever range is interesting.
+
+**One trap in the driving script, not the app.** `FindWindowW` declared through
+`Add-Type` without `CharSet=CharSet.Unicode` marshals its class name as ANSI
+and silently returns null — indistinguishable from "the app is not running".
+`run-through.ps1` had it right and the new script did not.
+
 ## Two findings from the instrument's first run
 
 **It reported the STOP button off the bottom edge on all six pages** — and it

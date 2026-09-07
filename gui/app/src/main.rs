@@ -75,8 +75,19 @@ mod windows_app {
     /// Below this the rail plus a page has nowhere to put anything, so the
     /// window refuses to get smaller rather than clipping its own controls --
     /// which is how the old sidebar came to show "gemma3-27b Q4_K_M 16.5 GB nee".
+    ///
+    /// **Design units, and `MIN_H` was 60 units too small.** Dumping every
+    /// page's layout at five window sizes -- rather than at the one it is
+    /// usually looked at -- showed SAVE and RESET drawn through the last
+    /// settings field, and OPEN THE PICTURE two units below the strip, at
+    /// exactly the minimum the window itself allowed. So the window enforced a
+    /// size at which its own tallest page did not fit. 680 is what SETTINGS
+    /// needs: the form, then a loose gap, then the button row.
+    ///
+    /// A minimum is only honest if something checks it. `placement.rs` does,
+    /// and `scripts/run-through.ps1` documents how to drive the sizes.
     const MIN_W: i32 = 940;
-    const MIN_H: i32 = 620;
+    const MIN_H: i32 = 680;
 
     const RELEASES_URL: &str = "https://github.com/aturzone/Chaos/releases";
     const MANUAL_URL: &str = "https://github.com/aturzone/Chaos/blob/main/docs/APP.md";
@@ -4951,9 +4962,23 @@ Any value a client sends is accepted.                      The server still list
                         cw + 60,
                         metric::CONTROL + metric::COMBO_ROW * 4,
                     ));
-                    m.push((nav::ID_IMG_DRAW, x + w - 250, y, 120, metric::BUTTON));
-                    m.push((nav::ID_IMG_STOP, x + w - 120, y, 120, metric::BUTTON));
-                    y += metric::CONTROL + rhythm::LOOSE;
+                    // **DRAW and STOP wrap when the row runs out.** They were
+                    // pinned to the right edge at `x + w - 250`, which walks
+                    // *left* as the window narrows -- so below about 800 units
+                    // of content they slid on top of the guidance dropdown.
+                    // Found by dumping the layout at five window sizes rather
+                    // than at one; nothing was wrong at the size it is usually
+                    // looked at.
+                    let settings_right = x + (cw + 20) * 2 + cw + 60;
+                    let side_by_side = x + w - 250 >= settings_right + 20;
+                    let (bx, by) = if side_by_side {
+                        (x + w - 250, y)
+                    } else {
+                        (x, y + metric::CONTROL + rhythm::TIGHT)
+                    };
+                    m.push((nav::ID_IMG_DRAW, bx, by, 120, metric::BUTTON));
+                    m.push((nav::ID_IMG_STOP, bx + 130, by, 120, metric::BUTTON));
+                    y = by + metric::BUTTON + rhythm::LOOSE;
                     let log_h = (page.bottom - y - metric::BUTTON - 30).max(100);
                     m.push((nav::ID_IMG_LOG, x, y, w, log_h));
                     m.push((nav::ID_IMG_OPEN, x, y + log_h + 12, 180, metric::BUTTON));
@@ -5098,7 +5123,26 @@ Any value a client sends is accepted.                      The server still list
                     {
                         m.push((nav::ID_BROWSE_MODELS, fx, fy + fh + 6, 120, metric::BUTTON));
                     }
-                    let by = page.bottom - 26 - metric::BUTTON - 16;
+                    // **Below the last row, not at a fixed offset from the
+                    // bottom.** `page.bottom - 26 - BUTTON - 16` is where they
+                    // belong on a roomy window and where the *form* already is
+                    // on a short one: at the minimum window height the last
+                    // field was drawn straight through SAVE and RESET. A
+                    // dropped list is not a row: a combo is laid out at its
+                    // *dropped* height and appears at `metric::CONTROL`, so
+                    // measuring the form by the rectangles in `m` would put the
+                    // buttons a hundred units below anything visible. Every
+                    // non-toggle row is one `CONTROL` tall whether it drops a
+                    // list or not, which is why there is no third case here.
+                    let form_bottom = settings_rows(page)
+                        .into_iter()
+                        .map(|(_, _, cy, is_toggle)| {
+                            cy + if is_toggle { 24 } else { metric::CONTROL }
+                        })
+                        .max()
+                        .unwrap_or(page.top);
+                    let by =
+                        (page.bottom - 26 - metric::BUTTON - 16).max(form_bottom + rhythm::LOOSE);
                     m.push((nav::ID_SAVE, x, by, 110, metric::BUTTON));
                     m.push((nav::ID_RESET, x + 120, by, 110, metric::BUTTON));
                 }

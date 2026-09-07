@@ -243,7 +243,64 @@ So "the batched path is right and generation is wrong" is the likely reading but
 is not yet measured. Settling it needs llama.cpp captured under `-b 1`, which no
 fixture here has.
 
-### Where to look next, concretely
+### LOCALISED to layer 2's compressed attention, 2026-09-03
+
+`CHAOS_DUMP_LAYERS` — added to this path in the same session, because it had
+none — gives the final position's sum for every layer on both paths. With the
+attention plan beside it, the origin is unambiguous:
+
+```
+attention by layer: 0:Raw  1:Raw  2:CompressedSparse  3:HeavilyCompressed
+                    4:CompressedSparse  5:HeavilyCompressed  ...
+hash layers (no routed experts): 0..3
+```
+
+| layer | kind | 4 tokens: relative diff | 3 tokens |
+|---|---|---|---|
+| 0 | Raw | **0.000000** — bit-identical | 4.65e-06 |
+| 1 | Raw | 2.82e-03 | 6.97e-04 |
+| 2 | **CompressedSparse** | **2.70e-01** | 4.19e-03 |
+| 3 | HeavilyCompressed | 2.63e-01 | 5.48e-02 |
+
+**Three facts pin it.**
+
+1. **Layer 2 is the first `CompressedSparse` layer, and four tokens is exactly
+   where its first block closes.** `CSA_RATIO` is 4. At three tokens the same
+   layer differs by 4.19e-03; at four it differs by 2.70e-01, a **hundredfold
+   jump** across the boundary.
+2. **Layer 2 has no routed experts**, because `hash_layer_count` is 3 and covers
+   layers 0-2. So the jump cannot be a routing flip — there is nothing there to
+   flip. The 33 differing routers from layer 3 onward are downstream of this.
+3. **Layer 0 is bit-identical** at four tokens, which is the control this needed:
+   a `Raw` layer, reading keys 0-2 from the cache on one path and from its own
+   batch on the other, reproduces exactly. The KV cache path is not the problem.
+
+So: **the origin is layer 2's compressed attention at the length where its first
+block closes.** Everything after it — the routing flips, the 4.9 logit gap, the
+different sampled token — is consequence.
+
+### Still open, and stated as open
+
+**Why layer 1 differs at all.** Layer 0 is bit-identical, so layer 1 receives
+identical input, and layer 1 is `Raw` with no compressor and no routed experts —
+yet it differs by 2.82e-03. That is larger than rounding usually looks and it is
+unexplained. It may be a `mul_mat` over one column against four taking a
+different kernel; that is a guess, not a measurement.
+
+**Whether layer 2's jump is that difference amplified, or an independent
+defect.** A softmax over eight entries can turn a small score change into a
+large output change when the entries are close, so 2.8e-03 in and 2.7e-01 out is
+not by itself proof of a second bug. Distinguishing them needs the compressor's
+own tensors compared between the two shapes — the same checkpoints
+`csa_compressor_matches_llama_cpp` already asserts at `pos0 = 0`, taken again at
+`pos0 = 3, nt = 1`.
+
+**Which path is wrong.** Unchanged: every oracle capture is batched, so the
+batched path is the verified one and generation has never been diffed against
+anything. The evidence says the two disagree and says where; it does not yet say
+llama.cpp agrees with our batch at this length under `-b 1`.
+
+### Where to look, concretely
 
 Layer 3's compressor, comparing the **values** it produces at `pos0 = 0, nt = 4`
 against `pos0 = 3, nt = 1`. The indices are equal by test; the candidates left

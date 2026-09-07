@@ -86,6 +86,22 @@ fn do_both_paths_choose_the_same_experts() {
     // corpus useless earlier in this work.
     let all: Vec<i32> = (0..4i32).map(|i| (i * 137) % 900 + 11).collect();
 
+    // **Needed to read the per-layer table at all.** A jump at a layer with no
+    // compressor means something other than the compressed half; a jump at the
+    // first CSA layer at four tokens and not at three means exactly it.
+    let plan: Vec<String> = (0..10.min(config.n_layer))
+        .map(|il| match config.attention_kind_from_ratio(il) {
+            Some(k) => format!("{il}:{k:?}"),
+            None => format!("{il}:?"),
+        })
+        .collect();
+    println!();
+    println!("  attention by layer: {}", plan.join("  "));
+    println!(
+        "  hash layers (no routed experts): 0..{}",
+        config.hash_layer_count
+    );
+
     for n in LENGTHS {
         let tokens = &all[..n];
 

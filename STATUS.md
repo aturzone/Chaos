@@ -150,7 +150,7 @@ Parity on quality across the range.
 
 ## Open, and the largest one: V4-Flash generation disagrees with its own prefill
 
-**Found 2026-09-03, narrowed twice, not yet fixed.** Feeding V4-Flash one
+**Found 2026-09-03, localised the same day, not yet fixed.** Feeding V4-Flash one
 token at a time does not reproduce a batched prefill, and the disagreement
 begins as soon as a **compressed block has completed**:
 
@@ -212,9 +212,27 @@ floating-point reordering, while its *positions* are identical by test.
 path and the stepwise path has never been diffed against anything. Settling it
 needs llama.cpp under `-b 1`, which no fixture has.
 
-Next: layer 3's compressor, comparing values at `pos0 = 0, nt = 4` against
-`pos0 = 3, nt = 1`. Candidates are the ring's projected rows, the zero
-front-padding, and the score half's `-inf` padding under `soft_max`.
+**LOCALISED to layer 2's compressed attention.** `CHAOS_DUMP_LAYERS` — added to
+this path in the same session, because it had none — gives every layer's final
+position on both paths:
+
+| layer | kind | 4 tokens | 3 tokens |
+|---|---|---|---|
+| 0 | Raw | **0.000000, bit-identical** | 4.65e-06 |
+| 1 | Raw | 2.82e-03 | 6.97e-04 |
+| 2 | **CompressedSparse** | **2.70e-01** | 4.19e-03 |
+
+Layer 2 is the **first** `CompressedSparse` layer and four tokens is exactly
+where its first block closes (`CSA_RATIO` is 4) — a hundredfold jump across that
+boundary. It is also a **hash layer** (`hash_layer_count` is 3), so it has no
+routed experts and the jump cannot be a routing flip; the 33 differing routers
+from layer 3 on are downstream of it. And layer 0, `Raw`, is bit-identical,
+which clears the KV cache path.
+
+Still open: why layer 1 differs at all when layer 0 is identical and layer 1 has
+neither compressor nor routed experts; whether layer 2's jump is that difference
+amplified through an 8-entry softmax or a second defect; and which path is
+wrong, since every oracle capture is batched.
 `research/stepwise-and-batched-disagree-2026-09-02.md`.
 
 ## The honest scoreboard

@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 1007 tests
+cargo test --release          # 1031 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 22 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -76,6 +76,16 @@ window and the APK build can both show them · `config` the settings file **both
 tiers read** · `http`
 just enough HTTP/1.1 to ask a node for status and stream a completion, no curl,
 no TLS.
+
+**`chaos-serve` speaks two protocols.** `/v1/chat/completions` is OpenAI's;
+**`/v1/messages` is Anthropic's, with tool calling**, which is what Claude Code
+speaks — point it here with `ANTHROPIC_BASE_URL` and a local model drives the
+agent. `scripts/claude-chaos.cmd` is the setup, `docs/CLAUDE-CODE.md` the path
+from nothing to a working turn. **`--tools` is the setting that decides whether
+it works at all**: the default 28 definitions are 40,255 tokens against a 32k
+context, six are 11,706. The node keeps a **prefix cache** between requests, so
+turn 2 pays for the delta only (135.6s → 52.9s measured). Slow but real: turn 1
+is ~6 minutes at 12k tokens on this CPU.
 
 **`chaos` is the front door**: `cli/chaos` dispatches `chaos run` to
 `chaos-run` with arguments untouched — every old binary name still works — and

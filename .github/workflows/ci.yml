@@ -318,7 +318,7 @@ jobs:
       # A unit test could not: the defect was in argument handling at the
       # outermost layer, where nothing had ever looked. So this starts a real
       # node and asks it every route, runs every subcommand, and has one machine
-      # ask another for an answer. 30 checks.
+      # ask another for an answer. 34 checks.
       #
       # Linux only: it needs `curl` and a POSIX shell, and the thing being
       # checked is argument handling and HTTP, neither of which is per-platform.

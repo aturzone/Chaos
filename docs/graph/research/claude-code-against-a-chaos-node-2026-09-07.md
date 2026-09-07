@@ -1,6 +1,6 @@
 ---
 topic: Can Claude Code be pointed at a Chaos node instead of Anthropic's API, and would it be usable? Measured end to end by logging what Claude Code actually sends and timing that exact prompt through the engine
-status: MEASURED 2026-09-07. Mechanically possible and three pieces are missing; on THIS laptop it is not usable — one turn costs ~6 minutes of prefill. The tool set is the dominant lever (40,254 tokens at 28 tools, 11,706 at 6) and prefix caching is mandatory, not optional.
+status: BUILT AND WORKING 2026-09-07. Claude Code drives a local model end to end -- tool call, execution, result, correct answer. `/v1/messages` with tools and a prefix cache are in; turn 2 went 135.6s -> 52.9s reusing 3,793 of 3,917 tokens. Still minutes per turn on this CPU machine, and that is hardware.
 links:
   - ../reference/hard-won-facts.md
   - ../backlog/devices-as-resources.md
@@ -15,6 +15,83 @@ Answered by measurement rather than by reading the API documentation, because
 the Messages API is large and Claude Code uses a particular slice of it. A
 33-line Python server logged the real request and answered it; then that exact
 prompt went through `chaos-run` on the engine.
+
+
+## BUILT, and it works end to end
+
+All three pieces landed the same day the measurement was taken, and the first
+real task completed: `claude -p "Read notes.txt and tell me what city it names"`
+against Qwen3-4B on a Chaos node. The model emitted a `Read` tool call, Claude
+Code executed it, fed the `tool_result` back, and the model answered **Lyon** --
+quoting the file with Read's own line numbering, so it plainly read the result
+rather than guessing.
+
+| piece | where |
+|---|---|
+| `POST /v1/messages`, tools, Anthropic SSE | `network/serve/src/anthropic.rs`, 22 tests |
+| prefix cache across requests | `run_prompt`, `State::truncate_to` |
+| the wrapper and the setup path | `scripts/claude-chaos.cmd`, `docs/CLAUDE-CODE.md` |
+
+**Measured on the two-turn task**, six tools:
+
+```
+before the prefix cache   turn 1 243.5s   turn 2 135.6s
+after                     turn 1 386.0s   turn 2  52.9s   3,793 of 3,917 reused
+```
+
+Turn 1 differs because the model generated 904 tokens rather than 562, not
+because anything regressed. **Turn 2 is the number that matters: 2.6x.**
+
+Reuse is verified not to change the answer -- the same turn warm and cold gives
+identical output, checked with temperature 0 and a deliberately clobbered cache
+in between. That check matters more than the speed one: a mismatched prefix is
+silently wrong output, not an error.
+
+### The model choice is about tool calls, and the ranking is not the obvious one
+
+Two whole tasks, five tools, same node, same prompts:
+
+| model | read a file | write a file |
+|---|---|---|
+| **Qwen3-4B** (2.3 GB) | **called `Read`**, acted on the result, answered correctly | **called `Write`**, file created with correct contents |
+| Qwen2.5-Coder-7B-Instruct (4.4 GB) | not tried | **refused twice.** Printed the code and said *"you can save this as hello.py"*; on a second attempt with firmer wording it suggested `echo ... > hello.py` instead. No file either time |
+
+**So the code model is the wrong choice and the small general one is right**,
+which inverts the recommendation this node made before the build. A model that
+will not emit a tool call is unusable for an agent however good its code is:
+it connects, converses, and changes nothing.
+
+**One hypothesis was tested and failed.** The tool instruction ended *"call a
+function only when you need its result. Otherwise answer normally"*, and the
+7B plainly took the second half as permission. Rewriting it as a true statement
+-- that prose does not touch the user's files and a call is the only thing that
+does -- changed the shape of the refusal and not the refusal. The wording is
+kept because it is more accurate, **not because it fixed anything**.
+
+The lever that might work is **grammar-constrained decoding**: `Params.grammar`
+and `chaos-grammar` are both here. It is not attempted, because forcing the
+syntax would force a call on every turn and sometimes prose is the right answer.
+Constraining only *after* the model has emitted `<tool_call>` is the shape that
+would work, and is unbuilt.
+
+
+### Three things the build found that the measurement had not
+
+- **`chaos-serve` capped the dense path at 2,048 tokens** and `-c` could only
+  lower it, because the server prefilled in one pass while `chaos-run` had
+  chunked for months. **That made every agent client impossible**, not just
+  Claude Code -- an editor sending one file exceeds it. Now chunked, ceiling
+  16,384, chosen from KV memory rather than from the model.
+- **Qwen3's `<think>` blocks reached the client as the answer.** The very first
+  live request spent all 40 tokens of budget reasoning and returned the
+  reasoning. `strip_thinking` handles it, and it can be simpler than the phone's
+  `ThinkFilter` because this path buffers whole answers.
+- **The single-threaded accept loop can wedge.** After two turns the port stayed
+  in `Listen` with three connections in `CLOSE_WAIT` and new ones timing out.
+  There was a 3 s read timeout and no write timeout, on the reasoning that
+  "writes can take minutes" -- true of a whole stream, false of one `write_all`.
+  A 60 s write deadline bounds it. **Observed once, not reproduced on demand**,
+  so that is the mechanism fixed rather than a demonstrated repair.
 
 ## The mechanism exists already, and Atur was using it
 
@@ -88,7 +165,7 @@ A Claude Code task is several turns — tool call, result, next turn — and **e
 turn re-prefills the whole prompt**. "Read a file and fix a typo" is three or
 four turns: **half an hour**, most of it re-reading the same 12.5k tokens.
 
-## The three missing pieces, in the order they matter
+## The three pieces that were missing -- all three now built
 
 1. **Prefix caching across requests.** `network/serve` has none: every request
    prefills from scratch. Claude Code already marks the prefix with
@@ -110,16 +187,21 @@ four turns: **half an hour**, most of it re-reading the same 12.5k tokens.
 
 ## The honest verdict
 
-**Buildable, and not usable on this laptop.** The blocker is not the protocol,
-it is 354 seconds of prefill per turn on a 15.7 GiB CPU machine. Even with all
-three pieces built, a turn is minutes.
+**Built, working, and slow.** The protocol was never the hard part; 354 seconds
+of prefill on a 15.7 GiB CPU machine is. The prefix cache removes that cost
+from every turn after the first: **turn 2 went from 135.6 s to 52.9 s, 2.6x**.
+The two-turn *totals* are not comparable -- 379 s before, 439 s after --
+because turn 1 generated 904 tokens in the second run against 562 in the
+first, and that is generation rather than prefill. A four-turn task is still a
+coffee break.
 
-**What would change the answer is hardware, not code.** The 5090 box in
-`CLAUDE.md` (32 GiB VRAM, 64 GiB RAM) fits Qwen3-30B-A3B entirely in VRAM, where
-a 12.5k prefill is seconds rather than minutes. That is where this feature is
-worth demonstrating.
+**What changes the answer is hardware, not code.** The 5090 box in `CLAUDE.md`
+(32 GiB VRAM, 64 GiB RAM) fits Qwen3-30B-A3B entirely in VRAM, where a 12.5k
+prefill is seconds rather than minutes. That is where this is worth
+demonstrating, and where it stops being a demo.
 
-**What is worth building here anyway**: prefix caching (1) helps every Chaos
-user, not just this one, and tool calling (3) is a capability the OpenAI surface
-is also missing — an editor pointed at `/v1/chat/completions` cannot use tools
-either. Both stand on their own merits.
+**Two of the three pieces stand on their own merits** regardless of Claude
+Code. The prefix cache helps every client that re-sends a conversation, and
+tool calling was missing from the OpenAI surface too -- an editor pointed at
+`/v1/chat/completions` could not use tools either. The 2,048-token dense
+ceiling made both of those moot and nobody had noticed.

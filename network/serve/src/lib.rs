@@ -14,6 +14,14 @@
 //! `src/bin/chaos-serve.rs` is the command-line front end and is now the only
 //! thing that parses arguments.
 
+/// The Anthropic Messages API, so Claude Code can be pointed at this node.
+///
+/// Its own module because it is a second protocol, not a variant of the
+/// first: system blocks, content blocks, tools with ids the client echoes
+/// back, a load-bearing `stop_reason`, and a named-event stream. Every part
+/// of it is testable without a model, and is tested that way.
+pub mod anthropic;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
@@ -50,6 +58,12 @@ pub fn usage() {
     println!("  GET  /scan                  the reader, for pointing this device at");
     println!("                              another node's mark");
     println!("  POST /v1/chat/completions   the one an agent calls");
+    println!("  POST /v1/messages           the Anthropic API, with tools --");
+    println!("                              what Claude Code speaks. Point it here");
+    println!("                              with ANTHROPIC_BASE_URL; see");
+    println!("                              scripts/claude-chaos.cmd");
+    println!("  POST /v1/messages/count_tokens  the real count, for a client that");
+    println!("                              compacts on it");
     println!("  POST /v1/completions        the older, prompt-shaped one");
     println!("  POST /v1/embeddings         vectors for a string or an array");
     println!("  GET  /v1/models             what is loaded");
@@ -507,6 +521,28 @@ fn run_loop(
                 if let Err(e) = s.set_read_timeout(Some(std::time::Duration::from_secs(3))) {
                     eprintln!("could not set a read timeout: {e}");
                 }
+                // **And a write deadline, which the note above declined for a
+                // reason that does not apply.** "Writes can take minutes"
+                // is true of a whole stream and false of a single `write_all`:
+                // one SSE frame is bytes into a socket buffer, and this bounds
+                // *one* call rather than the answer's length. A stream may
+                // still run for as long as the model takes.
+                //
+                // Without it the loop can wedge, and it was seen to: after two
+                // Claude Code turns the port stayed in `Listen` with three
+                // connections in `CLOSE_WAIT` and new ones timing out. A peer
+                // that abandons a request mid-answer leaves the server blocked
+                // writing to a socket nobody will read, and a single-threaded
+                // accept loop has nothing else to do. Sixty seconds is far
+                // longer than any one frame needs and finite, which is the
+                // whole point.
+                //
+                // **The wedge was observed once and not reproduced on demand**,
+                // so this is the mechanism fixed rather than a demonstrated
+                // repair.
+                if let Err(e) = s.set_write_timeout(Some(std::time::Duration::from_secs(60))) {
+                    eprintln!("could not set a write timeout: {e}");
+                }
                 if let Err(e) = handle(s, &engine, tokenizer, api_key.as_deref(), &node) {
                     // A peer that connected and said nothing is routine, not a
                     // fault; anything else is worth printing.
@@ -708,6 +744,56 @@ fn handle(
                     engine.model_name()
                 ),
             ),
+            // **`POST /v1/messages`: the Anthropic Messages API**, which is what
+            // Claude Code speaks and the only reason it can be pointed here.
+            // Claude Code sends `/v1/messages?beta=true`, and `path` is already
+            // query-stripped, so the query needs no special case.
+            //
+            // See `anthropic` for the protocol and
+            // `research/claude-code-against-a-chaos-node-2026-09-07.md` for what
+            // it costs: a bare `claude -p "hi"` is 40,255 tokens with the default
+            // tool set and 11,706 with six tools, and every turn re-prefills
+            // because there is no prefix cache yet.
+            ("POST", "/v1/messages") => match anthropic::Request::parse(&req.body) {
+                Err(e) => (400, anthropic_error(&e)),
+                Ok(r) => {
+                    if r.stream {
+                        // Streaming owns the socket from here: the status is
+                        // committed with the headers, so an error afterwards
+                        // cannot become a 400 and is delivered in the stream.
+                        return messages_stream(stream, &req, engine, tokenizer, started, node, &r);
+                    }
+                    match messages_once(engine, tokenizer, &r) {
+                        Ok((blocks, input_tokens, produced, stop)) => {
+                            node.record(produced, started.elapsed().as_secs_f64());
+                            (
+                                200,
+                                anthropic::message_json(
+                                    engine.model_name(),
+                                    &blocks,
+                                    input_tokens,
+                                    produced,
+                                    stop,
+                                ),
+                            )
+                        }
+                        Err(e) => (400, anthropic_error(&e.to_string())),
+                    }
+                }
+            },
+            // Claude Code asks for a token count before it compacts. Answering
+            // with the real tokenizer beats an estimate: the client uses it to
+            // decide what to drop.
+            ("POST", "/v1/messages/count_tokens") => match anthropic::Request::parse(&req.body) {
+                Ok(r) => (
+                    200,
+                    format!(
+                        r#"{{"input_tokens":{}}}"#,
+                        tokenizer.encode(&anthropic_prompt(&r, tokenizer)).len()
+                    ),
+                ),
+                Err(e) => (400, anthropic_error(&e)),
+            },
             ("POST", "/v1/chat/completions") => {
                 let params = Params::from_body(&req.body);
                 if params.stream {
@@ -913,6 +999,165 @@ fn status_json(engine: &Engine<'_>, node: &Node) -> String {
     )
 }
 
+/// An error in the shape Anthropic's clients parse.
+fn anthropic_error(message: &str) -> String {
+    format!(
+        r#"{{"type":"error","error":{{"type":"invalid_request_error","message":{}}}}}"#,
+        anthropic::quote(message)
+    )
+}
+
+/// The prompt a Messages request becomes.
+///
+/// The container's own chat template, with the system turn carrying the tool
+/// descriptions. **Not the template's `tools` variable**: `apply_chat_template`
+/// takes `Message { role, content }` and nothing else, so tools are rendered
+/// into the system text -- see `Request::system_with_tools`.
+///
+/// A template with no system branch gets llama.cpp's polyfill for free, because
+/// `apply_chat_template` already applies it.
+fn anthropic_prompt(r: &anthropic::Request, tokenizer: &Tokenizer) -> String {
+    let mut messages: Vec<Message> = Vec::with_capacity(r.messages.len() + 1);
+    let system = r.system_with_tools();
+    if !system.is_empty() {
+        messages.push(Message::new("system", &system));
+    }
+    for (role, content) in &r.messages {
+        messages.push(Message::new(role, content));
+    }
+    tokenizer.apply_chat_template(&messages, true)
+}
+
+/// Sampling for a Messages turn, defaulting the way Anthropic's API does.
+///
+/// **Temperature 1.0 unless asked**, like the OpenAI surface: a client that
+/// sends none expects sampling. `top_k` is only applied when present, because
+/// zero means "no limit" to the sampler and would otherwise be read as one.
+fn anthropic_params(r: &anthropic::Request) -> Params {
+    let mut sampler = SamplerConfig {
+        temperature: 1.0,
+        ..SamplerConfig::default()
+    };
+    if let Some(v) = r.temperature {
+        sampler.temperature = v as f32;
+    }
+    if let Some(v) = r.top_p {
+        sampler.top_p = v as f32;
+    }
+    if let Some(v) = r.top_k {
+        sampler.top_k = v.max(0) as usize;
+    }
+    Params {
+        max_tokens: r.max_tokens,
+        sampler,
+        // The model's tool syntax must be able to close. A client's
+        // `stop_sequences` are honoured as given.
+        stop: r.stop_sequences.clone(),
+        stream: r.stream,
+        grammar: None,
+    }
+}
+
+/// Run one Messages turn and split the answer into content blocks.
+type Turn = (Vec<anthropic::Block>, usize, usize, anthropic::Stop);
+
+fn messages_once(
+    engine: &Engine<'_>,
+    tokenizer: &Tokenizer,
+    r: &anthropic::Request,
+) -> Result<Turn, Box<dyn std::error::Error>> {
+    let prompt = anthropic_prompt(r, tokenizer);
+    let params = anthropic_params(r);
+    let (text, input_tokens, produced, finish) =
+        run_prompt(&prompt, engine, tokenizer, &params, &mut |_| Ok(()))?;
+    let blocks = anthropic::split_blocks(&text);
+    let stop = anthropic::Stop::for_blocks(&blocks, finish == Finish::Length);
+    Ok((blocks, input_tokens, produced, stop))
+}
+
+/// `POST /v1/messages` with `stream: true`.
+///
+/// # Why the answer is buffered rather than streamed token by token
+///
+/// **A tool call cannot be recognised until it has been seen, and text already
+/// sent cannot be recalled.** The model announces one by writing
+/// `<tool_call>`; streaming that through as text would hand the client prose it
+/// must not display and then require a correction the protocol has no frame
+/// for. So generation completes, [`anthropic::split_blocks`] decides what the
+/// answer was, and the event sequence goes out at once.
+///
+/// The cost is that nothing appears while the model works. That is measured at
+/// **354 s of prefill then about 1 tok/s** at the context Claude Code sends, so
+/// a `ping` goes out every few seconds -- the real API sends them, and without
+/// something on the wire an intermediary is free to decide the connection died.
+/// Claude Code's own timeout is 900 s (`X-Stainless-Timeout`), which a turn of
+/// that size fits inside, but only just.
+fn messages_stream(
+    mut stream: TcpStream,
+    req: &Request,
+    engine: &Engine<'_>,
+    tokenizer: &Tokenizer,
+    started: std::time::Instant,
+    node: &Node,
+    r: &anthropic::Request,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let headers = concat!(
+        "HTTP/1.1 200 OK\r\n",
+        "Content-Type: text/event-stream\r\n",
+        "Cache-Control: no-cache\r\n",
+        "Access-Control-Allow-Origin: *\r\n",
+        "Connection: close\r\n",
+        "\r\n",
+    );
+    stream.write_all(headers.as_bytes())?;
+    stream.flush()?;
+
+    let prompt = anthropic_prompt(r, tokenizer);
+    let params = anthropic_params(r);
+    let mut sink = stream.try_clone()?;
+    let mut last_ping = std::time::Instant::now();
+    let result = run_prompt(&prompt, engine, tokenizer, &params, &mut |_| {
+        // A keep-alive, not the answer. The text is collected by `run_prompt`
+        // and split once generation ends.
+        if last_ping.elapsed().as_secs() >= 5 {
+            last_ping = std::time::Instant::now();
+            sink.write_all(anthropic::frame("ping", "{\"type\":\"ping\"}").as_bytes())?;
+            sink.flush()?;
+        }
+        Ok(())
+    });
+
+    let (blocks, input_tokens, produced, stop) = match result {
+        Ok((text, input_tokens, produced, finish)) => {
+            let blocks = anthropic::split_blocks(&text);
+            let stop = anthropic::Stop::for_blocks(&blocks, finish == Finish::Length);
+            (blocks, input_tokens, produced, stop)
+        }
+        // The status is already committed, so the failure is delivered as the
+        // answer's text rather than as a 400. Named, so it is not mistaken for
+        // the model having nothing to say.
+        Err(e) => (
+            vec![anthropic::Block::Text(format!("[chaos: {e}]"))],
+            0,
+            0,
+            anthropic::Stop::EndTurn,
+        ),
+    };
+    node.record(produced, started.elapsed().as_secs_f64());
+    for f in anthropic::sse_sequence(engine.model_name(), &blocks, input_tokens, produced, stop) {
+        stream.write_all(f.as_bytes())?;
+    }
+    stream.flush()?;
+    eprintln!(
+        "{} {} -> 200 in {:.1}s ({produced} tokens, {})",
+        req.method,
+        req.target,
+        started.elapsed().as_secs_f64(),
+        stop.as_str()
+    );
+    Ok(())
+}
+
 /// Answer a `stream: true` request as server-sent events.
 ///
 /// The status line and headers are written **before** generation starts, which
@@ -1076,9 +1321,23 @@ impl Engine<'_> {
             // A limit that outlives its cause is worse than no limit: it is a
             // correct-looking refusal, and nobody re-derives those.
             Engine::Deepseek4 { .. } => 897,
-            // Bounded by the arena rather than by a cache. Kept modest because
-            // every pass rebuilds the graph over the whole sequence.
-            Engine::Dense { .. } => 2048,
+            // **Was 2048 because the prefill was one pass, and it is the same
+            // class of stale limit the comment above complains about.** The
+            // dense path has kept a KV cache for some time, and `chaos-run`
+            // reads 12,531-token prompts through *this same*
+            // `forward_cached` -- by feeding them in blocks. The server fed
+            // the whole prompt at once, so the arena bounded it at 2048 and
+            // the cap was honest about that.
+            //
+            // `advance` now chunks the prefill exactly as the CLI does, so the
+            // bound is the KV cache rather than one arena. 16,384 is chosen
+            // from memory, not from the model: Qwen3-4B spends 1,762 MiB of KV
+            // on 12,531 positions, so 32k would want ~4.5 GiB beside the
+            // weights on a 15.7 GiB machine. `-c` still only lowers it.
+            //
+            // **2048 made every agent client impossible**, not just Claude
+            // Code -- an editor sending one file for context exceeds it.
+            Engine::Dense { .. } => 16384,
         }
     }
 }
@@ -1300,6 +1559,126 @@ fn embed(
     Ok((vectors, prompt_tokens))
 }
 
+/// The KV cache the previous request left behind, and the tokens it holds.
+///
+/// # Why a server needs this and a CLI does not
+///
+/// An agent re-sends its whole conversation every turn. Claude Code's opening
+/// request is **11,706 tokens** of system prompt and tool definitions with six
+/// tools, and every turn after the first repeats all of it verbatim before the
+/// new part -- so a server that prefills from scratch each time pays for the
+/// same tokens again and again. Measured on the first working two-turn task
+/// against a local Qwen3-4B: **243.5 s then 135.6 s**, and almost all of the
+/// second was re-reading what it had already read.
+///
+/// The CLI has `PromptCache`, which writes a cache to disk between runs. This
+/// is the same idea in memory and between requests, which is the shape a server
+/// wants: no file, no fingerprint to invalidate, and one model for the process's
+/// whole life.
+///
+/// **Safe because the server handles one request at a time** -- it says so on
+/// startup. The mutex is what makes that a fact the compiler checks rather than
+/// a property of the current loop.
+type Prefix = (Vec<i32>, State);
+
+fn prefix_cache() -> &'static std::sync::Mutex<Option<Prefix>> {
+    static P: std::sync::OnceLock<std::sync::Mutex<Option<Prefix>>> = std::sync::OnceLock::new();
+    P.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// How many leading tokens two sequences share.
+fn common_prefix(a: &[i32], b: &[i32]) -> usize {
+    a.iter().zip(b).take_while(|(x, y)| x == y).count()
+}
+
+/// The fewest reusable tokens worth keeping a cache for.
+///
+/// Reuse costs a truncation and a comparison; below this the saving is noise and
+/// a fresh cache is simpler to reason about. Well under any real system prompt.
+const MIN_REUSE: usize = 64;
+
+/// Discard the kept cache.
+///
+/// Called when a request cannot use it, so a later one does not inherit a cache
+/// whose contents no longer match anything.
+fn drop_prefix_cache() {
+    *prefix_cache().lock().expect("prefix cache") = None;
+}
+
+/// A cache with nothing in it, for whichever engine is loaded.
+fn fresh_state(engine: &Engine<'_>) -> State {
+    match engine {
+        Engine::Deepseek4 { config, .. } => {
+            State::Deepseek4(Deepseek4Cache::new(config.n_layer, config.kv_lora_rank))
+        }
+        Engine::Dense { config, .. } => State::Dense(chaos_arch::KvCache::new(
+            config.n_layer as usize,
+            config.n_head_kv as usize,
+            config.head_dim as usize,
+        )),
+    }
+}
+
+impl State {
+    /// Cut the cache back to its first `n` positions, reporting whether it
+    /// could be.
+    ///
+    /// **`false` for the V4-Flash path, and that is not a stub.** Its cache is
+    /// not a plain per-position KV store: raw latents live in a ring and the
+    /// compressed halves are summaries of completed blocks, so truncating to an
+    /// arbitrary position would leave block state describing tokens that are no
+    /// longer there. Returning `false` makes the caller prefill from scratch,
+    /// which is correct and slow rather than fast and wrong. Reuse on that path
+    /// needs the ring rewound too, and it is the model where generation already
+    /// disagrees with its own prefill -- see
+    /// `research/stepwise-and-batched-disagree-2026-09-02.md`.
+    fn truncate_to(&mut self, n: usize) -> bool {
+        match self {
+            State::Dense(kv) => {
+                if kv.len() < n {
+                    return false;
+                }
+                kv.truncate_to(n);
+                kv.is_consistent()
+            }
+            State::Deepseek4(_) => false,
+        }
+    }
+}
+
+/// Prefill `seq[from..]` into a cache that already holds `seq[..from]`.
+///
+/// The dense path only: the caller checks that with [`State::truncate_to`]
+/// before asking.
+fn advance_from(
+    engine: &Engine<'_>,
+    state: &mut State,
+    seq: &[i32],
+    from: usize,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    match (engine, state) {
+        (
+            Engine::Dense {
+                runner, weights, ..
+            },
+            State::Dense(kv),
+        ) => {
+            let ids = seq_u32(&seq[from..]);
+            let mut r = runner.borrow_mut();
+            let mut pos = from;
+            let mut logits = Vec::new();
+            for block in ids.chunks(PREFILL_BLOCK) {
+                logits = r.forward_cached(weights, kv, block, pos)?;
+                pos += block.len();
+            }
+            Ok(logits)
+        }
+        // Only reached if `truncate_to` said yes for a path this does not
+        // handle, which would be a bug rather than a configuration.
+        _ => Err("this engine cannot resume from a cached prefix -- this is a bug".into()),
+    }
+}
+
 /// The shared body of both completion endpoints.
 fn run_prompt(
     prompt: &str,
@@ -1329,17 +1708,38 @@ fn run_prompt(
     }
 
     let mut seq = tokens.clone();
-    let mut state = match engine {
-        Engine::Deepseek4 { config, .. } => {
-            State::Deepseek4(Deepseek4Cache::new(config.n_layer, config.kv_lora_rank))
+
+    // **Reuse the previous request's cache for as far as the prompts agree.**
+    // An agent re-sends its whole conversation each turn, so the shared part is
+    // the system prompt and the tool definitions -- the expensive part.
+    let kept = prefix_cache().lock().expect("prefix cache").take();
+    let (mut state, reused) = match kept {
+        Some((cached, mut state)) => {
+            let c = common_prefix(&cached, &tokens);
+            // A prompt that is a strict prefix of the cache leaves nothing new
+            // to prefill, and `advance` needs at least one token to produce
+            // logits -- so `c < tokens.len()` is required, not merely tidy.
+            // `truncate_to` is the last check because it is the one that can
+            // fail on the engine rather than on the numbers.
+            if c >= MIN_REUSE && c < tokens.len() && state.truncate_to(c) {
+                chaos_arch::info!(
+                    "prefix     reusing {c} of {} prompt tokens from the last request",
+                    tokens.len()
+                );
+                (state, c)
+            } else {
+                (fresh_state(engine), 0)
+            }
         }
-        Engine::Dense { config, .. } => State::Dense(chaos_arch::KvCache::new(
-            config.n_layer as usize,
-            config.n_head_kv as usize,
-            config.head_dim as usize,
-        )),
+        None => (fresh_state(engine), 0),
     };
-    let mut logits = advance(engine, &mut state, &seq, true)?;
+
+    let mut logits = if reused == 0 {
+        advance(engine, &mut state, &seq, true)?
+    } else {
+        // Only the new tail, at the position the cache already holds.
+        advance_from(engine, &mut state, &seq, reused)?
+    };
 
     let mut sampler = Sampler::new(params.sampler.clone());
     let mut history: Vec<u32> = tokens.iter().map(|&t| t as u32).collect();
@@ -1438,6 +1838,23 @@ fn run_prompt(
         produced as f64 / secs.max(1e-9),
         finish.as_str()
     );
+    // **Keep the cache, including the tokens just generated.** The next turn's
+    // prompt is this conversation plus the assistant's answer plus whatever
+    // comes next, so the shared prefix runs past the end of *this* prompt. The
+    // agreement stops where the chat template inserts its next header, which is
+    // still thousands of tokens in.
+    //
+    // `seq` is the prompt followed by every sampled token, which is exactly
+    // what the cache now holds.
+    if matches!(state, State::Dense(_)) {
+        *prefix_cache().lock().expect("prefix cache") = Some((seq.clone(), state));
+    } else {
+        // The V4-Flash cache cannot be truncated (see `State::truncate_to`), so
+        // keeping it would only mean discarding it on the next request. Dropped
+        // here instead, where the reason is next to the code.
+        drop_prefix_cache();
+    }
+
     Ok((out, tokens.len(), produced, finish))
 }
 
@@ -1452,6 +1869,16 @@ fn run_prompt(
 fn seq_u32(seq: &[i32]) -> Vec<u32> {
     seq.iter().map(|&t| t as u32).collect()
 }
+
+/// Tokens per prefill block in the server.
+///
+/// The CLI defaults to 2048 and raises it with `-b` when there is RAM to
+/// spare; the server has no such flag and shares a machine with whatever else
+/// is running, so it takes the conservative end. A block reads nearly the whole
+/// expert set whatever its size, so larger blocks amortise that -- but every
+/// arena in the forward pass scales with the block, and a server that aborts
+/// mid-request takes every other connection with it.
+const PREFILL_BLOCK: usize = 512;
 
 fn advance(
     engine: &Engine<'_>,
@@ -1481,7 +1908,18 @@ fn advance(
             // the token just chosen, because the cache holds the rest.
             let mut r = runner.borrow_mut();
             if first {
-                Ok(r.forward_cached(weights, kv, seq_u32(seq).as_slice(), 0)?)
+                // **In blocks, because every arena in the forward pass scales
+                // with the block.** One pass over a 12,000-token prompt is what
+                // held the dense ceiling at 2048; the CLI has chunked since it
+                // started reading files, and this is the same loop.
+                let ids = seq_u32(seq);
+                let mut pos = 0usize;
+                let mut logits = Vec::new();
+                for block in ids.chunks(PREFILL_BLOCK) {
+                    logits = r.forward_cached(weights, kv, block, pos)?;
+                    pos += block.len();
+                }
+                Ok(logits)
             } else {
                 let last = *seq.last().expect("non-empty sequence") as u32;
                 let pos = kv.len();
@@ -1943,6 +2381,37 @@ fn escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A mismatched prefix would be silently wrong output**, not an error, so
+    /// the comparison is pinned rather than trusted.
+    #[test]
+    fn a_shared_prefix_is_counted_exactly() {
+        assert_eq!(common_prefix(&[1, 2, 3], &[1, 2, 3]), 3);
+        assert_eq!(common_prefix(&[1, 2, 3], &[1, 2, 9]), 2);
+        assert_eq!(common_prefix(&[1, 2, 3], &[9, 2, 3]), 0);
+        assert_eq!(common_prefix(&[], &[1]), 0);
+        assert_eq!(common_prefix(&[1], &[]), 0);
+        // The shorter one bounds it: a cache longer than the prompt shares only
+        // as much as the prompt has.
+        assert_eq!(common_prefix(&[1, 2, 3, 4], &[1, 2]), 2);
+        assert_eq!(common_prefix(&[1, 2], &[1, 2, 3, 4]), 2);
+    }
+
+    /// The reuse floor is well under any real system prompt, so it never
+    /// declines a case worth taking.
+    #[test]
+    fn the_reuse_floor_is_below_a_real_prompt() {
+        // A `const` block, so both are checked at compile time rather than by
+        // running: they compare two constants, and clippy is right that an
+        // assertion over those is not a test.
+        const {
+            assert!(MIN_REUSE >= 8, "too small to be worth the truncation");
+            // Claude Code's own system prompt is 9,155 tokens with no tools
+            // at all, so a floor above that would never reuse anything.
+            assert!(MIN_REUSE < 9155);
+        }
+    }
+
     use super::{authorised, Request};
 
     fn req(target: &str, auth: Option<&str>) -> Request {

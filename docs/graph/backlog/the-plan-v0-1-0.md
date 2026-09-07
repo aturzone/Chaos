@@ -138,34 +138,12 @@ for each place and export an image icon exactly with svg for that place"*.
 
 ## Part 4 — Android, in every release
 
-**Target 5.** Full audit in `backlog/android-app.md`. Atur has now answered the
-question that node asks:
-
-> *"we see devices as a resource with chaos … yeah we run a model in there,
-> more simple and smaller models"*
-
-**So it is both, and in this order:**
-
-- [x] **Phase A — a client.** Done and building in CI: an 887 KB APK with manifest, dex, resources and all ten icons. **Never run** — see `android-app.md` for why the SDK cannot be installed here. Kotlin against `/v1/chat/completions`, talking to a
-      Chaos on the PC. No NDK, no ggml, no Rust on the device. This makes the
-      *big* models usable from the phone, which local inference never can, and it
-      is the shortest path to an `.apk` that does something real.
-- [ ] **Phase B — small models locally.** 1B–4B quantised, fully resident.
-      Needs the NDK, ggml for `aarch64-linux-android`, and the Rust core
-      cross-compiled. `core/probe` is the only crate with a platform assumption
-      that has to change.
-- [x] **Phase C — the phone as a worker.** Decided: rejected for now, reason recorded. Rejected for now, and the reason is
-      in `devices-as-resources.md`: Wi-Fi latency and battery make a phone a poor
-      member of a layer loop. Revisit only with measurements.
-
-**Toolchain, none of which is installed**: JDK 17, Android SDK + platform-tools,
-NDK r26+, Gradle, `rustup target add aarch64-linux-android`. Several GB, over a
-connection that has already failed twice this week on GitHub's asset host.
-
-**Definition of done**: `Chaos-vX-android-arm64.apk` attached to the release by
-CI, installs on a real phone, opens, and does what the notes say it does.
-
-## Part 5 — Devices as resources
+**Target 5. Android — REMOVED 2026-09-07.** It shipped as a client for eight
+releases, built in CI, installed and launched on an emulator, and was never run
+on a phone. Atur ended it: *"delete Android and so on, keep only Windows, Linux
+and macOS"*. The tree, the release job, the APK asset, the Kotlin tests, the
+signing-key work and the three research nodes behind it are all gone. **Three
+platforms is the product.**
 
 **Target 6**, and the most interesting thing on the list. Full arithmetic in
 `backlog/devices-as-resources.md`. The short version:

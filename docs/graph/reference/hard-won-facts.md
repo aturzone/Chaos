@@ -160,7 +160,29 @@ are the measurement that killed one.
   cannot connect and the QR feature is missing"*, which is exactly how it was
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
-  does now, 34 checks, in CI.
+  does now, 32 checks, in CI.
+- **A DPI-unaware process cannot measure a DPI-aware window.** Three attempts
+  at an external responsive check produced three sets of confident, wrong
+  numbers: a control 60px tall in the wrong direction, then every rail button
+  "overflowing right by 461px", then 100 plausible-looking overflows at large
+  sizes. Causes, in order: marshalling a `POINT` by `ref` through an inline
+  `Add-Type` does not reliably write back (both `ScreenToClient` and
+  `ClientToScreen` need it); a `$box` that was never assigned, so every
+  comparison ran against `$null`, which PowerShell treats as 0; and finally
+  **`powershell.exe` is DPI-unaware, so Windows virtualises every coordinate it
+  reads from an aware window** — a 32px button comes back as 26 at 1.25x. The
+  script was deleted rather than kept: a tool that yields plausible wrong
+  findings is worse than no tool. **The right form is a pure function in Rust**
+  — give `layout` a client rect and a page and let it return the rectangles —
+  which needs no window, no marshalling and no DPI, and runs in CI.
+- **Declaring DPI awareness is not the same as honouring it.** `become_dpi_aware`
+  asks for per-monitor-v2 before any window exists, correctly. But `theme::metric`
+  is a set of raw `i32` constants with no scale applied anywhere, so on this
+  120-DPI (1.25x) display a 32px button is 32 *physical* pixels where the design
+  means 32 at 96 DPI — the whole interface renders about 20% smaller than
+  intended, and worse at 150% or 200%. **Awareness moves the responsibility to
+  the app; it does not discharge it.**
+
 - **An instrument with a hand-written list of what to check is blind to
   anything new, including the thing it exists to catch.**
   `scripts/run-through.ps1` finds controls a person cannot reach, and its page

@@ -8,6 +8,51 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.34] — 2026-09-08
+
+**Three platforms, one mode, one book.**
+
+### Removed
+
+- **The Android tier**, entirely: the `android/` tree, its 243-line release
+  job, the APK asset, the Kotlin tests, the `chaos-android` JNI crate, the
+  signing-key script and backlog, and three research nodes. It shipped as a
+  client for eight releases and was never run on a phone. Atur: *"delete
+  Android and so on, keep only Windows, Linux and macOS"*.
+- **The launch knob**, and with it 87 references across five files:
+  `knob.rs`, `paint_launch`, `knob_input`, `back_to_knob`,
+  `hide_every_control`, the `launched` gate on `WM_PAINT`, `mode_chosen` in
+  the settings file, the mode badge, CHANGE MODE, and Escape's one-keystroke
+  drop of a loaded model. **The window opens on CHAT.**
+- **The reader**: `scanner.html`, the `/scan` route, `Page::Scry`, `scry()`,
+  the READ A CODE button, the emitted `scan.html` and `scan-sweep.js`. The
+  mark stays. `decode_qr.py` stays too — it is the *encoder's* fixture
+  provenance and `reference_grids.rs` cites it.
+
+### Changed
+
+- **Every page is in the rail, CHAOS included.** It had no rail entry and no
+  accelerator while the knob owned the mode, and was reached from a badge
+  below the rail — which is how the address and the key became unfindable.
+  `RAIL_PAGES == PAGES` now.
+- **The role is a dropdown on the CHAOS page**, at the top, above the address
+  it decides. `ROLES` is the one place its order is written, so an index
+  cannot come to mean a different role than the list shows.
+- **The README** carries download buttons and setup for the three platforms,
+  plus a Claude Code section. That extends Atur's own three-things rule, so
+  `check-readme.sh` and the rule in `CLAUDE.md` were updated in the same
+  commit rather than worked around.
+- The window's own text no longer talks about a phone — eight strings and
+  comments that told the user to type the address into one.
+
+### Found and not fixed
+
+- **The window ignores display scaling.** It asks for per-monitor DPI
+  awareness and then scales nothing, so on a 120-DPI display every control
+  and every font is about 20% smaller than designed, and worse at 150%.
+  It must be done in one piece and the design is written down:
+  `docs/graph/backlog/the-window-ignores-display-scaling.md`.
+
 ## [0.0.33] — 2026-09-07
 
 **Claude Code runs on a model Chaos serves.** The Anthropic Messages API with

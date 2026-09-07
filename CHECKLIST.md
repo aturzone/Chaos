@@ -45,7 +45,7 @@ green.** Full contents in `STATUS.md`.
 | A7 | Turning + pressing selects a mode and enters the shell | **[x]** drag, arrows, ENTER — verified on the live window |
 | A8 | Mode changeable again without restart | **[x]** ESC returns to the knob, and **asks first** since v0.0.22 |
 | A9 | Shell shows only that mode's controls | **[x]** HELPER hides CHAT/MODELS/IMAGE, checked on screen |
-| A10 | Same on Android (`Canvas`) | **[x]** the dial is the launcher; turn, enter, remembered |
+| ~~A10, R4, B4-B7, D2-D3b, D6~~ | **Android — the whole tier, removed 2026-09-07** | **[-]** It shipped as a client for eight releases, built in CI, installed and launched on an emulator, and was never run on a phone. Atur: *"delete Android and so on, keep only Windows, Linux and macOS"*. Tree, release job, APK asset, Kotlin tests, signing-key work and three research nodes all gone |
 | A11 | The launch flow driven on the live window | **[x]** splash 8/1/1 ms, knob 59-70 ms, ESC 10 ms |
 | A12 | The mode is asked **once** and remembered | **[x]** `mode_chosen`, v0.0.22; CHAOS left the rail for a badge at its foot |
 
@@ -60,7 +60,6 @@ SVG in a browser stood for five days after Atur approved it, and A4 stayed at th
 | R1 | "where is logo in center of that" | **[x]** the badge was WHITE ink on a WHITE knob face — invisible. Dark ink now, 825 dark pixels where there were 0 |
 | R2 | "the letters of modes need to be better" | **[x]** `0xFF111111` on `#0D1117` — near-black on near-black. Theme colours now; ALONE was also clipped off the left edge |
 | R3 | "circle of choose mode need sound" | **[x]** a system click and a clock-tick haptic per detent crossed, not per pixel dragged |
-| R4 | **"android can not do any one of works in windows"** | **[~]** ALONE and CORE run the real engine on the phone tier. HELPER is still reserved, and only an emulator has ever run it — see B7/D6 |
 
 **How R1–R3 were missed.** The knob was tested for *speed* (8 ms a frame), *input*
 (arrows, ENTER, ESC, taps) and *structure* (which labels exist in the view hierarchy).
@@ -74,10 +73,6 @@ minute, and that is now how it is checked.
 | B1 | Windows: Chat, Models, Image, Monitor, Settings, CHAOS | **[x]** |
 | B2 | CHAOS roles: ALONE / CORE / HELPER / CLIENT | **[x]** shipped v0.0.18 |
 | B3 | A CORE is reachable from a phone | **[x]** the `--host` fix, v0.0.18; re-verified 2026-08-31 over the LAN |
-| B4 | Android: client + CHAOS section | **[x]** v0.0.18 |
-| B5 | Android: the engine runs in-process | **[x]** JNI bridge, v0.0.20 |
-| B6 | Android: model picker, Image, Monitor, Settings | **[~]** the mode drives the screen and its text; the extra pages are not built |
-| B7 | Android Phase B: model files on device + token loop | **[~]** **7 tokens at 3.94 tok/s with no server involved — on an Android 34 emulator.** The engine and the loop are real; the hardware is not. Real hardware is D6 |
 | B8 | **HELPER actually does work** — a CORE routes experts to it | **[ ]** protocol done, routing not |
 | B9 | macOS: a window | **[!]** none exists; CLI + CORE is the route today |
 | B10 | Linux: a window | **[!]** none exists; CLI + CORE is the route today |
@@ -117,13 +112,9 @@ pass here is fluent nonsense, never a crash.
 | | item | state |
 |---|---|---|
 | D1 | v0.0.18 — CHAOS page, the `--host` fix | **[x]** verified from published files |
-| D2 | v0.0.19 — Chaos builds and runs on Android | **[x]** |
-| D3 | v0.0.20 — engine inside the app, in the published APK | **[x]** confirmed inside |
-| D3b | v0.0.21 — a model runs on the phone tier | **[x]** `libchaos_serve.so` confirmed in the published APK |
 | D4 | README: version badge, the speed claims | **[x]** badge was 14 releases stale |
 | D5 | Install → update → uninstall, models untouched | **[x]** every release — **on Windows only** |
 | D5b | **Update from inside an old version** | **[x]** every release v0.0.12–v0.0.22 compiled from its own tag resolves today's; v0.0.5–v0.0.11 have no updater at all. `scripts/check-old-updaters.sh` |
-| D6 | The APK runs from a **published** artefact | **[~]** **2026-09-01**: the published v0.0.21 APK installs and launches on an android-34 x86_64 emulator -- its arm64 lib runs because that image lists `x86_64,arm64-v8a` -- and renders the real dial UI (`Displayed ... +3s71ms`, screenshot in the node). It then **SIGSEGVs on entering a mode**, in one anonymous translated frame with `libchaos_android.so` never mapped, which is not attributable to Chaos. **A real arm64 device settles it in a minute.** `../research/the-apk-installs-and-launches-2026-09-01.md` |
 | D7 | Image: step-count default | **[ ]** Atur's aesthetic call |
 | D8 | The `.deb` and the AppImage installed **anywhere** | **[ ]** never, by anybody |
 | D9 | A **real camera** on the mark and the reader | **[ ]** everything else in the chain is proven: **210 of 210** at 3–12 px/module across 30 angles, **0 wrong strings**, `scripts/scan-sweep.js` |

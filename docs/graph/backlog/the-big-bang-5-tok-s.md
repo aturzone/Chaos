@@ -6,7 +6,6 @@ links:
   - ../research/v4flash-has-no-slack-2026-08-10.md
   - ../research/machine-bandwidth-2026-08-25.md
   - devices-as-resources.md
-  - android-app.md
 ---
 
 # The Big Bang: V4-Flash at 5 tok/s on this laptop

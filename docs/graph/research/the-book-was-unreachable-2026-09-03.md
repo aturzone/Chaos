@@ -3,7 +3,6 @@ topic: The mark and the reader were unreachable in three different ways — the 
 status: FIXED in v0.0.32. The window serves the pages itself on loopback, `grimoire` is its own ggml-free crate, and the mode badge is the door on the phone.
 links:
   - ../decisions/browser-ui-is-tracked-not-built.md
-  - android-app.md
   - ../reference/hard-won-facts.md
 ---
 

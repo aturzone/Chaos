@@ -5,9 +5,39 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-09-07 · **Version**: v0.0.33, tagged 2026-09-07 ·
-**Branch**: `main`, verified at v0.0.33 — 1018 tests, 0 failed, fmt and clippy
+**Last updated**: 2026-09-08 · **Version**: v0.0.34, tagged 2026-09-08 ·
+**Branch**: `main`, verified at v0.0.34 — 1018 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
+
+**v0.0.34 is three platforms, one mode, one book.** Atur, 2026-09-07: *"delete
+Android and so on, keep only Windows, Linux and macOS... that mode selection
+isn't needed any more... that book and barcode aren't needed any more, we only
+use the book... the CHAOS page, its button isn't even in the menu any more"*.
+
+- **The phone tier is gone** — tree, release job, APK asset, Kotlin tests, JNI
+  crate, signing-key work and three research nodes.
+- **The launch knob is gone**, 87 references across five files. The window opens
+  on CHAT, `RAIL_PAGES == PAGES`, and **CHAOS has a rail entry and an
+  accelerator** for the first time. The role is a dropdown at the top of that
+  page, above the address it decides.
+- **The reader is gone** — `scanner.html`, `/scan`, `Page::Scry`, the READ A
+  CODE button and the sweep that drove its detector. The mark stays.
+- The README carries download buttons and setup for the three platforms plus a
+  Claude Code section; `check-readme.sh` and the rule in CLAUDE.md moved with it.
+
+**Verified by running the app**: it opens on CHAT with 11 controls on screen
+where it used to open on the knob with zero, and the run-through presses 34
+controls across six pages with nothing blocking longer than 21.8 ms.
+
+**The one UI defect found and NOT fixed** is the biggest one:
+`backlog/the-window-ignores-display-scaling.md`. The window asks Windows for
+per-monitor DPI awareness and then scales nothing, so on this 120-DPI display
+every control and every font is ~20% smaller than designed. It has to be done
+in one piece — scaling fonts alone puts 19px text in a 32px button — and the
+design is written down. **Three external attempts to measure it produced three
+sets of confident wrong numbers**, because `powershell.exe` is DPI-unaware and
+Windows virtualises what it reads; the instrument to build first is a
+pure-function layout, testable with no window at all.
 
 **Claude Code now runs on a model this node serves, and the app has a button for it.**
 tool calling, a prefix cache across requests, and `scripts/claude-chaos.cmd` as
@@ -81,7 +111,7 @@ files: `chaos-qr --emit-pages` does it with no C toolchain.
 **v0.0.30 shipped with a broken front door
 and a green test suite** — `chaos connect` took any unknown `--flag` as the hostname,
 so it looked like the QR pages and device-to-device connection were missing when both
-worked. `scripts/smoke-the-surface.sh` now runs 34 checks against the built binaries in
+worked. `scripts/smoke-the-surface.sh` now runs 32 checks against the built binaries in
 CI: every subcommand, every node route, and one machine asking another.
 
 > **This file was 5,144 lines and 104 dated sections until 2026-08-31.** It called
@@ -155,7 +185,7 @@ Each release's contents and its gate are in the plan; the short form:
   (the surface stops moving, correctness bugs get fixed on it, every claim was
   measured), what gets fixed in a patch and in what order, and a section that says
   plainly what is *not* supported: macOS untested, three Linux assets never
-  executed, the APK never on a phone, no GPU tier verified, no TLS in the HTTP
+  executed, no GPU tier verified, no TLS in the HTTP
   client. **No support window in years** — one person cannot promise that, so the
   promise is structural: the newest LTS is supported until the next one exists.
 
@@ -388,9 +418,6 @@ proves it.
    now proven — `scripts/scan-sweep.js` gets **210 of 210 at 3–12 px per module across
    30 angles with zero wrong strings**, feeding the shipped detector real pixels. What
    is left is photons.
-6. **The APK has never run on a phone**, only an emulator; `chaos-android` has 1 test.
-   The SDK cannot be installed here (`dl.google.com` 404s this network), so CI is the
-   only build.
 7. ~~**`chaos-run` has 8 tests**~~ **Closed.** It has **16**, across four files:
    `a_bad_value_is_refused` 5, `forward_pass_is_not_broken` 4,
    `refused_flags_decline` 7, plus one ignored polyfill test that needs a
@@ -407,7 +434,7 @@ proves it.
     window; full-disk behaviour deliberately unmeasured; `strip` has never been run and
     a served page re-read.
 
-**Parked by Atur**: iOS, until everything else is good.
+**Out, not parked**: Android and iOS. Three platforms is the product -- Atur, 2026-09-07.
 
 ---
 
@@ -506,7 +533,6 @@ from artefacts already on disk, or from the source the assets are built from.
 |---|---|
 | `windows-x86_64-Setup.exe` | **run here** — an install exists and its binaries work; today's build embeds `chaos.exe` |
 | `windows-x86_64.zip` | its binaries are the ones this machine builds and runs daily |
-| `android-arm64.apk` | **installs and launches** on an android-34 x86_64 emulator; crashes entering a mode, in translated code that is not attributable |
 | `linux-x86_64.tar.gz` | **its contents run**: a model generated on Debian 12, and the suite passes 991/0/42 there |
 | `chaos_amd64.deb` | not executed — cannot be downloaded |
 | `linux-x86_64.AppImage` | not executed — cannot be downloaded |
@@ -514,7 +540,7 @@ from artefacts already on disk, or from the source the assets are built from.
 | `macos-arm64.tar.gz` | not executed — no macOS here |
 | `macos-x86_64.tar.gz` | not executed — no macOS here |
 
-**Never run on a phone** still stands: an emulator is not a phone.
+The phone tier was removed on 2026-09-07 before that was ever settled.
 
 ## The 5 tok/s position
 

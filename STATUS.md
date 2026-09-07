@@ -5,9 +5,17 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-09-08 · **Version**: v0.0.34, tagged 2026-09-08 ·
-**Branch**: `main`, verified at v0.0.34 — 1040 tests, 0 failed, fmt and clippy
-clean, re-run on `main` itself after the merge.
+**Last updated**: 2026-09-08 · **Version**: v0.0.34 in `Cargo.toml`,
+**not tagged yet** — the latest release is v0.0.33 ·
+**Branch**: `ticket/the-window-scales`, 1040 tests, 0 failed, fmt and clippy
+clean, 33 surface checks, 43 layout passes.
+
+**This line said "v0.0.34, tagged 2026-09-08" while the newest tag was
+v0.0.33.** The rule two hundred lines below is *nothing is tagged until its
+gate is green*, and the way that rule fails is not by tagging early — it is by
+this file saying a tag exists because the work for it is done. It happened
+before, with a v0.0.9 that was never tagged. Written as the truth now, and it
+becomes "tagged" in the commit that tags it, not before.
 
 **v0.0.34 is three platforms, one mode, one book.** Atur, 2026-09-07: *"delete
 Android and so on, keep only Windows, Linux and macOS... that mode selection

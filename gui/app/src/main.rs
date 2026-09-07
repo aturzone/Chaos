@@ -3347,6 +3347,28 @@ Any value a client sends is accepted.                      The server still list
         page.top + 104
     }
 
+    /// The two vertical gaps a page is allowed, in design units.
+    ///
+    /// **The placement dump made this visible and it is worth the two
+    /// constants.** The CHAOS page is a plain vertical stack of six rows and
+    /// it used five different spacings -- 48, 44, 52, 42, 52 -- because each
+    /// row's `y +=` was chosen on its own. Nothing is *wrong* by any check:
+    /// nothing overlaps, nothing runs off an edge. It simply reads as
+    /// unconsidered, which is a large part of what "looks unprofessional"
+    /// means, and it is exactly what a person cannot see by squinting at a
+    /// screenshot and a machine can see instantly in a column of numbers.
+    ///
+    /// Two values, and every row picks one: rows that belong together, and
+    /// rows that start a new thought.
+    mod rhythm {
+        use super::metric;
+        /// Between rows of one group -- an address and the key beneath it.
+        pub const TIGHT: i32 = metric::GAP;
+        /// Between groups. The same value as a page's side padding, so the
+        /// vertical and horizontal whitespace agree.
+        pub const LOOSE: i32 = metric::INSET;
+    }
+
     fn settings_columns(page: RECT) -> (i32, i32, i32) {
         let x = page.left + metric::INSET;
         let w = page.right - x - metric::INSET;
@@ -4893,9 +4915,9 @@ Any value a client sends is accepted.                      The server still list
                     // here: decoding a PNG would mean an inflate implementation
                     // in a crate that has no dependencies, and the system's own
                     // viewer is one button away.
-                    let mut y = top + 22;
+                    let mut y = top + rhythm::LOOSE;
                     m.push((nav::ID_IMG_PROMPT, x, y, w, 64));
-                    y += 64 + 26;
+                    y += 64 + rhythm::LOOSE;
                     // Its own row, and wide: a row here reads
                     // "ideogram4-Q4_0 -- ready, 16.7 GB", and the half that
                     // matters is the half a narrow control would cut.
@@ -4906,7 +4928,7 @@ Any value a client sends is accepted.                      The server still list
                         (w - 270).max(240),
                         metric::CONTROL + metric::COMBO_ROW * 4,
                     ));
-                    y += metric::CONTROL + 26;
+                    y += metric::CONTROL + rhythm::TIGHT;
                     let cw = 150;
                     m.push((
                         nav::ID_IMG_SIZE,
@@ -4931,7 +4953,7 @@ Any value a client sends is accepted.                      The server still list
                     ));
                     m.push((nav::ID_IMG_DRAW, x + w - 250, y, 120, metric::BUTTON));
                     m.push((nav::ID_IMG_STOP, x + w - 120, y, 120, metric::BUTTON));
-                    y += metric::CONTROL + 30;
+                    y += metric::CONTROL + rhythm::LOOSE;
                     let log_h = (page.bottom - y - metric::BUTTON - 30).max(100);
                     m.push((nav::ID_IMG_LOG, x, y, w, log_h));
                     m.push((nav::ID_IMG_OPEN, x, y + log_h + 12, 180, metric::BUTTON));
@@ -5004,18 +5026,20 @@ Any value a client sends is accepted.                      The server still list
                 // a CORE reads them out, a CLIENT types them in -- so they sit
                 // in one place and the labels change rather than the layout.
                 Page::Chaos => {
-                    let mut y = top + 30;
+                    // Three groups, on `rhythm`: what this machine is, how
+                    // another reaches it, and what to point at it.
+                    let mut y = top + rhythm::LOOSE;
                     // **The role first**: it decides what the address below
                     // it even means, so the page reads top to bottom. It was
                     // four buttons here, then a launch knob that owned the
                     // window until answered; one dropdown now.
                     m.push((nav::ID_ROLE, x, y, 200, metric::BUTTON));
-                    y += metric::BUTTON + 16;
+                    y += metric::BUTTON + rhythm::LOOSE;
                     let field = w.min(360);
                     let bw = 92;
                     m.push((nav::ID_CORE_ADDR, x, y, field, metric::BUTTON));
                     m.push((nav::ID_COPY_ADDR, x + field + 10, y, bw, metric::BUTTON));
-                    y += metric::BUTTON + 12;
+                    y += metric::BUTTON + rhythm::TIGHT;
                     m.push((nav::ID_CORE_KEY, x, y, field, metric::BUTTON));
                     m.push((nav::ID_COPY_KEY, x + field + 10, y, bw, metric::BUTTON));
                     m.push((
@@ -5025,13 +5049,12 @@ Any value a client sends is accepted.                      The server still list
                         bw,
                         metric::BUTTON,
                     ));
-                    y += metric::BUTTON + 20;
-                    // The two ways this machine and another find each other:
-                    // show a code, or read one. Side by side because they are
-                    // the same act from the two ends.
+                    y += metric::BUTTON + rhythm::LOOSE;
+                    // How another machine finds this one: point a camera at
+                    // the mark, which carries the address above.
                     let half = w.min(360) / 2 - 5;
                     m.push((nav::ID_SHOW_MARK, x, y, half, metric::BUTTON));
-                    y += metric::BUTTON + 10;
+                    y += metric::BUTTON + rhythm::TIGHT;
                     // **Its own row, but not the full width of it.** It is
                     // the only control here that starts something outside the
                     // app, so pairing it with a brand button would read as a
@@ -5042,7 +5065,7 @@ Any value a client sends is accepted.                      The server still list
                     // between 70 and 200 units wide. This one is the widest
                     // because it is the primary action, and no wider.
                     m.push((nav::ID_CLAUDE_CODE, x, y, 260, metric::BUTTON));
-                    y += metric::BUTTON + 20;
+                    y += metric::BUTTON + rhythm::LOOSE;
                     let h = (page.bottom - metric::INSET - y).max(60);
                     m.push((nav::ID_CHAOS_STATUS, x, y, w, h));
                 }

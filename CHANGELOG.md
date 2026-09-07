@@ -99,6 +99,14 @@ While the major version is `0`, anything may change in a minor release.
   `hide_every_control`, the `launched` gate on `WM_PAINT`, `mode_chosen` in
   the settings file, the mode badge, CHANGE MODE, and Escape's one-keystroke
   drop of a loaded model. **The window opens on CHAT.**
+- **`chaos-serve --help` advertised `--emit-pages` writing "qr.html and
+  scan.html" for "the Android APK"** — one of those files and the APK were
+  both deleted, and it writes one file. It also offered `0.0.0.0` as the way
+  to "reach a phone", which is now just other machines. **A surface check now
+  greps every binary's `--help` for anything deleted**, because the class of
+  bug is a working command giving confident directions to somewhere
+  demolished, and the surface run had been green through a whole release of
+  it — one of its own checks was asserting the stale message.
 - **`chaos scan`**, which spent this release pointing at two features that
   no longer existed. It refused to decode and named the two readers that did
   work — the phone app's SCAN button and `/scan` in a browser — and both were

@@ -71,15 +71,18 @@ pub fn usage() {
     println!();
     println!("  --api-key <key>   require `Authorization: Bearer <key>` on /v1/*");
     println!("  --host <addr>     what to listen on (default 127.0.0.1;");
-    println!("                    0.0.0.0 reaches a phone on the same Wi-Fi and");
+    println!("                    0.0.0.0 reaches other machines on this Wi-Fi");
     println!("                    then --api-key is required, not optional)");
     println!();
-    println!("  --emit-pages <dir>  write qr.html and scan.html and exit, for a");
-    println!("                      host that embeds them (the Android APK does)");
+    println!("  --emit-pages <dir>  write qr.html and exit, for a host that embeds");
+    println!("                      it. `chaos-qr --emit-pages` does the same and");
+    println!("                      needs no model and no C toolchain");
     println!();
     println!("  CHAOS_QR=1        draw the route as a QR code in this terminal even");
     println!("                    on loopback (=0 never). Off loopback it is drawn");
-    println!("                    anyway -- that is how a phone finds a headless node.");
+    println!("                    anyway -- point a phone's camera at it and the");
+    println!("                    phone opens this node, which is how a headless");
+    println!("                    machine is reached at all.");
     println!();
     println!("Binds to localhost only: no TLS, one request at a time.");
 }

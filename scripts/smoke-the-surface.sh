@@ -77,31 +77,62 @@ else
   bad "chaos connect with no route: $(printf '%s' "$out" | head -1)"
 fi
 
-# `scan` is declared NOT BUILT and must say so rather than pretend.
+# `scan` was removed in v0.0.34 with the reader it named, so it must be
+# treated as what it is: not a command. **This check used to assert the
+# opposite** -- that `chaos scan` said "not built" -- which is how a refusal
+# pointing at two deleted features survived a release with a green surface run.
 out=$("$B/chaos$EXT" scan 2>&1)
-if printf '%s' "$out" | grep -qi "not built"; then
-  ok "chaos scan declares itself not built"
+if printf '%s' "$out" | grep -q "is not a command"; then
+  ok "chaos scan is not a command, and says so"
 else
-  bad "chaos scan did not say it is not built: $(printf '%s' "$out" | head -1)"
+  bad "chaos scan still claims to be something: $(printf '%s' "$out" | head -1)"
 fi
 
-# ---- 3. the mark and the reader, in a bare terminal -----------------------
+# ---- 3. the mark, in a bare terminal --------------------------------------
 if out=$("$B/chaos-qr$EXT" "http://127.0.0.1:$PORT" 2>&1) && [ -n "$out" ]; then
   ok "chaos-qr printed a code ($(printf '%s' "$out" | wc -l) lines)"
 else
   bad "chaos-qr printed nothing for a route"
 fi
 
-# ---- 3b. the pages, emitted with no C toolchain ---------------------------
-# **The Android release depends on this and nothing else checked it here.** The
-# APK carries the two pages as assets, emitted at build time so the phone shows
-# the same bytes as the browser. That used to be `chaos-serve --emit-pages`,
-# which links ggml, so writing two HTML files meant a second full cmake of
-# llama.cpp on every release -- and it failed the first time it ever ran.
+# ---- 2b. no help text names something that was deleted --------------------
+# **The bug this catches shipped for a whole release.** `chaos scan` refused to
+# decode and helpfully named the two readers that did work -- the phone app's
+# SCAN button and `/scan` in a browser. v0.0.34 deleted both, the command went
+# on naming them, and a unit test asserted that it did. A working command giving
+# confident directions to somewhere demolished is worse than a missing one.
 #
-# A page that fetches a stylesheet is the failure that matters: the APK has no
-# network on first run, and a `<link>` to Google Fonts renders the art in a
-# fallback face.
+# `chaos-serve --help` had the same shape: it offered `--emit-pages` writing
+# "qr.html and scan.html" for "the Android APK", when scan.html and the APK were
+# both gone and it writes one file.
+#
+# So: nothing any binary prints when asked for help may name a deleted feature.
+# One check over every binary, rather than a memory of which ones to look at.
+ghosts=0
+for b in chaos chaos-run chaos-serve chaos-probe chaos-pull chaos-qr chaos-meta \
+         chaos-draw chaos-worker chaos-model-info gguf-info; do
+  [ -x "$B/$b$EXT" ] || continue
+  help=$("$B/$b$EXT" --help 2>&1 || true)
+  for ghost in 'scan\.html' '[Aa]ndroid' '\.apk' '/scan' 'READ A CODE' 'CHANGE MODE'; do
+    if printf '%s' "$help" | grep -qE "$ghost"; then
+      bad "$b --help names '$ghost', which was deleted"
+      ghosts=1
+    fi
+  done
+done
+[ "$ghosts" -eq 0 ] && ok "no binary's help names a deleted feature"
+
+# ---- 3b. the page, emitted with no C toolchain ----------------------------
+# **Written for the Android release, which is gone; kept because the reason
+# outlived it.** Any host that embeds the mark wants the same bytes the browser
+# serves, without building an inference engine to get them. That used to be
+# `chaos-serve --emit-pages`, which links ggml, so writing one HTML file meant a
+# second full cmake of llama.cpp -- and it failed the first time it ever ran.
+# `chaos-qr` has no ggml and emits the same page.
+#
+# A page that fetches a stylesheet is the failure that matters: an embedded copy
+# may have no network at all, and a `<link>` to Google Fonts renders the art in
+# a fallback face.
 EMIT=$(mktemp -d 2>/dev/null || echo "./smoke-pages")
 if "$B/chaos-qr$EXT" --emit-pages "$EMIT" >/dev/null 2>&1; then
   bad_page=0
@@ -157,7 +188,7 @@ else
   bad "GET /favicon.ico -> ${code:-no response}, expected 204"
 fi
 
-# The mark and the reader must be **self-contained**: a page that fetches
+# The mark must be **self-contained**: a page that fetches
 # anything does not work on a machine with no internet, which is the whole point
 # of a node printing its own route.
 #

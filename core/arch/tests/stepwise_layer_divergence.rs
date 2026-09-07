@@ -40,9 +40,14 @@ use chaos_model::Model;
 const DEFAULT_PATH: &str =
     r"C:\Projects\models\v4flash\DeepSeek-V4-Flash-UD-Q4_K_XL-00001-of-00005.gguf";
 
-/// The lengths to compare at: the control, and the first length that closes a
-/// block.
-const LENGTHS: [usize; 2] = [3, 4];
+/// The lengths to compare at.
+///
+/// **Two is the second control and it matters.** At two tokens *nothing* closes
+/// a block anywhere in the stack — `CSA_RATIO` is 4 and `HCA_RATIO` is 128 — so
+/// any layer that still differs there is diverging for a reason that has nothing
+/// to do with the compressor. Layer 1 is `Raw`, and it differed at three tokens
+/// too, which is what put this length on the list.
+const LENGTHS: [usize; 3] = [2, 3, 4];
 
 fn open() -> Option<Model> {
     let p = std::env::var("CHAOS_TEST_GGUF")

@@ -255,12 +255,13 @@ attention by layer: 0:Raw  1:Raw  2:CompressedSparse  3:HeavilyCompressed
 hash layers (no routed experts): 0..3
 ```
 
-| layer | kind | 4 tokens: relative diff | 3 tokens |
-|---|---|---|---|
-| 0 | Raw | **0.000000** — bit-identical | 4.65e-06 |
-| 1 | Raw | 2.82e-03 | 6.97e-04 |
-| 2 | **CompressedSparse** | **2.70e-01** | 4.19e-03 |
-| 3 | HeavilyCompressed | 2.63e-01 | 5.48e-02 |
+| layer | kind | n=2 | n=3 | n=4 |
+|---|---|---|---|---|
+| 0 | Raw | 1.51e-07 | 4.65e-06 | **0.00e+00** |
+| 1 | Raw | 3.12e-07 | 6.97e-04 | 2.82e-03 |
+| 2 | **CompressedSparse** | 1.22e-04 | 4.19e-03 | **2.70e-01** |
+| 3 | HeavilyCompressed, first **routed** layer | 1.14e-01 | 5.48e-02 | 2.63e-01 |
+| 4 | CompressedSparse | 4.20e-03 | 1.08e-01 | 1.60e-01 |
 
 **Three facts pin it.**
 
@@ -274,6 +275,21 @@ hash layers (no routed experts): 0..3
 3. **Layer 0 is bit-identical** at four tokens, which is the control this needed:
    a `Raw` layer, reading keys 0-2 from the cache on one path and from its own
    batch on the other, reproduces exactly. The KV cache path is not the problem.
+
+**Two tokens is the control that makes this tight.** At two tokens *nothing*
+closes a block anywhere in the stack — `CSA_RATIO` is 4 and `HCA_RATIO` is 128 —
+and there layer 2 sits at **1.22e-04**. Same layer, same code, one token more,
+and it is at 2.70e-01. The only thing that changed for it is that its first
+block closed.
+
+**Read the table with one caveat: a per-layer relative difference is not
+proportional to the final logit error.** Layer 3 is at 1.14e-01 at two tokens
+while the logits still agree to cosine 0.999874, because it is the first layer
+with routed experts and a single flip there is absorbed downstream. What
+distinguishes four tokens is not the size of any one number but *where* the
+first large one appears: at two and three tokens the stack is clean until the
+first routed layer, and at four it is already broken one layer earlier.
+
 
 So: **the origin is layer 2's compressed attention at the length where its first
 block closes.** Everything after it — the routing flips, the 4.9 logit gap, the

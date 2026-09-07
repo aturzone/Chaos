@@ -216,11 +216,20 @@ needs llama.cpp under `-b 1`, which no fixture has.
 this path in the same session, because it had none — gives every layer's final
 position on both paths:
 
-| layer | kind | 4 tokens | 3 tokens |
-|---|---|---|---|
-| 0 | Raw | **0.000000, bit-identical** | 4.65e-06 |
-| 1 | Raw | 2.82e-03 | 6.97e-04 |
-| 2 | **CompressedSparse** | **2.70e-01** | 4.19e-03 |
+| layer | kind | n=2 | n=3 | n=4 |
+|---|---|---|---|---|
+| 0 | Raw | 1.5e-07 | 4.7e-06 | **0.00** |
+| 1 | Raw | 3.1e-07 | 7.0e-04 | 2.8e-03 |
+| 2 | **CompressedSparse** | 1.2e-04 | 4.2e-03 | **2.7e-01** |
+| 3 | HCA, first **routed** layer | 1.1e-01 | 5.5e-02 | 2.6e-01 |
+
+**Two tokens is the control.** Nothing closes a block anywhere at two tokens,
+and there layer 2 sits at 1.2e-04. One token more and it is at 2.7e-01 — the
+only thing that changed for it is that its first block closed. Note that a
+per-layer figure is not proportional to the logit error: layer 3 is at 1.1e-01
+at two tokens while the logits agree to 0.999874, because one flip in the first
+routed layer is absorbed downstream. What marks four tokens is *where* the
+first large number appears — one layer earlier than the first routed layer.
 
 Layer 2 is the **first** `CompressedSparse` layer and four tokens is exactly
 where its first block closes (`CSA_RATIO` is 4) — a hundredfold jump across that

@@ -8,6 +8,12 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+## [0.0.33] — 2026-09-07
+
+**Claude Code runs on a model Chaos serves.** The Anthropic Messages API with
+tool calling, a prefix cache that makes the second turn 2.6x faster, a button
+in the app, and the wrappers shipped in every package.
+
 ### Added
 - **`USE WITH CLAUDE CODE`, on the app's CHAOS page.** Checks `claude` is
   installed and offers the npm command if not, checks a model is loaded, asks

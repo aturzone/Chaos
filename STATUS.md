@@ -5,8 +5,8 @@ today. Update it in the same commit as any change that moves a number or closes 
 task. If it disagrees with a graph node, **this file is wrong and the node is right**
 — fix this file.
 
-**Last updated**: 2026-09-03 · **Version**: v0.0.32, tagged 2026-09-03 ·
-**Branch**: `main`, verified at v0.0.32 — 1032 tests, 0 failed, fmt and clippy
+**Last updated**: 2026-09-07 · **Version**: v0.0.33, tagged 2026-09-07 ·
+**Branch**: `main`, verified at v0.0.33 — 1032 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
 
 **Claude Code now runs on a model this node serves, and the app has a button for it.**

@@ -47,12 +47,13 @@ mod windows_app {
     use chaos_app::download::Download;
     use chaos_app::loading;
     use chaos_app::nav::{self, Page};
+    use chaos_app::scale::Scale;
     use chaos_app::theme::{self, metric, size, weight, Mode, Rgb, Theme};
     use chaos_app::win32::*;
     use chaos_app::{art, brand, catalog, client, models, settings, update};
     use std::cell::RefCell;
     use std::process::{Child, Command};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::sync::Mutex;
     use std::time::Instant;
 
@@ -74,8 +75,19 @@ mod windows_app {
     /// Below this the rail plus a page has nowhere to put anything, so the
     /// window refuses to get smaller rather than clipping its own controls --
     /// which is how the old sidebar came to show "gemma3-27b Q4_K_M 16.5 GB nee".
+    ///
+    /// **Design units, and `MIN_H` was 60 units too small.** Dumping every
+    /// page's layout at five window sizes -- rather than at the one it is
+    /// usually looked at -- showed SAVE and RESET drawn through the last
+    /// settings field, and OPEN THE PICTURE two units below the strip, at
+    /// exactly the minimum the window itself allowed. So the window enforced a
+    /// size at which its own tallest page did not fit. 680 is what SETTINGS
+    /// needs: the form, then a loose gap, then the button row.
+    ///
+    /// A minimum is only honest if something checks it. `placement.rs` does,
+    /// and `scripts/run-through.ps1` documents how to drive the sizes.
     const MIN_W: i32 = 940;
-    const MIN_H: i32 = 620;
+    const MIN_H: i32 = 680;
 
     const RELEASES_URL: &str = "https://github.com/aturzone/Chaos/releases";
     const MANUAL_URL: &str = "https://github.com/aturzone/Chaos/blob/main/docs/APP.md";
@@ -206,6 +218,7 @@ mod windows_app {
     }
 
     /// The faces, made once. Three sizes and a monospace, per `theme::size`.
+    #[derive(Clone, Copy)]
     struct Fonts {
         display: HFONT,
         heading: HFONT,
@@ -320,6 +333,48 @@ mod windows_app {
 
     fn main_hwnd() -> HWND {
         main_window().load(Ordering::SeqCst) as HWND
+    }
+
+    /// The display scale of the monitor this window is on.
+    ///
+    /// # Why a global rather than a field on `Ui`
+    ///
+    /// The four drawing helpers and the geometry functions -- `page_rect`,
+    /// `nav_rect`, `content_top` -- are free functions shared by `layout` and
+    /// every page painter, and threading a scale through all of them would be
+    /// the 150-call-site change this design exists to avoid. It is also
+    /// genuinely process-wide state in the same sense the window handle is:
+    /// one window, one monitor, one answer, read hundreds of times a frame and
+    /// written only on `WM_DPICHANGED`.
+    ///
+    /// Stored as the DPI, not as a float, because `Scale` is integer
+    /// arithmetic and an atomic `i32` needs no lock.
+    fn current_dpi() -> &'static AtomicI32 {
+        static D: AtomicI32 = AtomicI32::new(chaos_app::scale::DESIGN_DPI);
+        &D
+    }
+
+    /// The conversion between design units and pixels, for right now.
+    ///
+    /// **Every number in `theme::metric` and `theme::size` is a design unit at
+    /// 96 DPI.** The window computes in those units end to end and converts
+    /// only where geometry reaches Windows: `MoveWindow`, the four drawing
+    /// helpers, `StretchDIBits` and `CreateFontW`. See `scale` for why.
+    fn scale() -> Scale {
+        Scale::from_dpi(current_dpi().load(Ordering::Relaxed) as u32)
+    }
+
+    /// Re-read the scale for a window, and say whether it changed.
+    ///
+    /// Called at creation and from `WM_DPICHANGED`. A change means every font
+    /// is the wrong size and every rectangle is in the wrong place, so the
+    /// caller has both to rebuild.
+    fn adopt_dpi(hwnd: HWND) -> bool {
+        let Some(dpi) = chaos_app::win32::dpi_for_window(hwnd) else {
+            return false;
+        };
+        let dpi = Scale::from_dpi(dpi).dpi();
+        current_dpi().swap(dpi, Ordering::Relaxed) != dpi
     }
 
     /// A settings control's handle, for the paint path. Named separately so the
@@ -509,6 +564,14 @@ mod windows_app {
 
             set_window_icon(hwnd, hinst);
             main_window().store(hwnd as usize, Ordering::SeqCst);
+            // **Before `build_controls`, because that is where the fonts are
+            // made.** `opening_geometry` had to guess from the system DPI --
+            // there was no window to ask about yet -- and on a multi-monitor
+            // machine the window may have landed somewhere with a different
+            // scale. Now it exists, so ask about it, and let every font and
+            // every metric below be built at the right size the first time
+            // rather than corrected by a visible reflow.
+            adopt_dpi(hwnd);
             // Before anything can close the window, so there is always
             // somewhere for it to go.
             tray_add(hwnd, hinst);
@@ -749,10 +812,21 @@ mod windows_app {
 
     // -- construction --------------------------------------------------------
 
+    /// A font, from a height in **design units**.
+    ///
+    /// The third and last place a number becomes pixels. **Scaling the metrics
+    /// without scaling the fonts is worse than scaling neither**: 15px text in
+    /// a 32px button is comfortable, and the same text in a button grown to
+    /// 40px looks lost in it. They move together or not at all.
+    ///
+    /// `theme::size` heights are negative, which is `CreateFontW` for
+    /// "character height, not cell height" -- `Scale::px` rounds by magnitude
+    /// so `-15` becomes `-19` at 125% rather than `-18`.
     unsafe fn make_font(px: i32, weight: i32, face: &str) -> HFONT {
         let name = wide(face);
         // `iQuality = 5` is CLEARTYPE_QUALITY: without it small text on a light
         // ground is noticeably rougher than every other window on the desktop.
+        let px = scale().px(px);
         CreateFontW(px, 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, name.as_ptr())
     }
 
@@ -774,12 +848,21 @@ mod windows_app {
         const WANT_W: i32 = 1180;
         const WANT_H: i32 = 780;
         const MARGIN: i32 = 40;
+        // **The system DPI, because there is no window yet.** Per-monitor
+        // awareness means the real answer arrives only once the window exists
+        // and Windows knows which monitor it landed on; `WM_DPICHANGED` then
+        // corrects both the size and the layout. This is the opening guess,
+        // and on a single-monitor machine -- almost every machine -- it is
+        // also the final answer.
+        let s = Scale::from_dpi(chaos_app::win32::system_dpi().unwrap_or(96));
+        let (want_w, want_h) = (s.px(WANT_W), s.px(WANT_H));
+        let margin = s.px(MARGIN);
         let Some((l, t, r, b)) = chaos_app::win32::work_area() else {
-            return (120, 80, WANT_W, WANT_H);
+            return (s.px(120), s.px(80), want_w, want_h);
         };
         let (aw, ah) = ((r - l).max(320), (b - t).max(240));
-        let w = WANT_W.min(aw - MARGIN);
-        let h = WANT_H.min(ah - MARGIN);
+        let w = want_w.min(aw - margin);
+        let h = want_h.min(ah - margin);
         (l + (aw - w) / 2, t + (ah - h) / 2, w, h)
     }
 
@@ -817,15 +900,7 @@ mod windows_app {
     }
 
     unsafe fn build_controls(hwnd: HWND, hinst: HINSTANCE, cfg: settings::Settings) {
-        let fonts = Fonts {
-            display: make_font(size::DISPLAY, weight::BOLD, theme::FACE_UI),
-            heading: make_font(size::HEADING, weight::MEDIUM, theme::FACE_UI),
-            body: make_font(size::BODY, weight::REGULAR, theme::FACE_UI),
-            body_bold: make_font(size::BODY, weight::MEDIUM, theme::FACE_UI),
-            small: make_font(size::SMALL, weight::REGULAR, theme::FACE_UI),
-            mono: make_font(size::MONO, weight::REGULAR, theme::FACE_MONO),
-            mark: make_font(size::MARK, weight::BOLD, theme::FACE_UI),
-        };
+        let fonts = build_fonts();
 
         // The shell.
         for p in nav::PAGES {
@@ -1013,59 +1088,7 @@ mod windows_app {
             hinst,
         );
 
-        // The transcript, the composer and the list carry measurements, so they
-        // are monospaced; everything else is the UI face.
-        let mono_controls = [nav::ID_OUT, nav::ID_IN, nav::ID_LIST, nav::ID_IMG_LOG];
-        for p in nav::PAGES {
-            for &id in nav::controls(p) {
-                let f = if mono_controls.contains(&id) {
-                    fonts.mono
-                } else {
-                    fonts.body
-                };
-                SendMessageW(GetDlgItem(hwnd, id), WM_SETFONT, f as WPARAM, 1);
-            }
-        }
-        for id in nav::SHELL_CONTROLS {
-            SendMessageW(GetDlgItem(hwnd, id), WM_SETFONT, fonts.body as WPARAM, 1);
-        }
-
-        // An owner-draw list uses a fixed row height that defaults to roughly
-        // the system font's, which clipped the model name in half.
-        SendMessageW(GetDlgItem(hwnd, nav::ID_LIST), LB_SETITEMHEIGHT, 0, 28);
-
-        // An EDIT puts its text flush against the border otherwise, which on a
-        // design built out of whitespace is the one control that has none.
-        for id in [nav::ID_OUT, nav::ID_IN] {
-            SendMessageW(
-                GetDlgItem(hwnd, id),
-                EM_SETMARGINS,
-                EC_LEFTMARGIN | EC_RIGHTMARGIN,
-                (10 | (10 << 16)) as LPARAM,
-            );
-        }
-        for f in nav::FIELDS {
-            let h = GetDlgItem(hwnd, f.id);
-            if choices::for_field(f.id, probe).is_some() {
-                // Every row of the list, then -- `usize::MAX` is `-1` -- the
-                // closed box itself. The closed height is what Windows keeps
-                // when it shrinks the control; `layout` sizes the rest.
-                SendMessageW(h, CB_SETITEMHEIGHT, 0, metric::COMBO_ROW as LPARAM);
-                SendMessageW(
-                    h,
-                    CB_SETITEMHEIGHT,
-                    usize::MAX,
-                    (metric::CONTROL - 6) as LPARAM,
-                );
-            } else {
-                SendMessageW(
-                    h,
-                    EM_SETMARGINS,
-                    EC_LEFTMARGIN | EC_RIGHTMARGIN,
-                    (8 | (8 << 16)) as LPARAM,
-                );
-            }
-        }
+        apply_fonts_and_heights(hwnd, &fonts, probe);
 
         let t = theme::theme(cfg.mode);
         let port = cfg.port;
@@ -1713,18 +1736,19 @@ mod windows_app {
                 .map(|o| o.status.success())
                 .unwrap_or(false)
         };
-        if !installed {
-            let ask = concat!(
-                "Claude Code is not installed.\n\n",
-                "Install it now with npm?\n\n",
-                "    npm install -g @anthropic-ai/claude-code\n\n",
-                "This needs Node.js from nodejs.org. A terminal will open so ",
-                "you can see it happen."
+        if let Some(why) = chaos_app::claude::refusal(installed, true) {
+            set_status(why);
+            let ask = format!(
+                "Claude Code is not installed.\n\n\
+                 Install it now with npm?\n\n    {}\n\n\
+                 This needs Node.js from nodejs.org. A terminal will open so \
+                 you can see it happen.",
+                chaos_app::claude::INSTALL
             );
             let answer = unsafe {
                 MessageBoxW(
                     hwnd,
-                    wide(ask).as_ptr(),
+                    wide(&ask).as_ptr(),
                     wide("Install Claude Code?").as_ptr(),
                     MB_YESNO | MB_ICONWARNING,
                 )
@@ -1736,14 +1760,7 @@ mod windows_app {
             // `/k` so the window stays open on failure: an npm error the user
             // never sees is the same as no error at all.
             let started = Command::new("cmd")
-                .args([
-                    "/c",
-                    "start",
-                    "",
-                    "cmd",
-                    "/k",
-                    "npm install -g @anthropic-ai/claude-code",
-                ])
+                .args(["/c", "start", "", "cmd", "/k", chaos_app::claude::INSTALL])
                 .spawn()
                 .is_ok();
             set_status(if started {
@@ -1763,8 +1780,8 @@ mod windows_app {
                 None => (0u16, None),
             }
         });
-        if loaded.is_none() {
-            set_status("load a model first -- Claude Code needs a running node");
+        if let Some(why) = chaos_app::claude::refusal(true, loaded.is_some()) {
+            set_status(why);
             return;
         }
 
@@ -1775,25 +1792,13 @@ mod windows_app {
             return;
         };
 
-        // **Six tools, not the default twenty-eight.** Measured: the default
-        // set is 40,255 tokens of definitions before the user types anything,
-        // against a 32,768-token context on every model that runs here. Six is
-        // 11,706. See `docs/CLAUDE-CODE.md`.
-        //
-        // `/k` keeps the window after the turn so the answer stays readable,
-        // and the echoed lines are there because the first minutes look like a
-        // hang: one turn is minutes of prefill on a CPU machine.
-        let script = format!(
-            "set CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-chaos && \
-             set ANTHROPIC_BASE_URL=http://127.0.0.1:{port} && \
-             set ANTHROPIC_API_KEY=chaos && \
-             set ANTHROPIC_MODEL=claude-opus-5 && \
-             set CLAUDE_CODE_MAX_CONTEXT_TOKENS=16384 && \
-             echo Claude Code is talking to Chaos on port {port}. && \
-             echo A turn takes minutes on a CPU machine. That is the model, not a hang. && \
-             echo. && \
-             claude --tools Read,Write,Edit,Bash,Glob,Grep"
-        );
+        // **The five settings live in `chaos_app::claude`**, with the
+        // measurements behind them and a test that the shipped
+        // `scripts/claude-chaos.*` and `docs/CLAUDE-CODE.md` say the same
+        // numbers. They were a `format!` here, in the one function
+        // `run-through.ps1` cannot press -- it opens a modal folder dialog,
+        // which stops the message loop -- so nothing checked them at all.
+        let script = chaos_app::claude::terminal_script(port);
         let started = Command::new("cmd")
             .args(["/c", "start", "", "cmd", "/k", &script])
             .current_dir(&dir)
@@ -2978,14 +2983,18 @@ Any value a client sends is accepted.                      The server still list
             .unwrap_or(0);
         ReleaseDC(h, hdc);
 
+        // `widest` is design units; the two measurements below are pixels, as
+        // is the width Windows wants back, so the comparison happens in
+        // pixels and only `widest` converts.
+        let s = scale();
         let mut r = RECT::default();
         GetWindowRect(h, &mut r);
         let own = r.right - r.left;
         // 10px of padding either side in `draw_combo`, plus room for the
         // scrollbar the list grows when there are more than `COMBO_VISIBLE`.
-        let want = (widest + 20 + 20).max(own);
+        let want = s.px(widest + 20 + 20).max(own);
         // Never wider than the screen it opens on.
-        let cap = work_area().map(|(l, _, r, _)| r - l).unwrap_or(1280) - 80;
+        let cap = work_area().map(|(l, _, r, _)| r - l).unwrap_or(1280) - s.px(80);
         SendMessageW(h, CB_SETDROPPEDWIDTH, want.min(cap) as WPARAM, 0);
     }
 
@@ -3136,11 +3145,19 @@ Any value a client sends is accepted.                      The server still list
     // -- painting primitives -------------------------------------------------
 
     /// One place that draws text, so no page invents its own alignment.
+    ///
+    /// **`r` is in design units.** This is one of the two functions where the
+    /// window's geometry becomes pixels; the other is [`fill`]. Every caller
+    /// above it -- `label`, every page painter, `draw_item` -- works in the
+    /// units `theme::metric` is written in, and nothing between here and them
+    /// knows the display scale. The font is already physical: `make_font`
+    /// scaled its height, so `DrawTextW` lays out real glyphs in a real
+    /// rectangle.
     unsafe fn text(hdc: HDC, r: RECT, s: &str, font: HFONT, colour: Rgb, flags: u32) {
         let old = SelectObject(hdc, font as HGDIOBJ);
         SetTextColor(hdc, colour);
         SetBkMode(hdc, TRANSPARENT);
-        let mut rc = r;
+        let mut rc = to_px(r);
         let w: Vec<u16> = s.encode_utf16().collect();
         // **Never hand Windows an empty Vec's pointer.** `Vec::as_ptr` on an
         // empty vector returns a dangling (aligned but unallocated) address and
@@ -3177,10 +3194,42 @@ Any value a client sends is accepted.                      The server still list
         );
     }
 
+    /// A solid rectangle. **`r` is in design units**, as with [`text`].
+    ///
+    /// `Scale::rect` is what keeps `rule` and `frame` honest here: both hand
+    /// down rectangles one design unit thick, and a naive multiply would round
+    /// a hairline away to nothing at 125%.
     unsafe fn fill(hdc: HDC, r: RECT, colour: Rgb) {
+        let r = to_px(r);
         let b = CreateSolidBrush(colour);
         FillRect(hdc, &r, b);
         DeleteObject(b as HGDIOBJ);
+    }
+
+    /// A design-unit rectangle in pixels.
+    fn to_px(r: RECT) -> RECT {
+        let (left, top, right, bottom) = scale().rect((r.left, r.top, r.right, r.bottom));
+        RECT {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    /// A rectangle Windows measured, in design units.
+    ///
+    /// The inverse of [`to_px`], for the three places geometry arrives from
+    /// outside already in pixels: `GetClientRect`, and `DRAWITEMSTRUCT::rcItem`
+    /// in the owner-draw handlers.
+    fn to_du(r: RECT) -> RECT {
+        let (left, top, right, bottom) = scale().rect_du((r.left, r.top, r.right, r.bottom));
+        RECT {
+            left,
+            top,
+            right,
+            bottom,
+        }
     }
 
     /// A hairline. The only divider this design has -- Hermes: *"group with
@@ -3291,6 +3340,28 @@ Any value a client sends is accepted.                      The server still list
         page.top + 104
     }
 
+    /// The two vertical gaps a page is allowed, in design units.
+    ///
+    /// **The placement dump made this visible and it is worth the two
+    /// constants.** The CHAOS page is a plain vertical stack of six rows and
+    /// it used five different spacings -- 48, 44, 52, 42, 52 -- because each
+    /// row's `y +=` was chosen on its own. Nothing is *wrong* by any check:
+    /// nothing overlaps, nothing runs off an edge. It simply reads as
+    /// unconsidered, which is a large part of what "looks unprofessional"
+    /// means, and it is exactly what a person cannot see by squinting at a
+    /// screenshot and a machine can see instantly in a column of numbers.
+    ///
+    /// Two values, and every row picks one: rows that belong together, and
+    /// rows that start a new thought.
+    mod rhythm {
+        use super::metric;
+        /// Between rows of one group -- an address and the key beneath it.
+        pub const TIGHT: i32 = metric::GAP;
+        /// Between groups. The same value as a page's side padding, so the
+        /// vertical and horizontal whitespace agree.
+        pub const LOOSE: i32 = metric::INSET;
+    }
+
     fn settings_columns(page: RECT) -> (i32, i32, i32) {
         let x = page.left + metric::INSET;
         let w = page.right - x - metric::INSET;
@@ -3365,21 +3436,29 @@ Any value a client sends is accepted.                      The server still list
         let bmp = CreateCompatibleBitmap(hdc, r.right.max(1), r.bottom.max(1));
         let old_bmp = SelectObject(mem, bmp);
 
+        // **`r` stays physical; `rd` is what the painters get.** The buffer
+        // and the blit above and below are real pixels and must be, or the
+        // window is drawn into a bitmap smaller than itself. Everything
+        // between is design units, matching `layout` -- the two have to agree
+        // or the rail's painted ground lands away from the rail's buttons,
+        // which is worse than not scaling at all.
+        let rd = to_du(r);
+
         UI.with(|u| {
             let b = u.borrow();
             let Some(ui) = b.as_ref() else { return };
-            fill(mem, r, ui.theme.bg);
+            fill(mem, rd, ui.theme.bg);
 
             // The mark, then the question, then the app.
             if ui.splash.is_some() {
-                paint_splash(mem, ui, r);
+                paint_splash(mem, ui, rd);
                 return;
             }
 
-            paint_rail(mem, ui, r);
-            paint_strip(mem, ui, r);
+            paint_rail(mem, ui, rd);
+            paint_strip(mem, ui, rd);
 
-            let page = page_rect(r);
+            let page = page_rect(rd);
             match ui.page {
                 Page::Chat => paint_chat(mem, ui, page),
                 Page::Models => paint_models(mem, ui, page, sel),
@@ -3404,6 +3483,7 @@ Any value a client sends is accepted.                      The server still list
     /// -- and touches nothing about the artwork itself.
     unsafe fn paint_splash(hdc: HDC, ui: &Ui, client: RECT) {
         let t = &ui.theme;
+        let sc = scale();
         let w = client.right.max(1);
         let h = client.bottom.max(1);
         let ms = ui
@@ -3427,9 +3507,14 @@ Any value a client sends is accepted.                      The server still list
         // ms**. The mark is scan-converted once at the size it will settle at;
         // the arrival is `StretchDIBits` doing the scaling, which is free.
         let full = ((w.min(h) as f64) * 0.30).clamp(96.0, 320.0);
-        let side = (full.round() as usize).max(8);
-        // Where it is drawn, which is what moves.
+        // Where it is drawn, which is what moves. Design units, like the rest
+        // of the geometry here.
         let shown = (full * (0.90 + 0.10 * ease)).round() as i32;
+        // **Rasterised at the physical size, not the design size.** The art is
+        // scan-converted at whatever size is asked for, so asking for the
+        // pixels it will actually occupy is what keeps the mark sharp at 125%
+        // instead of blitting a 96-pixel raster into 120 pixels.
+        let side = (sc.px(full.round() as i32).max(8)) as usize;
 
         let cov = art::logo_scaled(side);
         let chan = |c: Rgb, shift: u32| ((c >> shift) & 0xFF) as f64;
@@ -3459,12 +3544,20 @@ Any value a client sends is accepted.                      The server still list
             biClrImportant: 0,
         };
         let d = side as i32;
+        // The destination is where geometry leaves for the screen, so it
+        // converts here -- the same boundary `fill` and `text` sit on.
+        let at = to_px(RECT {
+            left: (w - shown) / 2,
+            top: (h - shown) / 2 - h / 14,
+            right: (w - shown) / 2 + shown,
+            bottom: (h - shown) / 2 - h / 14 + shown,
+        });
         StretchDIBits(
             hdc,
-            (w - shown) / 2,
-            (h - shown) / 2 - h / 14,
-            shown,
-            shown,
+            at.left,
+            at.top,
+            at.right - at.left,
+            at.bottom - at.top,
             0,
             0,
             d,
@@ -3601,7 +3694,11 @@ Any value a client sends is accepted.                      The server still list
         // (`art::logo_coverage`) and cached, so a larger box costs rail width
         // and nothing else: the rail is 208px, the mark starts at INSET and the
         // wordmark follows it, which still leaves room for five letters.
-        let box_px = 64usize;
+        // 64 design units, rasterised at the pixels it will occupy: the art
+        // is scan-converted per size and cached, so asking for the physical
+        // size costs one extra cached entry and nothing per frame.
+        let box_du = 64i32;
+        let box_px = scale().px(box_du).max(8) as usize;
         let cov = art::logo_scaled(box_px);
         let chan = |c: Rgb, shift: u32| ((c >> shift) & 0xFF) as i32;
         let mut px = vec![0u8; box_px * box_px * 4];
@@ -3635,10 +3732,16 @@ Any value a client sends is accepted.                      The server still list
         };
         let box_px = box_px as i32;
         // Blitted 1:1, because the filtering already happened at the right size.
+        let at = to_px(RECT {
+            left: metric::INSET,
+            top: 24,
+            right: metric::INSET + box_du,
+            bottom: 24 + box_du,
+        });
         StretchDIBits(
             hdc,
-            metric::INSET,
-            24,
+            at.left,
+            at.top,
             box_px,
             box_px,
             0,
@@ -4604,6 +4707,146 @@ Any value a client sends is accepted.                      The server still list
         );
     }
 
+    // -- display scale -------------------------------------------------------
+
+    /// Hand every control its font and the item heights that depend on the
+    /// display scale.
+    ///
+    /// **One function because there are two callers and they must not drift.**
+    /// It runs once while the controls are being built, and again on every
+    /// `WM_DPICHANGED` -- and a font or an item height applied at creation but
+    /// not on the rescale is a control keeping 96-DPI text inside a 120-DPI
+    /// box, which is the failure this whole change exists to avoid.
+    unsafe fn apply_fonts_and_heights(hwnd: HWND, fonts: &Fonts, probe: choices::Machine) {
+        // The transcript, the composer and the list carry measurements, so they
+        // are monospaced; everything else is the UI face.
+        let mono_controls = [nav::ID_OUT, nav::ID_IN, nav::ID_LIST, nav::ID_IMG_LOG];
+        for p in nav::PAGES {
+            for &id in nav::controls(p) {
+                let f = if mono_controls.contains(&id) {
+                    fonts.mono
+                } else {
+                    fonts.body
+                };
+                SendMessageW(GetDlgItem(hwnd, id), WM_SETFONT, f as WPARAM, 1);
+            }
+        }
+        for id in nav::SHELL_CONTROLS {
+            SendMessageW(GetDlgItem(hwnd, id), WM_SETFONT, fonts.body as WPARAM, 1);
+        }
+
+        // An owner-draw list uses a fixed row height that defaults to roughly
+        // the system font's, which clipped the model name in half.
+        SendMessageW(
+            GetDlgItem(hwnd, nav::ID_LIST),
+            LB_SETITEMHEIGHT,
+            0,
+            scale().px(28) as LPARAM,
+        );
+
+        // An EDIT puts its text flush against the border otherwise, which on a
+        // design built out of whitespace is the one control that has none.
+        for id in [nav::ID_OUT, nav::ID_IN] {
+            SendMessageW(
+                GetDlgItem(hwnd, id),
+                EM_SETMARGINS,
+                EC_LEFTMARGIN | EC_RIGHTMARGIN,
+                margins(10),
+            );
+        }
+        for f in nav::FIELDS {
+            let h = GetDlgItem(hwnd, f.id);
+            if choices::for_field(f.id, probe).is_some() {
+                // Every row of the list, then -- `usize::MAX` is `-1` -- the
+                // closed box itself. The closed height is what Windows keeps
+                // when it shrinks the control; `layout` sizes the rest.
+                SendMessageW(
+                    h,
+                    CB_SETITEMHEIGHT,
+                    0,
+                    scale().px(metric::COMBO_ROW) as LPARAM,
+                );
+                SendMessageW(
+                    h,
+                    CB_SETITEMHEIGHT,
+                    usize::MAX,
+                    scale().px(metric::CONTROL - 6) as LPARAM,
+                );
+            } else {
+                SendMessageW(h, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, margins(8));
+            }
+        }
+    }
+
+    /// `EM_SETMARGINS` packs left and right into one `LPARAM`, both in pixels.
+    fn margins(du: i32) -> LPARAM {
+        let px = scale().px(du);
+        (px | (px << 16)) as LPARAM
+    }
+
+    /// Every font, at the current scale.
+    unsafe fn build_fonts() -> Fonts {
+        Fonts {
+            display: make_font(size::DISPLAY, weight::BOLD, theme::FACE_UI),
+            heading: make_font(size::HEADING, weight::MEDIUM, theme::FACE_UI),
+            body: make_font(size::BODY, weight::REGULAR, theme::FACE_UI),
+            body_bold: make_font(size::BODY, weight::MEDIUM, theme::FACE_UI),
+            small: make_font(size::SMALL, weight::REGULAR, theme::FACE_UI),
+            mono: make_font(size::MONO, weight::REGULAR, theme::FACE_MONO),
+            mark: make_font(size::MARK, weight::BOLD, theme::FACE_UI),
+        }
+    }
+
+    /// The window moved to a monitor with a different scale.
+    ///
+    /// Windows sends the rectangle it wants the window to occupy, already
+    /// converted -- taking it is what makes the move look like one motion
+    /// rather than a resize followed by a jump. Then every font is the wrong
+    /// size and every rectangle is in the wrong place, so both are rebuilt.
+    ///
+    /// **The old fonts are deleted after the new ones are in place**, never
+    /// before: a control still holding a deleted `HFONT` draws with the system
+    /// default until its next `WM_SETFONT`, and on a slow repaint that shows.
+    unsafe fn rescale(hwnd: HWND, suggested: Option<RECT>) {
+        if !adopt_dpi(hwnd) {
+            return;
+        }
+        if let Some(r) = suggested {
+            // SWP_NOZORDER | SWP_NOACTIVATE = 0x0004 | 0x0010.
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                r.left,
+                r.top,
+                r.right - r.left,
+                r.bottom - r.top,
+                0x0004 | 0x0010,
+            );
+        }
+        let fresh = build_fonts();
+        let old = UI.with(|u| {
+            let mut b = u.borrow_mut();
+            b.as_mut().map(|ui| std::mem::replace(&mut ui.fonts, fresh))
+        });
+        let probe = probe_machine();
+        apply_fonts_and_heights(hwnd, &fresh, probe);
+        if let Some(old) = old {
+            for f in [
+                old.display,
+                old.heading,
+                old.body,
+                old.body_bold,
+                old.small,
+                old.mono,
+                old.mark,
+            ] {
+                DeleteObject(f as HGDIOBJ);
+            }
+        }
+        layout(hwnd);
+        InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+
     // -- layout --------------------------------------------------------------
 
     /// Position every control for the current page.
@@ -4615,6 +4858,13 @@ Any value a client sends is accepted.                      The server still list
     unsafe fn layout(hwnd: HWND) {
         let mut r = RECT::default();
         GetClientRect(hwnd, &mut r);
+        // **Into design units at the top, back to pixels at the bottom.** The
+        // 240 lines between here and the apply loop compute against the
+        // constants in `theme::metric` and the literal offsets beside them,
+        // all of which mean 96-DPI pixels. Divide the one input and every one
+        // of them is correct again at any scale, with nothing in the body
+        // touched. See `scale` for why this is the whole design.
+        let r = to_du(r);
         let page = page_rect(r);
 
         let moves: Vec<(i32, i32, i32, i32, i32)> = UI.with(|u| {
@@ -4658,9 +4908,9 @@ Any value a client sends is accepted.                      The server still list
                     // here: decoding a PNG would mean an inflate implementation
                     // in a crate that has no dependencies, and the system's own
                     // viewer is one button away.
-                    let mut y = top + 22;
+                    let mut y = top + rhythm::LOOSE;
                     m.push((nav::ID_IMG_PROMPT, x, y, w, 64));
-                    y += 64 + 26;
+                    y += 64 + rhythm::LOOSE;
                     // Its own row, and wide: a row here reads
                     // "ideogram4-Q4_0 -- ready, 16.7 GB", and the half that
                     // matters is the half a narrow control would cut.
@@ -4671,7 +4921,7 @@ Any value a client sends is accepted.                      The server still list
                         (w - 270).max(240),
                         metric::CONTROL + metric::COMBO_ROW * 4,
                     ));
-                    y += metric::CONTROL + 26;
+                    y += metric::CONTROL + rhythm::TIGHT;
                     let cw = 150;
                     m.push((
                         nav::ID_IMG_SIZE,
@@ -4694,9 +4944,23 @@ Any value a client sends is accepted.                      The server still list
                         cw + 60,
                         metric::CONTROL + metric::COMBO_ROW * 4,
                     ));
-                    m.push((nav::ID_IMG_DRAW, x + w - 250, y, 120, metric::BUTTON));
-                    m.push((nav::ID_IMG_STOP, x + w - 120, y, 120, metric::BUTTON));
-                    y += metric::CONTROL + 30;
+                    // **DRAW and STOP wrap when the row runs out.** They were
+                    // pinned to the right edge at `x + w - 250`, which walks
+                    // *left* as the window narrows -- so below about 800 units
+                    // of content they slid on top of the guidance dropdown.
+                    // Found by dumping the layout at five window sizes rather
+                    // than at one; nothing was wrong at the size it is usually
+                    // looked at.
+                    let settings_right = x + (cw + 20) * 2 + cw + 60;
+                    let side_by_side = x + w - 250 >= settings_right + 20;
+                    let (bx, by) = if side_by_side {
+                        (x + w - 250, y)
+                    } else {
+                        (x, y + metric::CONTROL + rhythm::TIGHT)
+                    };
+                    m.push((nav::ID_IMG_DRAW, bx, by, 120, metric::BUTTON));
+                    m.push((nav::ID_IMG_STOP, bx + 130, by, 120, metric::BUTTON));
+                    y = by + metric::BUTTON + rhythm::LOOSE;
                     let log_h = (page.bottom - y - metric::BUTTON - 30).max(100);
                     m.push((nav::ID_IMG_LOG, x, y, w, log_h));
                     m.push((nav::ID_IMG_OPEN, x, y + log_h + 12, 180, metric::BUTTON));
@@ -4769,18 +5033,20 @@ Any value a client sends is accepted.                      The server still list
                 // a CORE reads them out, a CLIENT types them in -- so they sit
                 // in one place and the labels change rather than the layout.
                 Page::Chaos => {
-                    let mut y = top + 30;
+                    // Three groups, on `rhythm`: what this machine is, how
+                    // another reaches it, and what to point at it.
+                    let mut y = top + rhythm::LOOSE;
                     // **The role first**: it decides what the address below
                     // it even means, so the page reads top to bottom. It was
                     // four buttons here, then a launch knob that owned the
                     // window until answered; one dropdown now.
                     m.push((nav::ID_ROLE, x, y, 200, metric::BUTTON));
-                    y += metric::BUTTON + 16;
+                    y += metric::BUTTON + rhythm::LOOSE;
                     let field = w.min(360);
                     let bw = 92;
                     m.push((nav::ID_CORE_ADDR, x, y, field, metric::BUTTON));
                     m.push((nav::ID_COPY_ADDR, x + field + 10, y, bw, metric::BUTTON));
-                    y += metric::BUTTON + 12;
+                    y += metric::BUTTON + rhythm::TIGHT;
                     m.push((nav::ID_CORE_KEY, x, y, field, metric::BUTTON));
                     m.push((nav::ID_COPY_KEY, x + field + 10, y, bw, metric::BUTTON));
                     m.push((
@@ -4790,19 +5056,23 @@ Any value a client sends is accepted.                      The server still list
                         bw,
                         metric::BUTTON,
                     ));
-                    y += metric::BUTTON + 20;
-                    // The two ways this machine and another find each other:
-                    // show a code, or read one. Side by side because they are
-                    // the same act from the two ends.
+                    y += metric::BUTTON + rhythm::LOOSE;
+                    // How another machine finds this one: point a camera at
+                    // the mark, which carries the address above.
                     let half = w.min(360) / 2 - 5;
                     m.push((nav::ID_SHOW_MARK, x, y, half, metric::BUTTON));
-                    y += metric::BUTTON + 10;
-                    // Full width and on its own row: it is the only control
-                    // here that starts something outside the app, and pairing
-                    // it with a brand button would read as a third of the
-                    // same idea.
-                    m.push((nav::ID_CLAUDE_CODE, x, y, w, metric::BUTTON));
-                    y += metric::BUTTON + 20;
+                    y += metric::BUTTON + rhythm::TIGHT;
+                    // **Its own row, but not the full width of it.** It is
+                    // the only control here that starts something outside the
+                    // app, so pairing it with a brand button would read as a
+                    // third of the same idea -- but it was the full width
+                    // of the content, and the placement dump made the problem
+                    // plain: 902 units beside buttons of 92 and 200, drawn as
+                    // an 1128-pixel bar. Every other button in the app is
+                    // between 70 and 200 units wide. This one is the widest
+                    // because it is the primary action, and no wider.
+                    m.push((nav::ID_CLAUDE_CODE, x, y, 260, metric::BUTTON));
+                    y += metric::BUTTON + rhythm::LOOSE;
                     let h = (page.bottom - metric::INSET - y).max(60);
                     m.push((nav::ID_CHAOS_STATUS, x, y, w, h));
                 }
@@ -4835,7 +5105,26 @@ Any value a client sends is accepted.                      The server still list
                     {
                         m.push((nav::ID_BROWSE_MODELS, fx, fy + fh + 6, 120, metric::BUTTON));
                     }
-                    let by = page.bottom - 26 - metric::BUTTON - 16;
+                    // **Below the last row, not at a fixed offset from the
+                    // bottom.** `page.bottom - 26 - BUTTON - 16` is where they
+                    // belong on a roomy window and where the *form* already is
+                    // on a short one: at the minimum window height the last
+                    // field was drawn straight through SAVE and RESET. A
+                    // dropped list is not a row: a combo is laid out at its
+                    // *dropped* height and appears at `metric::CONTROL`, so
+                    // measuring the form by the rectangles in `m` would put the
+                    // buttons a hundred units below anything visible. Every
+                    // non-toggle row is one `CONTROL` tall whether it drops a
+                    // list or not, which is why there is no third case here.
+                    let form_bottom = settings_rows(page)
+                        .into_iter()
+                        .map(|(_, _, cy, is_toggle)| {
+                            cy + if is_toggle { 24 } else { metric::CONTROL }
+                        })
+                        .max()
+                        .unwrap_or(page.top);
+                    let by =
+                        (page.bottom - 26 - metric::BUTTON - 16).max(form_bottom + rhythm::LOOSE);
                     m.push((nav::ID_SAVE, x, by, 110, metric::BUTTON));
                     m.push((nav::ID_RESET, x + 120, by, 110, metric::BUTTON));
                 }
@@ -4843,12 +5132,113 @@ Any value a client sends is accepted.                      The server still list
             m
         });
 
-        for (id, x, y, w, h) in moves {
+        // Edges, not origin-plus-size: `Scale::rect` converts left/top and
+        // right/bottom and subtracts, so a row of controls that was flush in
+        // design units is still flush in pixels rather than a pixel apart per
+        // control and visibly ragged by the seventh.
+        let s = scale();
+        for &(id, x, y, w, h) in &moves {
             let c = ctl(id);
             if !c.is_null() {
-                MoveWindow(c, x, y, w.max(1), h.max(1), 1);
+                let (px, py, pr, pb) = s.rect((x, y, x + w, y + h));
+                MoveWindow(c, px, py, (pr - px).max(1), (pb - py).max(1), 1);
             }
         }
+
+        dump_placement(r, &moves);
+    }
+
+    /// Write this page's geometry, and anything wrong with it, to the file
+    /// named by `CHAOS_LAYOUT_DUMP`.
+    ///
+    /// **The instrument the pixel check needed.** Everything here is measured
+    /// inside the DPI-aware process that computed it, which is the whole
+    /// point: a DPI-unaware reader -- `powershell.exe`, and so every external
+    /// script -- is handed virtualised coordinates by Windows and cannot see
+    /// the truth. Off by default and costs nothing when the variable is unset.
+    unsafe fn dump_placement(client: RECT, moves: &[(i32, i32, i32, i32, i32)]) {
+        let Ok(path) = std::env::var("CHAOS_LAYOUT_DUMP") else {
+            return;
+        };
+        let page = UI.with(|u| u.borrow().as_ref().map(|ui| ui.page));
+        let Some(page) = page else { return };
+        let s = scale();
+
+        let placed: Vec<chaos_app::placement::Placed> = moves
+            .iter()
+            .map(|&(id, x, y, w, h)| {
+                // **A dropdown's rectangle is its dropped extent.** Asking
+                // Windows for the class is better than keeping a list of ids
+                // that would drift: the answer comes from the control that is
+                // actually there.
+                if is_combo(ctl(id)) {
+                    chaos_app::placement::Placed::dropdown(id, x, y, w, h, metric::CONTROL)
+                } else if nav::SHELL_CONTROLS.contains(&id) {
+                    chaos_app::placement::Placed::chrome(id, x, y, w, h)
+                } else {
+                    chaos_app::placement::Placed::new(id, x, y, w, h)
+                }
+            })
+            .collect();
+
+        let found = chaos_app::placement::problems(
+            (client.left, client.top, client.right, client.bottom),
+            metric::STRIP,
+            &placed,
+        );
+
+        let mut out = format!(
+            "page {:?}  dpi {}  client {}x{} du  ({}x{} px)  controls {}\n",
+            page,
+            s.dpi(),
+            client.right,
+            client.bottom,
+            s.px(client.right),
+            s.px(client.bottom),
+            placed.len()
+        );
+        for p in &placed {
+            let (px, py, pr, pb) = s.rect((p.x, p.y, p.x + p.w, p.y + p.h));
+            out += &format!(
+                "  {:>4}  du {:>5},{:>4} {:>4}x{:<4}  px {:>5},{:>4} {:>4}x{:<4}\n",
+                p.id,
+                p.x,
+                p.y,
+                p.w,
+                p.h,
+                px,
+                py,
+                pr - px,
+                pb - py
+            );
+        }
+        for f in &found {
+            out += &format!("  PROBLEM: {f}\n");
+        }
+        if found.is_empty() {
+            out += "  clean\n";
+        }
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = f.write_all(out.as_bytes());
+        }
+    }
+
+    /// Whether a control is a combo box, asked of the control itself.
+    unsafe fn is_combo(h: HWND) -> bool {
+        if h.is_null() {
+            return false;
+        }
+        let mut buf = [0u16; 32];
+        let n = GetClassNameW(h, buf.as_mut_ptr(), buf.len() as i32);
+        if n <= 0 {
+            return false;
+        }
+        String::from_utf16_lossy(&buf[..n as usize]).eq_ignore_ascii_case("ComboBox")
     }
 
     // -- owner-drawn controls ------------------------------------------------
@@ -4910,6 +5300,16 @@ Any value a client sends is accepted.                      The server still list
     /// own colours -- a themed push button ignores `WM_CTLCOLORBTN` entirely,
     /// and the selection bar is the system highlight. Both are drawn here.
     unsafe fn draw_item(di: &DRAWITEMSTRUCT) {
+        // **`rcItem` arrives in pixels.** Converting it once here puts this
+        // function and the two it delegates to in design units -- the space
+        // every page painter and `layout` work in -- so a row drawn by
+        // `draw_list_row` and the list positioned by `layout` cannot disagree
+        // about where a row's edge is.
+        let scaled = DRAWITEMSTRUCT {
+            rcItem: to_du(di.rcItem),
+            ..*di
+        };
+        let di = &scaled;
         let selected = di.itemState & ODS_SELECTED != 0;
         let disabled = di.itemState & ODS_DISABLED != 0;
         let focused = di.itemState & ODS_FOCUS != 0;
@@ -5290,7 +5690,13 @@ Any value a client sends is accepted.                      The server still list
         );
     }
 
-    /// How wide a string draws in `font`, for right-aligning a column.
+    /// How wide a string draws in `font`, **in design units**, for
+    /// right-aligning a column.
+    ///
+    /// Windows measures in pixels with a font that is already scaled, so the
+    /// answer comes back physical and is converted here rather than at each
+    /// call site -- every caller adds a design-unit pad to it and compares it
+    /// against a design-unit width.
     unsafe fn text_width(hdc: HDC, s: &str, font: HFONT) -> i32 {
         let old = SelectObject(hdc, font as HGDIOBJ);
         let w: Vec<u16> = s.encode_utf16().collect();
@@ -5299,7 +5705,7 @@ Any value a client sends is accepted.                      The server still list
             GetTextExtentPoint32W(hdc, w.as_ptr(), w.len() as i32, &mut sz);
         }
         SelectObject(hdc, old);
-        sz.cx
+        scale().du(sz.cx)
     }
 
     /// Put the embedded icon on the window itself.
@@ -6304,11 +6710,20 @@ Any value a client sends is accepted.                      The server still list
                 InvalidateRect(hwnd, std::ptr::null(), 1);
                 0
             }
+            // The window was dragged to a monitor with a different scale, or
+            // the user changed the scale while it was open. Windows hands over
+            // the rectangle it wants, in the new scale's pixels.
+            WM_DPICHANGED => {
+                let suggested = (lp != 0).then(|| *(lp as *const RECT));
+                rescale(hwnd, suggested);
+                0
+            }
             // Below this the rail plus a page has nowhere to put anything.
             WM_GETMINMAXINFO => {
                 let mm = &mut *(lp as *mut MINMAXINFO);
-                mm.ptMinTrackSize.x = MIN_W;
-                mm.ptMinTrackSize.y = MIN_H;
+                let s = scale();
+                mm.ptMinTrackSize.x = s.px(MIN_W);
+                mm.ptMinTrackSize.y = s.px(MIN_H);
                 0
             }
             // Answered here so Windows never paints a ground we are about to
@@ -6448,7 +6863,7 @@ Any value a client sends is accepted.                      The server still list
             // default is the system font's height -- which clips a 15px label.
             WM_MEASUREITEM => {
                 let mi = &mut *(lp as *mut MEASUREITEMSTRUCT);
-                mi.itemHeight = 26;
+                mi.itemHeight = scale().px(26) as u32;
                 1
             }
             WM_COMMAND => {

@@ -118,71 +118,25 @@ pub const OWN: &[(&str, &str)] = &[
         "completions",
         "shell completions: bash, zsh, fish or powershell",
     ),
-    // **Listed, and it says it is not built.** The alternative was to leave it
-    // out, and then the one question it answers -- "can this read a code?" --
-    // has no answer anywhere a person will look. See `scan_verdict`.
-    (
-        "scan",
-        "read a QR code from an image -- NOT BUILT, says what to use",
-    ),
     (
         "verify",
         "hash a model and check it is the file it was when it arrived",
     ),
 ];
 
-/// Why `chaos scan` does not decode, and what does.
-///
-/// **`core/qr` encodes and does not decode, and that asymmetry is not laziness.**
-/// Atur's plan is explicit about the honest response: *"A Rust decoder is a real
-/// piece of work and `core/qr` only encodes — say so rather than half-building
-/// it."* Encoding is arithmetic with a known answer; decoding a photograph is
-/// thresholding, finder detection, a perspective basis, format and version
-/// recovery, de-masking, and Reed-Solomon **correction** rather than the syndrome
-/// check the encoder's tests use. Every one of those has a failure mode that
-/// returns a plausible wrong string rather than an error, which is the single
-/// worst shape a bug can take in this project.
-///
-/// Two readers already work and are measured (210 of 210 across 7 scales and 30
-/// angles): the phone's SCAN button, and `/scan` in a browser. Both use the
-/// JavaScript detector in `assets/grimoire/scanner.html`, which was written from
-/// the reading side and is the thing a Rust port would have to agree with
-/// bit-for-bit before it could be trusted.
-pub fn scan_verdict(image: Option<&str>) -> String {
-    // **Lines in a list, not one string with continuations.** A `\` at the end
-    // of a Rust string literal eats the newline and the indentation after it --
-    // except when it does not, and the first version of this shipped a paragraph
-    // indented nine spaces into a terminal.
-    let mut lines: Vec<String> = Vec::new();
-    match image {
-        Some(path) => lines.push(format!(
-            "chaos: cannot read {path} -- there is no decoder here."
-        )),
-        None => lines.push("chaos scan <image.png> -- not built.".to_string()),
-    }
-    for l in [
-        "",
-        "Chaos can *draw* a code (`chaos qr`) but not read one. Encoding is",
-        "arithmetic; decoding is thresholding, finder detection, a perspective",
-        "basis, de-masking and Reed-Solomon correction -- and each of those fails",
-        "by returning a plausible wrong string rather than an error.",
-        "",
-        "Two readers do work, and are measured at 210 of 210 across 7 scales and",
-        "30 angles:",
-        "",
-        "  the phone   open the Chaos app and press SCAN",
-        "  a browser   open http://<node>/scan on the machine running the node",
-        "              (a camera needs a secure context, so this works on",
-        "               localhost and on the phone, not over a LAN address)",
-        "",
-        "Tracked in docs/graph/backlog/cli-first-class-tier.md.",
-    ] {
-        lines.push(l.to_string());
-    }
-    let mut out = lines.join("\n");
-    out.push('\n');
-    out
-}
+// **`chaos scan` was removed in v0.0.34, with the reader it pointed at.**
+//
+// It existed to answer one question -- "can this read a code?" -- by
+// refusing and naming the two readers that did work: the phone app's SCAN
+// button and `/scan` in a browser. Atur deleted both (*"that book and
+// barcode aren't needed any more, we only use the book"*), so the command
+// spent this release directing people to two features that no longer
+// exist -- **and a test asserted that it did**, checking the message named
+// `/scan`. A refusal that points at a ghost is worse than no command: it
+// is wrong rather than merely absent, and it had a check keeping it wrong.
+//
+// `chaos qr` still draws a code. Nothing here reads one, and `chaos` now
+// says `scan` is not a command, which is true.
 
 pub fn alias_for(verb: &str) -> Option<&'static Alias> {
     ALIASES.iter().find(|a| a.verb == verb)
@@ -466,7 +420,6 @@ mod tests {
         }
         assert!(alias_for("run").is_some());
         assert!(alias_for("start").is_none(), "start is not a pass-through");
-        assert!(alias_for("scan").is_none(), "scan is not a pass-through");
         assert!(alias_for("wharrgarbl").is_none());
     }
 
@@ -553,28 +506,48 @@ mod tests {
         assert_eq!(delta_text(""), None);
     }
 
-    /// **A command that cannot do its job must say what can.** This one is
-    /// allowed to exist only because it names the two readers that work.
+    /// **No command may point at something that is not there.**
+    ///
+    /// `chaos scan` refused to decode and named two readers that did work --
+    /// the phone app's SCAN button and `/scan` in a browser. Both were deleted
+    /// in v0.0.34, and the command went on naming them, with a test asserting
+    /// the message contained "/scan". The check kept it wrong. This is the
+    /// same check, inverted: nothing this binary prints may name a reader, and
+    /// `scan` is no longer a command it claims to have.
     #[test]
-    fn scan_refuses_and_points_somewhere_real() {
-        for given in [None, Some("photo.png")] {
-            let v = scan_verdict(given);
-            assert!(v.contains("SCAN"), "does not name the phone's button: {v}");
-            assert!(v.contains("/scan"), "does not name the browser route: {v}");
-            assert!(
-                v.contains("210 of 210"),
-                "does not say the working readers are measured: {v}"
-            );
-            assert!(
-                v.contains("backlog/cli-first-class-tier.md"),
-                "the refusal is not tracked anywhere: {v}"
-            );
-            assert!(!v.contains("coming soon"), "vague promise: {v}");
-        }
-        assert!(scan_verdict(Some("photo.png")).contains("photo.png"));
-        assert!(OWN
+    fn nothing_points_at_the_reader_that_was_deleted() {
+        assert!(
+            !OWN.iter().any(|(v, _)| *v == "scan"),
+            "`chaos scan` is listed again; the reader it named is gone"
+        );
+        assert!(alias_for("scan").is_none(), "scan is not a pass-through");
+        let listed: String = OWN
             .iter()
-            .any(|(v, d)| *v == "scan" && d.contains("NOT BUILT")));
+            .map(|(v, d)| {
+                format!(
+                    "{v} {d}
+"
+                )
+            })
+            .chain(ALIASES.iter().map(|a| {
+                format!(
+                    "{} {}
+",
+                    a.verb, a.blurb
+                )
+            }))
+            .collect();
+        assert!(!listed.contains("/scan"), "the listing names the reader");
+        assert!(
+            !listed.to_lowercase().contains("read a qr"),
+            "the listing still offers to read a code: {listed}"
+        );
+        // And `chaos qr`, which draws one, is still there -- the encoder was
+        // never the part that went.
+        assert!(
+            OWN.iter().any(|(v, _)| *v == "qr") || alias_for("qr").is_some(),
+            "the encoder went with the reader"
+        );
     }
 
     /// **The cap reaches the wire, and its absence leaves the body unchanged.**

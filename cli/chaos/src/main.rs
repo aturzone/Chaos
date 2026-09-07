@@ -117,15 +117,6 @@ fn main() {
             args.extend_from_slice(rest);
             pass_through("chaos-run", &args)
         }
-        "scan" => {
-            // Not a failure of this invocation -- it is a feature that does not
-            // exist, and the message is the deliverable.
-            eprint!(
-                "{}",
-                chaos_cli::scan_verdict(rest.first().map(String::as_str))
-            );
-            2
-        }
         "completions" => match rest.first().map(String::as_str) {
             Some(shell) => match completions(shell) {
                 Ok(s) => {

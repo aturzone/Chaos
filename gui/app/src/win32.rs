@@ -248,6 +248,10 @@ pub const ODS_DISABLED: u32 = 0x0004;
 pub const ODS_FOCUS: u32 = 0x0010;
 pub const ODT_LISTBOX: u32 = 2;
 
+/// `Copy` so the window can take a design-unit copy of one: `rcItem` arrives
+/// in physical pixels like everything else from Windows, and the owner-draw
+/// handlers work in design units.
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct DRAWITEMSTRUCT {
     pub CtlType: u32,
@@ -378,6 +382,16 @@ extern "system" {
     pub fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) -> BOOL;
     pub fn FillRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH) -> i32;
     pub fn GetClientRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
+    pub fn SetWindowPos(
+        hWnd: HWND,
+        hWndInsertAfter: HWND,
+        X: i32,
+        Y: i32,
+        cx: i32,
+        cy: i32,
+        uFlags: u32,
+    ) -> BOOL;
+    pub fn GetClassNameW(hWnd: HWND, lpClassName: *mut u16, nMaxCount: i32) -> i32;
     pub fn MoveWindow(
         hWnd: HWND,
         X: i32,
@@ -771,6 +785,12 @@ pub const WM_MOUSEMOVE: u32 = 0x0200;
 pub const WM_MOUSELEAVE: u32 = 0x02A3;
 pub const WM_ERASEBKGND: u32 = 0x0014;
 pub const WM_GETMINMAXINFO: u32 = 0x0024;
+/// Sent to a per-monitor-aware window when its monitor's scale changes, either
+/// because it was dragged across a boundary or because the user changed the
+/// setting. `lParam` is a `RECT*` holding the position and size Windows
+/// suggests for the new scale, and taking it is what makes the move look like
+/// one motion.
+pub const WM_DPICHANGED: u32 = 0x02E0;
 pub const WM_KEYDOWN: u32 = 0x0100;
 pub const WM_SETCURSOR: u32 = 0x0020;
 pub const WM_INITMENUPOPUP: u32 = 0x0117;
@@ -1227,6 +1247,7 @@ extern "system" {
     /// Must be released, not deleted -- `DeleteDC` is for the ones *we* create.
     pub fn GetDC(hWnd: HWND) -> HDC;
     pub fn ReleaseDC(hWnd: HWND, hDC: HDC) -> i32;
+    pub fn GetDeviceCaps(hdc: HDC, index: i32) -> i32;
 }
 
 /// The first of `wanted` that is installed, or `None`.
@@ -1357,4 +1378,65 @@ pub fn random_hex(n: usize) -> Option<String> {
     };
     // STATUS_SUCCESS is 0; anything else is a failure worth surfacing.
     (ok == 0).then(|| buf.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// The DPI of the monitor a window is on, or `None` if Windows cannot say.
+///
+/// **Per window, not per process.** `PER_MONITOR_AWARE_V2` means two windows
+/// of this process on two differently scaled monitors are each entitled to
+/// their own answer, and dragging one across the boundary changes it — which
+/// arrives as `WM_DPICHANGED`, the only correct moment to re-read this.
+///
+/// Resolved through `GetProcAddress` rather than linked, because
+/// `GetDpiForWindow` is Windows 10 1607 and later. Older Windows falls back to
+/// the system-wide answer, which is what a non-per-monitor machine has anyway.
+pub fn dpi_for_window(hwnd: HWND) -> Option<u32> {
+    // SAFETY: one library handle, one resolved symbol of a known signature,
+    // called with a handle the caller owns. No pointers we allocate.
+    unsafe {
+        let user32 = LoadLibraryW(wide_z("user32.dll").as_ptr());
+        if user32.is_null() {
+            return None;
+        }
+        let f = GetProcAddress(user32, c"GetDpiForWindow".as_ptr());
+        if !f.is_null() {
+            let f: extern "system" fn(HWND) -> u32 = std::mem::transmute(f);
+            let dpi = f(hwnd);
+            // 0 means the handle was not a window yet, which is a real case:
+            // `WM_CREATE` runs before the handle is fully published.
+            if dpi != 0 {
+                return Some(dpi);
+            }
+        }
+        system_dpi()
+    }
+}
+
+/// The system-wide DPI, for the two moments there is no window to ask about:
+/// choosing the size the window opens at, and Windows too old for
+/// `GetDpiForWindow`.
+pub fn system_dpi() -> Option<u32> {
+    // SAFETY: as above. `GetDeviceCaps` on the screen DC is the pre-Windows-10
+    // way of asking and needs no symbol lookup.
+    unsafe {
+        let user32 = LoadLibraryW(wide_z("user32.dll").as_ptr());
+        if !user32.is_null() {
+            let f = GetProcAddress(user32, c"GetDpiForSystem".as_ptr());
+            if !f.is_null() {
+                let f: extern "system" fn() -> u32 = std::mem::transmute(f);
+                let dpi = f();
+                if dpi != 0 {
+                    return Some(dpi);
+                }
+            }
+        }
+        // LOGPIXELSY = 90.
+        let dc = GetDC(std::ptr::null_mut());
+        if dc.is_null() {
+            return None;
+        }
+        let dpi = GetDeviceCaps(dc, 90);
+        ReleaseDC(std::ptr::null_mut(), dc);
+        (dpi > 0).then_some(dpi as u32)
+    }
 }

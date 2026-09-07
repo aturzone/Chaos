@@ -32,7 +32,7 @@ export GGML_LIB_DIR=C:/Projects/llamacpp-unsloth/build/ggml/src   # PowerShell: 
 # was once reported for a file whose two GPU tests never ran once. Fixed:
 # CHAOS_REQUIRE_GPU=1 turns every such skip into a failure, and against
 # build-vulkan all 14 GPU tests run and pass on this laptop's RTX 3050.
-cargo test --release          # 1018 tests
+cargo test --release          # 1045 tests
 cargo test --release --test deepseek4_forward -- --ignored   # 22 V4-Flash, needs the container
 cargo test --release -p chaos-qr --test reference_grids identical_to  # crate/file/one test
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate: warnings are errors
@@ -90,8 +90,8 @@ is ~6 minutes at 12k tokens on this CPU.
 **`chaos` is the front door**: `cli/chaos` dispatches `chaos run` to
 `chaos-run` with arguments untouched — every old binary name still works — and
 implements `start`/`stop`/`status` (a node as a background process, pid file,
-log), `connect`, `config`, `completions`, and `scan`, which is **NOT BUILT and
-says so**. `chaos start` uses `Settings::serve_args`, the window's own function.
+log), `connect`, `config`, `completions` and `verify`. **`scan` is gone**: it
+refused to decode and named two readers, both deleted in v0.0.34. `chaos start` uses `Settings::serve_args`, the window's own function.
 
 `cli/run` chaos-run · `network/serve` chaos-serve · `network/worker`
 chaos-worker, which holds experts and answers with activations · `gui/app` the
@@ -217,11 +217,8 @@ item; if one is not done, say which and why.**
   `Qwen3Config` and the deepseek4 dispatch returns before that config exists, so
   `--auto` makes **zero** decisions on V4-Flash. The expert cache now has a
   default there regardless (1.20x); threads, batch, I/O and device do not.
-- [x] **5. ~~An Android app~~ — removed 2026-09-07.** It shipped as a client
-  for eight releases, installed and launched on an emulator, and was never run
-  on a phone. Atur ended it: *"delete Android and so on, keep only Windows,
-  Linux and macOS"*. The tree, the release job, the APK asset, its tests and
-  the signing-key backlog all went. **Three platforms is the product now.**
+- [x] **5. ~~An Android app~~ — removed 2026-09-07**, never once run on a
+  phone in eight releases. See "Three platforms" above.
 - [ ] **6. Devices as resources — one model, many machines.** An activation is
   **16 KB**, a token's experts are **3.3 GB**, so expert-parallel costs ~66 ms
   of network to replace ~1560 ms of disk. **Send the work to the weights, never
@@ -240,14 +237,17 @@ item; if one is not done, say which and why.**
 `STATUS.md` is the scoreboard; `backlog/the-plan-v0-1-0.md` is the queue. Both
 are more current than this file — take a number from them, not from here.
 
-**Three instruments, because they are how the GUI is measured at all**:
-`scripts/poke-app.ps1` (one control, timed, overlap-checked),
-`scripts/run-through.ps1` (every control, every page, one transcript),
-`tools/check-logo-centred.py` (margins of the shipped `.ico`). **A screen grab is
-uniform black here** — read rectangles, never pixels, and **`IsWindowVisible` is
-not "on screen"**: `layout` parks unreachable rail buttons at `(-3200,-3200)`.
-`run-through.ps1` now enters a mode first and covers the CHAOS page; it used to
-report a clean pass over an app that had never left its launch screen.
+**Four instruments, because they are how the GUI is measured at all**:
+`scripts/poke-app.ps1` (one control, timed), `scripts/run-through.ps1` (every
+control, every page, one transcript), `tools/check-logo-centred.py` (margins of
+the shipped `.ico`), and **`CHAOS_LAYOUT_DUMP=<file>`, which is the only one
+that can be trusted for a size** — the app writes its own geometry, design
+units and pixels, checked by `placement.rs`. **A screen grab is uniform black
+here**, and every external reader is DPI-unaware, so Windows virtualises the
+coordinates it hands back: a 40px button reads as 32. `IsWindowVisible` is not
+"on screen" either — `layout` parks unreachable buttons at `(-3200,-3200)`.
+**The window scales as of v0.0.34**: `theme::metric`/`size` are design units at
+96 DPI and only `chaos_app::scale` converts.
 
 **CI logs CAN be read from this machine** — `gh run view <id> --log-failed`
 returns the real log, which is how v0.0.32's Android failure was found in one
@@ -267,7 +267,7 @@ tok/s measured, 64 GB 0.55, 128 GB 0.93, 160 GB 1.19 — **the whole 144 GB mode
 RAM is worth 2.9x, not 48x.** Do not quote a GPU V4-Flash figure: resident-in-VRAM
 is untested and the only measured number is 4.3x *slower* on streaming MoE.
 
-**Open, none of it blocking**: `chaos scan` is declared NOT BUILT; zsh and
+**Open, none of it blocking**: zsh and
 fish completions are generated but never sourced; a long upgrade jump from
 0.0.2 is untested; there is no contrast audit or screen-reader story for the
 window; no real camera has seen the mark. **iOS and Android are not parked,

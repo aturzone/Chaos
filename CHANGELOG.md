@@ -10,7 +10,90 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [0.0.34] — 2026-09-08
 
-**Three platforms, one mode, one book.**
+**Three platforms, one mode, one book — and a window that scales.**
+
+### Fixed
+
+- **The window ignored display scaling, and had since the first release.** It
+  asks Windows for `PER_MONITOR_AWARE_V2` before any window exists, correctly
+  and early — but **declaring awareness moves the responsibility to the
+  application; it does not discharge it.** `theme::metric` was eleven raw
+  `i32` constants and `theme::size` six raw font heights, used as physical
+  pixels at 114 call sites, so on a 125% display every control and every glyph
+  was drawn about 20% smaller than designed; 33% at 150%, half size at 200%.
+  Every other window on the desktop scaled and this one did not, which is most
+  of what Atur meant by *"it's not like Windows 98 — make the appearance much
+  more professional"*.
+
+  A `metric::BUTTON` control now measures **40 physical pixels at 120 DPI**.
+  The fix is `chaos_app::scale` and two conversions rather than 114 edits: all
+  geometry derives from one input, the client rect, and leaves through a
+  handful of exits, so the window computes in design units end to end and
+  converts only at `MoveWindow`, at `text` and `fill`, at `make_font`, at the
+  two `StretchDIBits` blits, and at the item heights and margins Windows is
+  told directly. `WM_DPICHANGED` rebuilds every font and re-runs the layout
+  when the window moves to a differently scaled monitor.
+
+  **It could not be staged**: 15px text in a 32px button is comfortable, and
+  the same text in a button grown to 40px looks lost in it. Three boundaries
+  were nearly missed and each would have been visible — `text_width` measures
+  with a physical font, `DRAWITEMSTRUCT::rcItem` arrives physical, and a
+  raster must be scan-converted at the physical size rather than blown up from
+  96 DPI.
+- **`USE WITH CLAUDE CODE` was laid out at the full content width** — 902
+  design units, drawn as an 1128-pixel bar beside buttons of 92 and 200, the
+  only full-width button in the app. Found by the placement check, not by eye.
+  260 now.
+- **Three defects that only appear when the window is resized**, found by
+  dumping every page at five sizes instead of one. On IMAGE, DRAW and STOP
+  were pinned to the right edge at `x + w - 250`, which walks *left* as the
+  window narrows, and slid on top of the guidance dropdown; they wrap to
+  their own row now. On SETTINGS, SAVE and RESET sat at a fixed offset from
+  the page bottom while the form grew from the top, so on a short window they
+  were drawn through the last field; they follow the form now. And **`MIN_H`
+  was 60 units too small — the window enforced a minimum size at which its
+  own tallest page did not fit.** 680 now. **43 layouts across five sizes and
+  six pages, no problems.**
+- **The CHAOS page used five different gaps for one vertical stack** — 48, 44,
+  52, 42, 52, because each row's `y +=` had been chosen on its own. Nothing
+  was wrong by any check; it read as unconsidered, which is a large part of
+  what "looks unprofessional" means. Two named gaps now, `rhythm::TIGHT` for
+  rows that belong together and `rhythm::LOOSE` for rows that start a new
+  thought, so CHAOS measures 60, 44, 60, 44, 60. IMAGE had 26 and 30 for the
+  same kind of gap and is on the same two values.
+- **`/api/hello` was a 404.** It is the first thing Claude Code sends, to
+  decide whether the endpoint behind `ANTHROPIC_BASE_URL` is reachable, so a
+  working node looked broken for the whole of v0.0.33. It carries nothing
+  about the node, so it stays outside the API key like the mark does.
+
+### Added
+
+- **`gui/app/src/placement.rs`** — whether a laid-out page is usable: nothing
+  off an edge, nothing on top of anything else, nothing too small to hit. A
+  pure function over rectangles with ten tests, because measuring the window
+  from outside the process produced three sets of confident wrong numbers.
+  `CHAOS_LAYOUT_DUMP` names a file and the app appends every layout pass to it:
+  page, DPI, client rect, and every control in both design units and pixels.
+  **Nine passes across all six pages, all clean.**
+
+  It reported a false positive on its first real run — the strip's own STOP
+  button "off the bottom edge", six times — and the fix was to teach it the
+  distinction it was missing: chrome may use the space pages are kept out of.
+  Both halves are tests. A check that cries wolf six times a run is a check
+  nobody reads.
+- **`chaos_app::claude`** — the five settings that point Claude Code at a
+  node, in one place, with a test that the USE WITH CLAUDE CODE button, both
+  shipped `scripts/claude-chaos.*` wrappers and `docs/CLAUDE-CODE.md` say the
+  same tool set, context, model name and config directory. They were a
+  `format!` inside the one button `run-through.ps1` cannot press — it opens a
+  modal folder dialog, which stops the message loop — so nothing checked them
+  at all. The test immediately found that the document a user is pointed at
+  never named `/v1/messages`, the endpoint the whole thing runs on.
+- **`chaos_app::scale`** — the one conversion between design units and pixels,
+  integer arithmetic, eight tests covering every scale Windows offers. Fonts
+  round by magnitude, so `-15` becomes `-19` rather than `-18`; rectangles
+  convert by edge rather than by origin-plus-size, so a row of controls that
+  was flush stays flush; and a one-unit hairline never rounds away to nothing.
 
 ### Removed
 
@@ -24,6 +107,29 @@ While the major version is `0`, anything may change in a minor release.
   `hide_every_control`, the `launched` gate on `WM_PAINT`, `mode_chosen` in
   the settings file, the mode badge, CHANGE MODE, and Escape's one-keystroke
   drop of a loaded model. **The window opens on CHAT.**
+- **The startup banner named only OpenAI's endpoint.** `/v1/messages` is
+  Anthropic's, and the reason this node can drive Claude Code at all — the
+  headline feature of v0.0.33 — and it went unmentioned in the one place a
+  person actually looks for a whole release. The banner names both now, with a
+  pointer to `docs/CLAUDE-CODE.md`, and a surface check greps for it.
+- **`chaos-serve --help` advertised `--emit-pages` writing "qr.html and
+  scan.html" for "the Android APK"** — one of those files and the APK were
+  both deleted, and it writes one file. It also offered `0.0.0.0` as the way
+  to "reach a phone", which is now just other machines. **A surface check now
+  greps every binary's `--help` for anything deleted**, because the class of
+  bug is a working command giving confident directions to somewhere
+  demolished, and the surface run had been green through a whole release of
+  it — one of its own checks was asserting the stale message.
+- **`chaos scan`**, which spent this release pointing at two features that
+  no longer existed. It refused to decode and named the two readers that did
+  work — the phone app's SCAN button and `/scan` in a browser — and both were
+  deleted below. **A test asserted that it named them**, checking the message
+  contained `/scan`, so the check kept the command wrong. A refusal that
+  points at a ghost is worse than an absent command: it is wrong rather than
+  merely missing. `chaos` now answers `"scan" is not a command`, which is
+  true, and `nothing_points_at_the_reader_that_was_deleted` is the old test
+  inverted. `chaos qr` still draws a code; the encoder was never the part
+  that went.
 - **The reader**: `scanner.html`, the `/scan` route, `Page::Scry`, `scry()`,
   the READ A CODE button, the emitted `scan.html` and `scan-sweep.js`. The
   mark stays. `decode_qr.py` stays too — it is the *encoder's* fixture
@@ -45,13 +151,14 @@ While the major version is `0`, anything may change in a minor release.
 - The window's own text no longer talks about a phone — eight strings and
   comments that told the user to type the address into one.
 
-### Found and not fixed
+### Verified
 
-- **The window ignores display scaling.** It asks for per-monitor DPI
-  awareness and then scales nothing, so on a 120-DPI display every control
-  and every font is about 20% smaller than designed, and worse at 150%.
-  It must be done in one piece and the design is written down:
-  `docs/graph/backlog/the-window-ignores-display-scaling.md`.
+- **Claude Code driving a local model, end to end.** Against
+  Qwen3-4B-Q4_K_M on this laptop's CPU: `claude -p "Read notes.txt and tell
+  me the launch code it contains."` Turn 1 took 329s and came back
+  `tool_use`; Claude Code ran the Read; turn 2 took 212s and came back
+  `end_turn` with the right answer — a string that existed nowhere but inside
+  that file, so the model demonstrably read it. **10m12s for the round trip.**
 
 ## [0.0.33] — 2026-09-07
 

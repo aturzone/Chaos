@@ -1,9 +1,18 @@
 # Claude Code on your own model
 
-Chaos serves the **Anthropic Messages API**, so `claude` can be pointed at a
-model running on your machine instead of at Anthropic's servers. Tool calling
-works: the model reads files, runs commands and edits code through Claude Code's
-own tools.
+Chaos serves the **Anthropic Messages API** — `POST /v1/messages`, the endpoint
+Claude Code speaks — so `claude` can be pointed at a model running on your
+machine instead of at Anthropic's servers. Tool calling works: the model reads
+files, runs commands and edits code through Claude Code's own tools.
+
+The node prints both of its endpoints at startup, so you can see which is
+which:
+
+```
+for agents POST /v1/chat/completions   (OpenAI)
+           POST /v1/messages           (Anthropic -- this is what
+           Claude Code speaks; see docs/CLAUDE-CODE.md)
+```
 
 **Read the speed section before you start.** This works, and on a CPU machine a
 turn takes minutes.

@@ -71,15 +71,18 @@ pub fn usage() {
     println!();
     println!("  --api-key <key>   require `Authorization: Bearer <key>` on /v1/*");
     println!("  --host <addr>     what to listen on (default 127.0.0.1;");
-    println!("                    0.0.0.0 reaches a phone on the same Wi-Fi and");
+    println!("                    0.0.0.0 reaches other machines on this Wi-Fi");
     println!("                    then --api-key is required, not optional)");
     println!();
-    println!("  --emit-pages <dir>  write qr.html and scan.html and exit, for a");
-    println!("                      host that embeds them (the Android APK does)");
+    println!("  --emit-pages <dir>  write qr.html and exit, for a host that embeds");
+    println!("                      it. `chaos-qr --emit-pages` does the same and");
+    println!("                      needs no model and no C toolchain");
     println!();
     println!("  CHAOS_QR=1        draw the route as a QR code in this terminal even");
     println!("                    on loopback (=0 never). Off loopback it is drawn");
-    println!("                    anyway -- that is how a phone finds a headless node.");
+    println!("                    anyway -- point a phone's camera at it and the");
+    println!("                    phone opens this node, which is how a headless");
+    println!("                    machine is reached at all.");
     println!();
     println!("Binds to localhost only: no TLS, one request at a time.");
 }
@@ -461,8 +464,15 @@ fn run_loop(
     // not have to read an endpoint list to find the interface.
     println!("           open       http://{addr}");
     println!("           the mark   {}/qr", node.route);
-    println!("           the reader {}/scan", node.route);
-    println!("           for agents POST /v1/chat/completions");
+    // **Two protocols, and the banner named one.** `/v1/messages` is
+    // Anthropic's, which is what Claude Code speaks and the reason this node
+    // can drive an agent at all -- and someone reading the startup output was
+    // told only about OpenAI's. The headline feature of v0.0.33 was invisible
+    // from the one place a person actually looks.
+    println!("           for agents POST /v1/chat/completions   (OpenAI)");
+    println!("                      POST /v1/messages           (Anthropic --");
+    println!("                      this is what Claude Code speaks; see");
+    println!("                      docs/CLAUDE-CODE.md)");
     if node.loopback && host != "127.0.0.1" && host != "localhost" {
         println!("           NOTE: no route off this machine was found, so the mark");
         println!("                 carries a loopback address. Nothing else can scan it.");
@@ -475,12 +485,12 @@ fn run_loop(
     // bind address -- so the rule is not one route prefix, it is where the
     // request came from. Measured against a node on `0.0.0.0`: from the LAN
     // address `/status`, `/health` and `/v1/models` are all 401 without the key
-    // and 200 with it, while `/qr`, `/scan` and `/mark` stay open because a
+    // and 200 with it, while `/qr` and `/mark` stay open because a
     // stranger's phone has no key and scanning the mark is the point.
     match &api_key {
         Some(_) => {
             println!("           api key   required off this machine, on /v1/*, /status, /health");
-            println!("                     the mark (/qr, /scan) stays open -- a phone has no key");
+            println!("                     the mark (/qr) stays open -- a scanner has no key");
         }
         None => println!("           api key   none -- any value is accepted"),
     }
@@ -516,7 +526,7 @@ fn run_loop(
                 // The real fix is accepting concurrently and serialising only
                 // the engine; that is a bigger change than this page justifies,
                 // and "one request at a time" is a documented property here.
-                if let Err(e) = s.set_read_timeout(Some(std::time::Duration::from_secs(3))) {
+                if let Err(e) = s.set_read_timeout(Some(FIRST_LINE_WAIT)) {
                     eprintln!("could not set a read timeout: {e}");
                 }
                 // **And a write deadline, which the note above declined for a
@@ -565,10 +575,40 @@ struct Request {
     auth: Option<String>,
 }
 
+/// How long a connection gets to send its **request line** before it is dropped.
+///
+/// **This is the whole cost of an idle connection, and the loop is serial.**
+/// Measured: four sockets opened and held, sending nothing, delayed a real
+/// request behind them by **12.0 seconds** at the old three-second value --
+/// four times three, served strictly in order. Claude Code opens several
+/// connections per turn, which is exactly that shape, and from the outside it
+/// reads as the node hanging.
+///
+/// **400 ms is enormous slack for a real request.** A client that means to send
+/// has sent within microseconds on loopback; this is not a network round trip,
+/// it is the first bytes of a request the peer already has in hand. Four idle
+/// sockets now cost 1.6 s instead of 12.
+///
+/// The proper fix is accepting concurrently and serialising only the engine,
+/// and it is **not available**: `Engine` holds a `RefCell`, so it is not `Sync`
+/// and cannot be shared across threads. That is a change to the engine's
+/// interior mutability, not to this loop.
+const FIRST_LINE_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// How long the rest of a request gets, once its first line has arrived.
+///
+/// Generous by comparison, because by now the peer has proved it is real and
+/// the body may be large -- Claude Code's is 43 KB with six tools and 162 KB
+/// with twenty-eight.
+const BODY_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 fn read_request(stream: &TcpStream) -> Result<Request, Box<dyn std::error::Error>> {
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader.read_line(&mut line)?;
+    // The peer is real: it sent a request line. Give the headers and the body
+    // room, which the 400 ms that filtered idle sockets would not.
+    let _ = stream.set_read_timeout(Some(BODY_WAIT));
     let mut parts = line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let target = parts.next().unwrap_or_default().to_string();
@@ -631,7 +671,7 @@ fn authorised(req: &Request, key: Option<&str>, from_loopback: bool) -> bool {
     // **`/status` and `/health` name the model, off-loopback.** §4g measured what
     // a stranger on the LAN could read without the key: the model, its context
     // size and the node's route. Atur's decision, 2026-08-28: when a key is set,
-    // that is behind it too. The mark and the reader stay open, because a
+    // that is behind it too. The mark stays open, because a
     // stranger's phone pointing a camera at `/qr` is the entire point of them.
     let gated = req.target.starts_with("/v1/")
         || req.target == "/status"
@@ -723,6 +763,15 @@ fn handle(
                     engine.context_limit()
                 ),
             ),
+            // **The first thing Claude Code sends, before any prompt.** It
+            // probes `HEAD /api/hello` to decide whether the endpoint behind
+            // `ANTHROPIC_BASE_URL` is reachable, and a node that 404s it looks
+            // broken while working perfectly well -- which is what the log said
+            // for the whole of v0.0.33.
+            //
+            // `Connection: close` on every response here, so a body on a HEAD
+            // cannot desync a reused connection; there are none to reuse.
+            ("GET" | "HEAD", "/api/hello") => (200, r#"{"message":"Hello"}"#.to_string()),
             ("GET", "/v1/models") => (
                 200,
                 format!(
@@ -738,8 +787,9 @@ fn handle(
             // See `anthropic` for the protocol and
             // `research/claude-code-against-a-chaos-node-2026-09-07.md` for what
             // it costs: a bare `claude -p "hi"` is 40,255 tokens with the default
-            // tool set and 11,706 with six tools, and every turn re-prefills
-            // because there is no prefix cache yet.
+            // tool set and 11,706 with six tools. The prefix cache means turn 2
+            // pays for the delta only -- 135.6s down to 52.9s, measured, with
+            // the answers verified unchanged.
             ("POST", "/v1/messages") => match anthropic::Request::parse(&req.body) {
                 Err(e) => (400, anthropic_error(&e)),
                 Ok(r) => {
@@ -2427,11 +2477,14 @@ mod tests {
             );
         }
 
-        // A key is configured. The page, the mark and the reader stay open on
+        // A key is configured. The page and the mark stay open on
         // purpose: a stranger's phone pointing a camera at /qr is the point of
         // them. **/status and /health are no longer here** -- they have their own
         // test below, because they are open locally and gated from the network.
-        for target in ["/", "/favicon.ico", "/qr", "/mark", "/scan"] {
+        // `/api/hello` is Claude Code's reachability probe. It carries no
+        // information about the node -- not the model, not the context size --
+        // so gating it would only make a working node look unreachable.
+        for target in ["/", "/favicon.ico", "/qr", "/mark", "/api/hello"] {
             assert!(
                 authorised(&req(target, None), Some("secret"), false),
                 "{target} started requiring a key; the page and the mark must not"
@@ -2488,9 +2541,9 @@ mod tests {
                 "{target} refused a correct key from the network"
             );
         }
-        // The mark and the reader stay open from anywhere: a stranger's phone has
+        // The mark stays open from anywhere: whoever scans it has
         // no key, and pointing it at the code is what they are for.
-        for target in ["/", "/qr", "/mark", "/scan", "/favicon.ico"] {
+        for target in ["/", "/qr", "/mark", "/favicon.ico", "/api/hello"] {
             assert!(
                 authorised(&req(target, None), key, false),
                 "{target} is gated from the network; the mark must not be"

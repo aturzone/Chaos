@@ -12,6 +12,9 @@ pub mod catalog;
 /// Settings offered as choices computed from the machine, for the many users
 /// who cannot be expected to know what a good thread count is.
 pub mod choices;
+/// Pointing Claude Code at this node: the five settings, in one place, so the
+/// button and the shipped wrapper cannot drift apart.
+pub mod claude;
 pub mod client;
 /// Watching a download by the bytes it puts on disk, since the downloader is
 /// another process with no console.
@@ -22,6 +25,13 @@ pub mod loading;
 pub mod models;
 /// Where every control lives: four pages, and the id of each thing on them.
 pub mod nav;
+/// Whether a laid-out page is usable: nothing off the edge, nothing on top of
+/// anything else. A pure function, because measuring it from outside the
+/// process produced three sets of wrong numbers.
+pub mod placement;
+/// Display scaling: the one conversion between the design units every
+/// constant is written in and the pixels Windows draws.
+pub mod scale;
 pub mod settings;
 /// The design tokens. Nothing outside this module names a colour.
 pub mod theme;

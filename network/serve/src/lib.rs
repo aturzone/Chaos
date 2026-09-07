@@ -464,7 +464,15 @@ fn run_loop(
     // not have to read an endpoint list to find the interface.
     println!("           open       http://{addr}");
     println!("           the mark   {}/qr", node.route);
-    println!("           for agents POST /v1/chat/completions");
+    // **Two protocols, and the banner named one.** `/v1/messages` is
+    // Anthropic's, which is what Claude Code speaks and the reason this node
+    // can drive an agent at all -- and someone reading the startup output was
+    // told only about OpenAI's. The headline feature of v0.0.33 was invisible
+    // from the one place a person actually looks.
+    println!("           for agents POST /v1/chat/completions   (OpenAI)");
+    println!("                      POST /v1/messages           (Anthropic --");
+    println!("                      this is what Claude Code speaks; see");
+    println!("                      docs/CLAUDE-CODE.md)");
     if node.loopback && host != "127.0.0.1" && host != "localhost" {
         println!("           NOTE: no route off this machine was found, so the mark");
         println!("                 carries a loopback address. Nothing else can scan it.");

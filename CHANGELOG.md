@@ -99,6 +99,11 @@ While the major version is `0`, anything may change in a minor release.
   `hide_every_control`, the `launched` gate on `WM_PAINT`, `mode_chosen` in
   the settings file, the mode badge, CHANGE MODE, and Escape's one-keystroke
   drop of a loaded model. **The window opens on CHAT.**
+- **The startup banner named only OpenAI's endpoint.** `/v1/messages` is
+  Anthropic's, and the reason this node can drive Claude Code at all — the
+  headline feature of v0.0.33 — and it went unmentioned in the one place a
+  person actually looks for a whole release. The banner names both now, with a
+  pointer to `docs/CLAUDE-CODE.md`, and a surface check greps for it.
 - **`chaos-serve --help` advertised `--emit-pages` writing "qr.html and
   scan.html" for "the Android APK"** — one of those files and the APK were
   both deleted, and it writes one file. It also offered `0.0.0.0` as the way

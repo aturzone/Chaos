@@ -74,12 +74,12 @@ Separately, the CHAOS page used five different gaps for one vertical stack —
 was wrong by any check; it read as unconsidered. Two named gaps now
 (`rhythm::TIGHT`, `rhythm::LOOSE`), so it measures 60, 44, 60, 44, 60.
 
-**Claude Code drives a local model, end to end, measured for this release.**
-Against Qwen3-4B-Q4_K_M on this laptop's CPU, `claude -p "Read notes.txt and
-tell me the launch code it contains."`: turn 1 329s → `tool_use`, Claude Code
-ran the Read, turn 2 212s → `end_turn` with the right answer, a string that
-existed nowhere but in that file. **10m12s for the round trip.** Slow, and
-real.
+**Claude Code drives a local model, end to end, measured twice for this
+release** — the second time on exactly the binaries that ship. Qwen3-4B-Q4_K_M
+on this laptop's CPU: turn 1 273.5s → `tool_use`, Claude Code ran the `Read`,
+turn 2 **45.0s** → `end_turn` answering with two facts that existed only inside
+that file. **6m20s for the round trip**, and turn 2 is 45 seconds rather than
+212 because the node keeps a prefix cache. Slow, and real.
 
 **Claude Code now runs on a model this node serves, and the app has a button for it.**
 tool calling, a prefix cache across requests, and `scripts/claude-chaos.cmd` as

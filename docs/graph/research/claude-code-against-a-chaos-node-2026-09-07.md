@@ -239,6 +239,26 @@ returned `tool_use`, Claude Code executed the `Read`, and turn 2 returned
 `end_turn` carrying a string that existed nowhere except inside that file. The
 model could not have produced it without the tool actually running.
 
+### Run again on the finished binaries
+
+The run above was made before `/api/hello` was fixed. Repeated on exactly what
+ships, in a fresh directory whose `project.txt` held two invented facts:
+
+```
+GET  /health              -> 200
+GET  /api/hello           -> 200          <- was a 404
+HEAD /api/hello           -> 200
+POST /v1/messages?beta=true -> 200 in 273.5s (465 tokens, tool_use)
+POST /v1/messages?beta=true -> 200 in  45.0s (114 tokens, end_turn)
+```
+
+> The project name is **ORCHID-BRIDGE** and the budget is **41 units**.
+
+Both correct, both only in the file. **6m20s wall clock, against 10m12s** —
+and the difference is almost entirely turn 2, **45.0s against 212.5s**, which
+is the prefix cache doing what it was built for on a real second turn rather
+than a synthetic one.
+
 Two things this run corrected:
 
 - **`HEAD /api/hello` was a 404.** It is the first request Claude Code sends,

@@ -169,7 +169,17 @@ get() { # path -> prints "code bytes"
   curl -s -o /tmp/smoke-body -w "%{http_code}" "http://127.0.0.1:$PORT$1" 2>/dev/null
 }
 
-for route in / /qr /mark /health /status /v1/models; do
+# **The startup banner is the one place a person actually looks**, and it
+# named only OpenAI's endpoint while `/v1/messages` -- Anthropic's, the reason
+# this node can drive Claude Code at all -- went unmentioned for a release. A
+# feature nobody can find is a feature nobody has.
+if grep -q "/v1/messages" "$LOG"; then
+  ok "the startup banner names /v1/messages, not just OpenAI's endpoint"
+else
+  bad "the banner does not mention /v1/messages, which is what Claude Code speaks"
+fi
+
+for route in / /qr /mark /health /status /v1/models /api/hello; do
   code=$(get "$route")
   size=$(wc -c < /tmp/smoke-body 2>/dev/null | tr -d ' ')
   case "$code" in

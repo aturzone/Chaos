@@ -81,6 +81,14 @@ While the major version is `0`, anything may change in a minor release.
   distinction it was missing: chrome may use the space pages are kept out of.
   Both halves are tests. A check that cries wolf six times a run is a check
   nobody reads.
+- **`chaos_app::claude`** — the five settings that point Claude Code at a
+  node, in one place, with a test that the USE WITH CLAUDE CODE button, both
+  shipped `scripts/claude-chaos.*` wrappers and `docs/CLAUDE-CODE.md` say the
+  same tool set, context, model name and config directory. They were a
+  `format!` inside the one button `run-through.ps1` cannot press — it opens a
+  modal folder dialog, which stops the message loop — so nothing checked them
+  at all. The test immediately found that the document a user is pointed at
+  never named `/v1/messages`, the endpoint the whole thing runs on.
 - **`chaos_app::scale`** — the one conversion between design units and pixels,
   integer arithmetic, eight tests covering every scale Windows offers. Fonts
   round by magnitude, so `-15` becomes `-19` rather than `-18`; rectangles

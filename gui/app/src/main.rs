@@ -1736,18 +1736,19 @@ mod windows_app {
                 .map(|o| o.status.success())
                 .unwrap_or(false)
         };
-        if !installed {
-            let ask = concat!(
-                "Claude Code is not installed.\n\n",
-                "Install it now with npm?\n\n",
-                "    npm install -g @anthropic-ai/claude-code\n\n",
-                "This needs Node.js from nodejs.org. A terminal will open so ",
-                "you can see it happen."
+        if let Some(why) = chaos_app::claude::refusal(installed, true) {
+            set_status(why);
+            let ask = format!(
+                "Claude Code is not installed.\n\n\
+                 Install it now with npm?\n\n    {}\n\n\
+                 This needs Node.js from nodejs.org. A terminal will open so \
+                 you can see it happen.",
+                chaos_app::claude::INSTALL
             );
             let answer = unsafe {
                 MessageBoxW(
                     hwnd,
-                    wide(ask).as_ptr(),
+                    wide(&ask).as_ptr(),
                     wide("Install Claude Code?").as_ptr(),
                     MB_YESNO | MB_ICONWARNING,
                 )
@@ -1759,14 +1760,7 @@ mod windows_app {
             // `/k` so the window stays open on failure: an npm error the user
             // never sees is the same as no error at all.
             let started = Command::new("cmd")
-                .args([
-                    "/c",
-                    "start",
-                    "",
-                    "cmd",
-                    "/k",
-                    "npm install -g @anthropic-ai/claude-code",
-                ])
+                .args(["/c", "start", "", "cmd", "/k", chaos_app::claude::INSTALL])
                 .spawn()
                 .is_ok();
             set_status(if started {
@@ -1786,8 +1780,8 @@ mod windows_app {
                 None => (0u16, None),
             }
         });
-        if loaded.is_none() {
-            set_status("load a model first -- Claude Code needs a running node");
+        if let Some(why) = chaos_app::claude::refusal(true, loaded.is_some()) {
+            set_status(why);
             return;
         }
 
@@ -1798,25 +1792,13 @@ mod windows_app {
             return;
         };
 
-        // **Six tools, not the default twenty-eight.** Measured: the default
-        // set is 40,255 tokens of definitions before the user types anything,
-        // against a 32,768-token context on every model that runs here. Six is
-        // 11,706. See `docs/CLAUDE-CODE.md`.
-        //
-        // `/k` keeps the window after the turn so the answer stays readable,
-        // and the echoed lines are there because the first minutes look like a
-        // hang: one turn is minutes of prefill on a CPU machine.
-        let script = format!(
-            "set CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-chaos && \
-             set ANTHROPIC_BASE_URL=http://127.0.0.1:{port} && \
-             set ANTHROPIC_API_KEY=chaos && \
-             set ANTHROPIC_MODEL=claude-opus-5 && \
-             set CLAUDE_CODE_MAX_CONTEXT_TOKENS=16384 && \
-             echo Claude Code is talking to Chaos on port {port}. && \
-             echo A turn takes minutes on a CPU machine. That is the model, not a hang. && \
-             echo. && \
-             claude --tools Read,Write,Edit,Bash,Glob,Grep"
-        );
+        // **The five settings live in `chaos_app::claude`**, with the
+        // measurements behind them and a test that the shipped
+        // `scripts/claude-chaos.*` and `docs/CLAUDE-CODE.md` say the same
+        // numbers. They were a `format!` here, in the one function
+        // `run-through.ps1` cannot press -- it opens a modal folder dialog,
+        // which stops the message loop -- so nothing checked them at all.
+        let script = chaos_app::claude::terminal_script(port);
         let started = Command::new("cmd")
             .args(["/c", "start", "", "cmd", "/k", &script])
             .current_dir(&dir)

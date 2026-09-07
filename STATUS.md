@@ -7,7 +7,7 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 
 **Last updated**: 2026-09-08 · **Version**: v0.0.34 in `Cargo.toml`,
 **not tagged yet** — the latest release is v0.0.33 ·
-**Branch**: `ticket/the-window-scales`, 1040 tests, 0 failed, fmt and clippy
+**Branch**: `ticket/the-window-scales`, 1045 tests, 0 failed, fmt and clippy
 clean, 33 surface checks, 43 layout passes.
 
 **This line said "v0.0.34, tagged 2026-09-08" while the newest tag was
@@ -360,7 +360,7 @@ wrong, since every oracle capture is batched.
 
 ## The honest scoreboard
 
-**Current**: **1040 tests** (0 failed, 50 ignored — the V4-Flash set needs the
+**Current**: **1045 tests** (0 failed, 50 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

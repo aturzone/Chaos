@@ -6,8 +6,33 @@ task. If it disagrees with a graph node, **this file is wrong and the node is ri
 — fix this file.
 
 **Last updated**: 2026-09-03 · **Version**: v0.0.32, tagged 2026-09-03 ·
-**Branch**: `main`, verified at v0.0.32 — 1007 tests, 0 failed, fmt and clippy
+**Branch**: `main`, verified at v0.0.32 — 1031 tests, 0 failed, fmt and clippy
 clean, re-run on `main` itself after the merge.
+
+**Claude Code now runs on a model this node serves.** `POST /v1/messages` with
+tool calling, a prefix cache across requests, and `scripts/claude-chaos.cmd` as
+the whole setup. Verified end to end: `claude -p "Read notes.txt and tell me
+what city it names"` against Qwen3-4B produced a `Read` tool call, Claude Code
+executed it, and the model answered from the result.
+
+Three things it cost, each a defect it uncovered:
+
+- **`chaos-serve` capped the dense path at 2,048 tokens** and `-c` could only
+  lower it, because the server prefilled in one pass where `chaos-run` had
+  chunked for months. That made **every** agent client impossible. Now chunked,
+  ceiling 16,384.
+- **Qwen3's `<think>` blocks reached the client as the answer** — the first live
+  request spent its whole budget reasoning and returned the reasoning.
+- **The accept loop could wedge**: a 3 s read timeout and no write timeout, so a
+  peer abandoning a request mid-answer blocked the single-threaded loop. Seen
+  once as three `CLOSE_WAIT` connections and a dead port; bounded now at 60 s.
+
+**It is slow and that is the hardware.** Turn 1 is ~6 minutes at 12k tokens;
+the prefix cache took turn 2 from 135.6 s to **52.9 s** reusing 3,793 of 3,917
+tokens, verified not to change the answer. `docs/CLAUDE-CODE.md` is the setup
+path; `research/claude-code-against-a-chaos-node-2026-09-07.md` has every
+number.
+
 
 **v0.0.32 fixes the last report Atur had open: the book.** *"the book of QR code
 for Core mode is not available!!! that book where is it!!"* — and it was not, for
@@ -39,7 +64,7 @@ files: `chaos-qr --emit-pages` does it with no C toolchain.
 **v0.0.30 shipped with a broken front door
 and a green test suite** — `chaos connect` took any unknown `--flag` as the hostname,
 so it looked like the QR pages and device-to-device connection were missing when both
-worked. `scripts/smoke-the-surface.sh` now runs 30 checks against the built binaries in
+worked. `scripts/smoke-the-surface.sh` now runs 34 checks against the built binaries in
 CI: every subcommand, every node route, and one machine asking another.
 
 > **This file was 5,144 lines and 104 dated sections until 2026-08-31.** It called
@@ -246,7 +271,7 @@ wrong, since every oracle capture is batched.
 
 ## The honest scoreboard
 
-**Current**: **1007 tests** (0 failed, 50 ignored — the V4-Flash set needs the
+**Current**: **1031 tests** (0 failed, 50 ignored — the V4-Flash set needs the
 container and the autoencoder set needs the 336 MB `flux2-vae`), clippy
 `--workspace --all-targets -D warnings` clean, fmt clean.
 

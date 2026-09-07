@@ -197,6 +197,43 @@ else
   bad "chaos connect returned: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"
 fi
 
+# **The Anthropic surface, which is what Claude Code speaks.** A separate
+# protocol from the one above, not a variant: system blocks, content blocks,
+# tools, and a load-bearing `stop_reason`. Checked here because the route being
+# absent is exactly how "devices cannot connect" looked one release ago, and a
+# unit test cannot see a route that was never wired into the table.
+code=$(curl -s -o /tmp/smoke-body -w "%{http_code}" -X POST   -H 'content-type: application/json'   -d '{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}'   "http://127.0.0.1:$PORT/v1/messages" 2>/dev/null)
+if [ "$code" = "200" ] && grep -q '"type":"message"' /tmp/smoke-body 2>/dev/null    && grep -q '"stop_reason"' /tmp/smoke-body 2>/dev/null; then
+  ok "POST /v1/messages -> 200, an Anthropic message"
+else
+  bad "POST /v1/messages -> ${code:-no response}"
+fi
+
+# The query string Claude Code actually sends. The router matches a
+# query-stripped path, and this is what proves it.
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST   -H 'content-type: application/json'   -d '{"max_tokens":8,"messages":[{"role":"user","content":"hi"}]}'   "http://127.0.0.1:$PORT/v1/messages?beta=true" 2>/dev/null)
+if [ "$code" = "200" ]; then
+  ok "POST /v1/messages?beta=true -> 200 (the query string Claude Code sends)"
+else
+  bad "POST /v1/messages?beta=true -> ${code:-no response}"
+fi
+
+# The count a client compacts on, from the real tokenizer.
+code=$(curl -s -o /tmp/smoke-body -w "%{http_code}" -X POST   -H 'content-type: application/json'   -d '{"messages":[{"role":"user","content":"hi"}]}'   "http://127.0.0.1:$PORT/v1/messages/count_tokens" 2>/dev/null)
+if [ "$code" = "200" ] && grep -q '"input_tokens"' /tmp/smoke-body 2>/dev/null; then
+  ok "POST /v1/messages/count_tokens -> 200 with a count"
+else
+  bad "POST /v1/messages/count_tokens -> ${code:-no response}"
+fi
+
+# A malformed body must be refused by name rather than crashing the node.
+code=$(curl -s -o /tmp/smoke-body -w "%{http_code}" -X POST   -H 'content-type: application/json' -d 'not json'   "http://127.0.0.1:$PORT/v1/messages" 2>/dev/null)
+if [ "$code" = "400" ] && grep -q '"type":"error"' /tmp/smoke-body 2>/dev/null; then
+  ok "POST /v1/messages with a bad body -> 400, named"
+else
+  bad "POST /v1/messages with a bad body -> ${code:-no response}, expected 400"
+fi
+
 # A completion through the OpenAI surface, which is what an editor uses.
 code=$(curl -s -o /tmp/smoke-body -w "%{http_code}" -X POST \
   -H 'content-type: application/json' \

@@ -160,7 +160,7 @@ are the measurement that killed one.
   cannot connect and the QR feature is missing"*, which is exactly how it was
   reported, in the first minutes of testing. **Nothing had ever run the
   subcommands or opened `/qr` on a real node.** `scripts/smoke-the-surface.sh`
-  does now, 30 checks, in CI.
+  does now, 34 checks, in CI.
 - **A gated instrument that is off reads exactly like a negative result.**
   `routing_last_token()` needs `CHAOS_ROUTING_LAST=1`. Without it the comparison
   printed *"0 layers logged, 0 choose different experts"* — which is what "the

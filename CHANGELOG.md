@@ -8,6 +8,44 @@ While the major version is `0`, anything may change in a minor release.
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code can be pointed at a Chaos node.** `POST /v1/messages` — the
+  Anthropic Messages API — with tool calling, `system` and content blocks, an
+  Anthropic-ordered event stream, and `/v1/messages/count_tokens`.
+  `scripts/claude-chaos.cmd` is the whole setup and `docs/CLAUDE-CODE.md` the
+  path from nothing to a working turn. Verified end to end against a local
+  Qwen3-4B: the model called `Read`, Claude Code ran it, and the model answered
+  from the result.
+- **Tool calling, which Chaos had none of.** Tools are described in the system
+  turn in Qwen's own syntax and the model's `<tool_call>` blocks are parsed back
+  into `tool_use`. A malformed call stays text on purpose — inventing a
+  `tool_use` block would make an agent run something the model never asked for.
+- **A prefix cache across requests.** An agent re-sends its whole conversation
+  every turn; the node keeps the previous KV cache and prefills only what
+  changed. Measured: **turn 2 of a two-turn task went from 135.6 s to 52.9 s**,
+  reusing 3,793 of 3,917 prompt tokens, and verified not to change the answer —
+  the same turn warm and cold produces identical output.
+
+### Fixed
+
+- **`chaos-serve` refused any prompt over 2,048 tokens on the dense path**, and
+  `-c` could only lower that. The server prefilled in one pass while `chaos-run`
+  had been chunking for months, so the arena bounded it. **This made every agent
+  client impossible**, not just Claude Code — an editor sending one file for
+  context exceeds it. The prefill is chunked now and the ceiling is 16,384,
+  chosen from KV memory rather than from the model.
+- **A reasoning model's `<think>` working was returned as its answer.** The
+  first live request to the new endpoint spent all 40 tokens of its budget
+  inside `<think>` and returned the reasoning with no answer in it.
+- **The accept loop could wedge on a peer that abandoned a request.** There was
+  a 3 s read timeout and no write timeout, on the reasoning that writes can take
+  minutes — true of a whole stream and false of a single `write_all`. Seen once
+  after two Claude Code turns: the port stayed in `Listen` with three
+  connections in `CLOSE_WAIT` and new ones timing out. A 60 s write deadline
+  bounds one write without limiting how long an answer may take.
+
+
 ## [0.0.32] — 2026-09-03
 
 **The book was unreachable, in three different ways.** Atur, testing v0.0.31 on

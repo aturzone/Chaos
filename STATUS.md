@@ -76,6 +76,32 @@ Separately, the CHAOS page used five different gaps for one vertical stack —
 was wrong by any check; it read as unconsidered. Two named gaps now
 (`rhythm::TIGHT`, `rhythm::LOOSE`), so it measures 60, 44, 60, 44, 60.
 
+**v0.0.34 is verified from its own published artefacts, not just from the
+build tree.** Atur, 2026-09-08: *"make sure that with the new version I can
+install it and use a model with Claude Code"*. So:
+
+1. `Chaos-v0.0.34-windows-x86_64-Setup.exe` downloaded from the release page —
+   42,212,977 bytes, matching what the page reports.
+2. Installed with `--silent --prefix <throwaway>`, which put **21 executables**,
+   both `claude-chaos` wrappers and `CLAUDE-CODE.md` on disk and reported
+   `0.0.34`. A throwaway prefix on purpose: Atur's own install is v0.0.31 and
+   was not touched.
+3. `chaos-serve` **from the installed copy** loaded Qwen3-4B-Q4_K_M, and the
+   **installed** `claude-chaos.cmd` was run against it:
+   turn 1 315.9s → `tool_use`, turn 2 64.9s → `end_turn`, **7m26s** total, and
+   the answer was a handshake string that existed nowhere but inside the file it
+   was asked to read.
+4. The `.deb` is a valid `ar` archive and the Windows `.zip` passes
+   `testzip()` with all 21 executables in it — including `chaos-qr`,
+   `chaos-membench` and `chaos-qdbench`, the three that once shipped nowhere.
+5. **Linux is verified by the release job itself**, on a real runner: `dpkg -i`,
+   then `chaos-run` found off `PATH` and run, then `dpkg -r`, and the AppImage
+   extracted and running `chaos-probe --quick`.
+
+**macOS is the gap, and it is the same gap as always**: the release job builds
+and tests both Mac targets, but nothing here can install the tarball and run
+it. Unverified beyond CI.
+
 **Claude Code drives a local model, end to end, measured twice for this
 release** — the second time on exactly the binaries that ship. Qwen3-4B-Q4_K_M
 on this laptop's CPU: turn 1 273.5s → `tool_use`, Claude Code ran the `Read`,

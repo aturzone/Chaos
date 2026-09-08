@@ -272,6 +272,44 @@ Two things this run corrected:
   and looked like a hang; it was a queue. The same request answered in 7.8s
   once the turn was over.
 
+## From the published installer, which is the path a user actually takes
+
+Atur, 2026-09-08: *"make sure that with the new version I can install it and use
+a model with Claude Code"*. The runs above used the build tree. This one used
+nothing but what the release page serves:
+
+```
+curl -> Chaos-v0.0.34-windows-x86_64-Setup.exe   42,212,977 bytes
+Setup.exe --silent --prefix <throwaway>          -> 0.0.34, 21 exes,
+                                                    claude-chaos.cmd/.sh,
+                                                    CLAUDE-CODE.md
+<prefix>/bin/chaos-serve.exe Qwen3-4B-Q4_K_M.gguf --port 8231 -c 16384
+<prefix>/bin/claude-chaos.cmd -p "Read RELEASE.txt ... secret handshake."
+
+  HEAD /api/hello             -> 200
+  POST /v1/messages?beta=true -> 200 in 315.9s (421 tokens, tool_use)
+  POST /v1/messages?beta=true -> 200 in  64.9s (162 tokens, end_turn)
+```
+
+> The secret handshake from `RELEASE.txt` is **PEWTER-KESTREL-88**
+
+**7m26s**, and the wrapper printed its own banner first — *"A turn takes minutes
+on a CPU machine. That is the model, not a hang."* — which is the line that
+stops the wait looking like a failure.
+
+Three things worth keeping from it:
+
+- **A throwaway `--prefix` is how to test an installer without risking the
+  user's install.** Atur's own copy is v0.0.31; installing over it to prove the
+  installer works would have been a poor trade.
+- **His `PATH` still resolves `chaos` to v0.0.31.** Installing to a prefix does
+  not change that, and neither would installing to the default while a shell was
+  already open. Worth saying out loud rather than assuming a user knows.
+- **`claude -p` with no stdin prints a warning** — *"no stdin data received in
+  3s, proceeding without it"*. Harmless, and it only appears non-interactively:
+  a person running the wrapper in a terminal has a TTY. Not a defect, but it
+  will show up in any scripted use.
+
 **One measurement that looked like a regression and was not.** A 45 KB request
 body appeared to take 67.5s while a 5 KB body took 2.5s, which pointed straight
 at the two-phase read timeout added the day before. It was the *test data*: 45,000

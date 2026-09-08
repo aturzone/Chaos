@@ -43,6 +43,20 @@
 # takes is the time the UI thread was blocked -- anything over 200 ms is a
 # window that looks frozen to the person using it.
 #
+# # One reading of "21 controls exercised, 3 skipped", cause unknown
+#
+# **2026-09-08, once, and not reproduced in six runs since** -- including one
+# taken two seconds after launching the app, which was the obvious suspect
+# (`rescan()` walking a models directory that holds a 144 GB sharded model).
+# Every other run of that session reported the usual **34 exercised, 9
+# skipped**, and the layout dump from the same moment was clean on 18 passes.
+#
+# It is written down rather than explained because guessing at a cause is how
+# this project has twice recorded a wrong diagnosis. **If you see a count well
+# below 34, do not read it as a regression on its own** -- run it again, and
+# check the layout dump, which is measured inside the process and did not
+# agree that anything was missing.
+#
 # # What this cannot see, and what can
 #
 # **Every coordinate this script reads back from the window is virtualised.**

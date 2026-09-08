@@ -46,18 +46,16 @@ cargo build --release
 Windows needs the **GNU** Rust toolchain plus MSYS2 mingw64 on PATH, and
 `.cargo/config.toml`'s `link-self-contained=no` must stay.
 
-**Thirteen of the fourteen CI-checked crates build with no ggml, and CI enforces
-both halves**: every
-crate but `chaos-arch` builds, tests and lints without `GGML_LIB_DIR`, and
-`chaos-arch` must fail with its `GGML_LIB_DIR is not set` message rather than a
-wall of unresolved imports. **A full run reports 50 ignored** — they need a
-real container on disk and skip silently without one, so a green run is not a
-full run. **The test-count comment above is machine-checked**:
-`scripts/check-test-count.sh` compares it with STATUS.md, CONTRIBUTING.md and
-the README badge,
-so keep exactly *one* `# <N> tests` comment in this file, written with real
-digits only there — a second occurrence of that pattern anywhere in this file
-makes the check compare a two-line string and fail forever.
+**Every crate but `chaos-arch` builds, tests and lints with no ggml, and CI
+enforces both halves** — `chaos-arch` must fail with its `GGML_LIB_DIR is not
+set` message rather than a wall of unresolved imports. **A full run reports 50
+ignored**: they need a container on disk and skip silently without one, so a
+green run is not a full run.
+
+**The test-count comment above is machine-checked** against STATUS.md,
+CONTRIBUTING.md and the README badge by `scripts/check-test-count.sh`. Keep
+exactly *one* `# <N> tests` comment in this file — a second occurrence of that
+pattern makes the check compare a two-line string and fail forever.
 
 ## Layout — `core/` `cli/` `network/` `gui/`, per the Rust book
 
@@ -100,42 +98,28 @@ measure.
 
 **Three platforms: Windows, Linux, macOS.** The phone tier is gone — Atur,
 2026-09-07: *"delete Android and so on, keep only Windows, Linux and macOS"*.
-The `android/` tree, its release job, the APK asset and its tests went with it.
 
 **Every page is in the rail, CHAOS included, and there is no launch screen.**
-The mode knob owned the window until it was answered and CHAOS was reached from
-a badge below the rail — which is how the address and the key became
-unfindable. One mode now: the role is a dropdown on the CHAOS page,
-`RAIL_PAGES == PAGES`, and the window opens on CHAT.
+One mode: the role is a dropdown on the CHAOS page, `RAIL_PAGES == PAGES`, and
+the window opens on CHAT. The knob owning the window is how the node's address
+and key became unfindable.
 
-**`core/` holds a crate's own tools; `cli/` holds the front door and the
-runner.** 11 of the 19 binaries live under `core/` and that is deliberate — a
-benchmark or an inspector belongs beside the crate it measures, and `chaos probe`
-reaches it without anyone knowing where it lives. Two stated rules collide here
-and this is the resolution (§4c).
+**Twenty-one binaries, and 11 live under `core/` on purpose** — a benchmark or
+an inspector belongs beside the crate it measures, and `chaos probe` reaches it
+without anyone knowing where. Two stated rules collide there and this is the
+resolution (§4c). **Counting them by grepping `Cargo.toml` undercounts, and a
+binary in no ship list does not exist** — both cost a release;
+`every_binary_reaches_every_platform` is the mechanism, and
+`hard-won-facts.md` has the story.
 
-**Twenty-one binaries, not five** — also `chaos-pull` (fetch a model),
-`chaos-draw` (image), `chaos-qr`, `chaos-meta`, `gguf-info` and **eight**
-benchmarks. **`grep '^name' */*/Cargo.toml` undercounts by two**: a `src/bin/*.rs`
-is a binary with no `[[bin]]` anywhere, which is what hid `chaos-qdbench` and
-`chaos-membench`. **A binary in no ship list does not exist**: `chaos-qr` was
-absent from all three of release.yml's staging loops, and those two benchmarks
-— the ones that measured 30.8 GiB/s and queue depth 2.55x, the two numbers the
-whole 5 tok/s argument rests on — shipped nowhere at all, while the Linux
-packages also lacked `chaos-draw` and `chaos-worker`.
-`every_binary_reaches_every_platform` is now the mechanism, in both directions
-and including `make-linux-packages.sh`, which no test had ever read.
-
-**The mark has one source and it reaches every tier without a model.**
+**The mark has one source and reaches every tier without a model.**
 `assets/grimoire/grimoire.html` plus embedded fonts are `include_str!`d by
-**`chaos-grimoire`** — its own crate, zero dependencies, no ggml — and
-`chaos_arch::grimoire` is a `pub use` of it. The node serves `/qr`; the
-**window serves the same bytes itself on loopback** (`gui/app/src/brand.rs`),
-which it must, because the art used to need a loaded model; `core/qr` prints
-the same code in a bare terminal. **The reader is gone** — Atur, 2026-09-07:
-*"we only use the book"* — so `scanner.html`, `/scan` and `scan-sweep.js` went
-with it. **Edit the HTML, never a copy**, and keep it fetch-free — a test
-asserts 0 external references in the assembled page.
+**`chaos-grimoire`** — own crate, zero dependencies, no ggml — and
+`chaos_arch::grimoire` is a `pub use` of it. The node serves `/qr`, the window
+serves the same bytes on loopback (`gui/app/src/brand.rs`) because the art must
+not need weights, and `core/qr` prints it in a bare terminal. **The reader is
+gone** (v0.0.34). **Edit the HTML, never a copy**, and keep it fetch-free — a
+test asserts 0 external references.
 
 ## Traps — **read `docs/graph/reference/hard-won-facts.md` before proposing any
 optimisation.** About half its entries are the measurement that killed an
@@ -249,29 +233,21 @@ coordinates it hands back: a 40px button reads as 32. `IsWindowVisible` is not
 **The window scales as of v0.0.34**: `theme::metric`/`size` are design units at
 96 DPI and only `chaos_app::scale` converts.
 
-**CI logs CAN be read from this machine** — `gh run view <id> --log-failed`
-returns the real log, which is how v0.0.32's Android failure was found in one
-call. The old note here said they could not, on the strength of the *logs
-endpoint* redirecting to an Azure blob host that does not resolve; `gh` does
-not use that path. Reproducing a failure locally from the workflow's own
-commands is still the better move when the log is not conclusive — that found
-v0.0.22's release failure in one try — but read the log first.
+**CI logs and release assets can both be read from this machine** —
+`gh run view <id> --log-failed`, and a plain `curl` of a release asset. Two
+notes here once said otherwise and both were wrong; `hard-won-facts.md` has
+the detail and the lesson: **re-test a recorded "cannot" before planning
+around it.**
 
-**Retracted, do not requote** (Roadmap 7 has the standing figures;
-`where-we-stand-vs-llamacpp-2026-08-16.md` has the method): "V4-Flash prefill
-1.62x behind, generation 3-4x behind" and "generation ~2x behind" on Qwen3-30B.
-Do not replace them with a claimed lead either — the ranges overlap.
+**Retracted numbers, the RAM frontier, and the measured dead ends now live in
+`reference/hard-won-facts.md`** — four blocks moved out on 2026-09-08. Nothing
+was dropped; read them there before quoting a competitive figure or proposing
+an optimisation.
 
-**The measured RAM frontier** (`v4flash-ram-frontier-2026-08-16.md`): 16 GB 0.42
-tok/s measured, 64 GB 0.55, 128 GB 0.93, 160 GB 1.19 — **the whole 144 GB model in
-RAM is worth 2.9x, not 48x.** Do not quote a GPU V4-Flash figure: resident-in-VRAM
-is untested and the only measured number is 4.3x *slower* on streaming MoE.
-
-**Open, none of it blocking**: zsh and
-fish completions are generated but never sourced; a long upgrade jump from
-0.0.2 is untested; there is no contrast audit or screen-reader story for the
-window; no real camera has seen the mark. **iOS and Android are not parked,
-they are out** — three platforms is the product.
+**Open, none of it blocking**: zsh and fish completions are generated but never
+sourced; a long upgrade jump from 0.0.2 is untested; no contrast audit or
+screen-reader story for the window; no real camera has seen the mark. **iOS and
+Android are not parked, they are out.**
 
 1. **The frontier on a machine with real memory** — this laptop is the curve's
    left-hand edge, so the two numbers worth bringing back are `F` on a bigger
@@ -284,12 +260,6 @@ they are out** — three platforms is the product.
    verification — the device path fails 1 of 8 parity prompts where the CPU path
    fails none, which is arithmetic rather than wiring.
 3. Finish R5/T1-T5 of `lts-0-0-0.md`: quant selection, self-configuration.
-
-**Dead ends, measured, do not re-propose**: expert factorisation, contextual
-sparsity, a pinned hot set, expert-read/compute overlap (1.03x), `--op-offload`
-(19% slower), `mul_mat_id` batching on the streaming path, and porting
-parallel-experts to V4-Flash (its whole routed arithmetic is under 5% of a
-token).
 
 ## Compact Instructions
 

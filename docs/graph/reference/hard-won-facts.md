@@ -460,6 +460,13 @@ are the measurement that killed one.
   it because the next block's addresses depend on routing it has not computed
   yet.
 
+- **Dead ends, measured, do not re-propose.** Expert factorisation; contextual
+  sparsity; a pinned hot set; expert-read/compute overlap (**1.03x**);
+  `--op-offload` (**19% slower**); `mul_mat_id` batching on the streaming path;
+  and porting parallel-experts to V4-Flash, whose whole routed arithmetic is
+  **under 5% of a token**. Each of these is an appealing idea that one
+  measurement killed. Moved here from `CLAUDE.md` 2026-09-08.
+
 ## Threads
 
 - **Threads are two levers pulling opposite ways, and `-t` reached only one
@@ -601,6 +608,21 @@ are the measurement that killed one.
   the old binary ran again. **Nothing re-measures a number already written
   down**, so the guard has to be in the harness.
 
+- **Retracted competitive numbers, do not requote.** "V4-Flash prefill 1.62x
+  behind, generation 3-4x behind" and "generation ~2x behind" on Qwen3-30B were
+  both withdrawn. **Do not replace them with a claimed lead either — the ranges
+  overlap.** The standing figures are in `CLAUDE.md`'s Roadmap 7 and the method
+  is in `where-we-stand-vs-llamacpp-2026-08-16.md`. Moved here from `CLAUDE.md`
+  on 2026-09-08, when that file was 3,777 tokens against its own 2,000 budget.
+- **CI logs CAN be read from this machine.** `gh run view <id> --log-failed`
+  returns the real log, which is how v0.0.32's Android failure was found in one
+  call. **The note here used to say they could not**, on the strength of the
+  *logs endpoint* redirecting to an Azure blob host that does not resolve — `gh`
+  does not use that path. Reproducing a failure locally from the workflow's own
+  commands is still the better move when a log is not conclusive (that found
+  v0.0.22's release failure in one try), but read the log first. Same shape as
+  the note that said release assets could not be downloaded, also wrong.
+
 ## V4-Flash specifically
 
 - **Converting the trunk to `Q4_K` silently switches repacking on, so a
@@ -646,6 +668,13 @@ are the measurement that killed one.
   verify pass costs what a single-token pass costs; here it costs more, because
   more tokens select more distinct experts (`U(n)≈6·n^0.667`). Below α≈0.75 it
   is a net *loss*, and the optimum draft is short.
+
+- **The measured RAM frontier** (`v4flash-ram-frontier-2026-08-16.md`): 16 GB
+  **0.42 tok/s** measured, 64 GB 0.55, 128 GB 0.93, 160 GB 1.19 — so **the whole
+  144 GB model resident in RAM is worth 2.9x, not 48x.** And **do not quote a
+  GPU V4-Flash figure**: resident-in-VRAM is untested, and the only measured
+  number is 4.3x *slower* on streaming MoE. Moved here from `CLAUDE.md`
+  2026-09-08.
 
 ## Toolchain
 
@@ -884,6 +913,18 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   API says Bad credentials" is not evidence of a network problem -- it is what a
   **revoked token** looks like. Test with a deliberately wrong credential before
   concluding anything about the network.
+
+- **A binary in no ship list does not exist, and `grep '^name' */*/Cargo.toml`
+  undercounts.** A `src/bin/*.rs` is a binary with no `[[bin]]` stanza anywhere,
+  which is what hid `chaos-qdbench` and `chaos-membench` — and those two are the
+  benchmarks that measured **30.8 GiB/s** and **queue depth 2.55x**, the two
+  numbers the whole 5 tok/s argument rests on. They shipped **nowhere at all**.
+  `chaos-qr` was absent from all three of `release.yml`'s staging loops, and the
+  Linux packages also lacked `chaos-draw` and `chaos-worker`.
+  `every_binary_reaches_every_platform` is the mechanism now, in both directions
+  and including `make-linux-packages.sh`, which no test had ever read. There are
+  **twenty-one** binaries, 11 of them under `core/` because a benchmark belongs
+  beside the crate it measures. Moved here from `CLAUDE.md` 2026-09-08.
 
 ## Releasing
 

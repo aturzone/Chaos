@@ -159,11 +159,18 @@ fn claude_md_quotes_the_real_number_of_binaries() {
         !word.is_empty(),
         "{n} binaries and no word for it; extend this test's spelling table"
     );
-    let needle = format!("**{word} binaries, not five**");
+    // **The count is the claim; the rest of the sentence is not.** This used to
+    // pin the whole phrase `**{word} binaries, not five**`, and "not five" is a
+    // historical aside about an old undercount. Pruning CLAUDE.md on 2026-09-08
+    // rewrote the sentence around the same true number and turned `main` red --
+    // a test failing on prose while the fact it guards was still correct. So it
+    // matches the opening of the bold claim: the number must be there and must
+    // be right, and the sentence may say what it likes after it.
+    let needle = format!("**{word} binaries");
     assert!(
         claude.contains(&needle),
-        "there are {n} binaries ({}) and CLAUDE.md does not say so.
-         Looked for: {needle:?}",
+        "there are {n} binaries ({}) and CLAUDE.md does not open a bold claim
+         with that count. Looked for: {needle:?}",
         names.join(", ")
     );
 }

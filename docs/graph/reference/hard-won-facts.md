@@ -926,6 +926,18 @@ compiling**, and three of these were believed fixed before a pixel was measured.
   **twenty-one** binaries, 11 of them under `core/` because a benchmark belongs
   beside the crate it measures. Moved here from `CLAUDE.md` 2026-09-08.
 
+- **A documentation edit can turn `main` red, so run the suite after one.**
+  Pruning `CLAUDE.md` on 2026-09-08 rewrote the sentence carrying the binary
+  count around the same *correct* number, and
+  `claude_md_quotes_the_real_number_of_binaries` pinned the whole phrase
+  `**Twenty-one binaries, not five**`. Three doc checkers were run before
+  pushing -- `check-docs`, `check-readme`, `check-test-count` -- and all three
+  passed, because none of them is the test suite. **`main` was red for twelve
+  minutes on a prose change.** Two lessons, and the second is the bigger one:
+  run `cargo test` after editing a document that tests read, and **pin the
+  fact, not the sentence** -- the test now matches the opening of the bold
+  claim so the number must still be right and the prose is free.
+
 ## Releasing
 
 - **`git tag -a -F file` deletes every line beginning with `#`.** A tag message

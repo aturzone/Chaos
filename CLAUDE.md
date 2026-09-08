@@ -104,7 +104,7 @@ One mode: the role is a dropdown on the CHAOS page, `RAIL_PAGES == PAGES`, and
 the window opens on CHAT. The knob owning the window is how the node's address
 and key became unfindable.
 
-**Twenty-one binaries, and 11 live under `core/` on purpose** — a benchmark or
+**Twenty-one binaries, not five**, and 11 live under `core/` on purpose — a benchmark or
 an inspector belongs beside the crate it measures, and `chaos probe` reaches it
 without anyone knowing where. Two stated rules collide there and this is the
 resolution (§4c). **Counting them by grepping `Cargo.toml` undercounts, and a
